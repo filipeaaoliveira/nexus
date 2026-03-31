@@ -1,6 +1,6 @@
 use ai_overview::app::AppState;
 use ai_overview::config::{Cli, Config};
-use ai_overview::detect::process;
+use ai_overview::detect;
 use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
 use ai_overview::input;
@@ -10,19 +10,17 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Initialize tracing
+    tracing_subscriber::fmt()
+        .with_env_filter("ai_overview=debug")
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
     let config = Config::from_cli(&cli);
-    let poll_interval = Duration::from_secs(config.poll_interval_secs);
-    let mut state = AppState::new(config);
+    let mut state = AppState::new(config.clone());
 
-    let (tx, mut rx) = mpsc::channel::<AgentEvent>(256);
-
-    let scanner_tx = tx.clone();
-    tokio::spawn(async move {
-        if let Err(e) = process::run_process_scanner(scanner_tx, poll_interval).await {
-            tracing::error!("Process scanner failed: {e}");
-        }
-    });
+    let mut rx = detect::spawn_detectors(&config);
 
     let mut terminal = ratatui::init();
     terminal.clear()?;
@@ -39,6 +37,7 @@ async fn run_loop(
     rx: &mut mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {
     loop {
+        // Drain all pending events
         while let Ok(event) = rx.try_recv() {
             if let AgentEvent::Discovered { tool, pid, ref cwd } = event {
                 let cwd_clone = cwd.clone();

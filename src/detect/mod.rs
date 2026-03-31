@@ -4,13 +4,51 @@ pub mod opencode;
 pub mod process;
 pub mod worktree;
 
+use crate::config::Config;
 use crate::event::AgentEvent;
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::error;
 
-/// Trait for agent detectors. Each runs as an independent async task.
-pub trait AgentDetector: Send + Sync {
-    fn run(
-        &self,
-        tx: mpsc::Sender<AgentEvent>,
-    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+/// Spawn all detector tasks. Returns the receiver end of the event channel.
+pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
+    let (tx, rx) = mpsc::channel::<AgentEvent>(512);
+    let poll = Duration::from_secs(config.poll_interval_secs);
+
+    // Process scanner
+    let process_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = process::run_process_scanner(process_tx, poll).await {
+            error!("Process scanner failed: {e}");
+        }
+    });
+
+    // Claude detector
+    let claude_tx = tx.clone();
+    let claude_dir = config.claude_data_dir.clone();
+    tokio::spawn(async move {
+        if let Err(e) = claude::run_claude_detector(claude_tx, claude_dir, poll).await {
+            error!("Claude detector failed: {e}");
+        }
+    });
+
+    // OpenCode detector
+    let oc_tx = tx.clone();
+    let oc_dir = config.opencode_data_dir.clone();
+    tokio::spawn(async move {
+        if let Err(e) = opencode::run_opencode_detector(oc_tx, oc_dir, poll).await {
+            error!("OpenCode detector failed: {e}");
+        }
+    });
+
+    // Codex detector
+    let codex_tx = tx.clone();
+    let codex_dir = config.codex_data_dir.clone();
+    tokio::spawn(async move {
+        if let Err(e) = codex::run_codex_detector(codex_tx, codex_dir, poll).await {
+            error!("Codex detector failed: {e}");
+        }
+    });
+
+    rx
 }

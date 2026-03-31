@@ -64,10 +64,7 @@ pub fn parse_message_data(json: &str) -> Option<MessageData> {
 pub fn parse_part_data(json: &str) -> Option<PartData> {
     let value: Value = serde_json::from_str(json).ok()?;
     let part_type = value.get("type")?.as_str()?.to_string();
-    let tool_name = value
-        .get("tool")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let tool_name = value.get("tool").and_then(|v| v.as_str()).map(String::from);
     let tool_status = value
         .get("state")
         .and_then(|s| s.get("status"))
@@ -119,9 +116,7 @@ pub struct OpenCodeSession {
 }
 
 /// Query OpenCode's SQLite database for active sessions and their state.
-pub fn query_opencode_sessions(
-    db_path: &Path,
-) -> anyhow::Result<Vec<OpenCodeSession>> {
+pub fn query_opencode_sessions(db_path: &Path) -> anyhow::Result<Vec<OpenCodeSession>> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,

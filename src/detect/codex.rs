@@ -129,10 +129,7 @@ pub fn parse_rollout(content: &str) -> Vec<RolloutEvent> {
             .unwrap_or("")
             .to_string();
 
-        let payload = obj
-            .get("payload")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let payload = obj.get("payload").cloned().unwrap_or(Value::Null);
 
         events.push(RolloutEvent {
             timestamp,
@@ -195,9 +192,7 @@ pub fn parse_session_index(content: &str) -> Vec<SessionIndexEntry> {
 
 /// Extract session metadata from the first `session_meta` event in a rollout.
 pub fn extract_session_meta(events: &[RolloutEvent]) -> Option<SessionMeta> {
-    let event = events
-        .iter()
-        .find(|e| e.event_type == "session_meta")?;
+    let event = events.iter().find(|e| e.event_type == "session_meta")?;
 
     let payload = &event.payload;
 
@@ -236,10 +231,7 @@ pub fn extract_subagent_spawns(events: &[RolloutEvent]) -> Vec<SubagentSpawn> {
         .iter()
         .filter(|e| e.event_type == "event_msg")
         .filter(|e| {
-            e.payload
-                .get("type")
-                .and_then(|v| v.as_str())
-                == Some("collab_agent_spawn_end")
+            e.payload.get("type").and_then(|v| v.as_str()) == Some("collab_agent_spawn_end")
         })
         .filter_map(|e| {
             let p = &e.payload;
@@ -264,12 +256,7 @@ pub fn extract_tool_calls(events: &[RolloutEvent]) -> Vec<ToolCallInfo> {
     events
         .iter()
         .filter(|e| e.event_type == "response_item")
-        .filter(|e| {
-            e.payload
-                .get("type")
-                .and_then(|v| v.as_str())
-                == Some("function_call")
-        })
+        .filter(|e| e.payload.get("type").and_then(|v| v.as_str()) == Some("function_call"))
         .filter_map(|e| {
             let p = &e.payload;
             Some(ToolCallInfo {
@@ -335,10 +322,7 @@ pub fn infer_rollout_status(events: &[RolloutEvent]) -> CodexInferredStatus {
 pub fn parse_source_field(source: &str) -> SourceInfo {
     if source.starts_with('{') {
         if let Ok(value) = serde_json::from_str::<Value>(source) {
-            if let Some(spawn) = value
-                .get("subagent")
-                .and_then(|s| s.get("thread_spawn"))
-            {
+            if let Some(spawn) = value.get("subagent").and_then(|s| s.get("thread_spawn")) {
                 return SourceInfo {
                     is_subagent: true,
                     parent_thread_id: spawn
@@ -419,10 +403,7 @@ pub fn query_codex_threads(db_path: &Path) -> anyhow::Result<Vec<CodexThread>> {
 }
 
 /// Query spawn edges (parent→child thread relationships) from the SQLite database.
-pub fn query_spawn_edges(
-    db_path: &Path,
-    parent_thread_id: &str,
-) -> anyhow::Result<Vec<SpawnEdge>> {
+pub fn query_spawn_edges(db_path: &Path, parent_thread_id: &str) -> anyhow::Result<Vec<SpawnEdge>> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,

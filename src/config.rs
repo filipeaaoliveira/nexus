@@ -43,8 +43,9 @@ impl Default for Config {
 
 impl Config {
     pub fn from_cli(cli: &Cli) -> Self {
-        let mut config = Config::default();
-        config.poll_interval_secs = cli.poll_interval;
-        config
+        Config {
+            poll_interval_secs: cli.poll_interval,
+            ..Config::default()
+        }
     }
 }

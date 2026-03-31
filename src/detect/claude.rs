@@ -232,10 +232,7 @@ pub fn inferred_to_primary(inferred: InferredStatus) -> PrimaryStatus {
 ///
 /// Searches `transcripts_dir` for `.jsonl` files whose name starts with
 /// `session_prefix` and returns the one with the latest modification time.
-pub fn find_transcript_for_pid(
-    transcripts_dir: &Path,
-    session_prefix: &str,
-) -> Option<PathBuf> {
+pub fn find_transcript_for_pid(transcripts_dir: &Path, session_prefix: &str) -> Option<PathBuf> {
     let read_dir = std::fs::read_dir(transcripts_dir).ok()?;
 
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;

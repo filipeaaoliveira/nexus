@@ -1,4 +1,5 @@
 use ai_overview::detect::claude::*;
+use ai_overview::types::PrimaryStatus;
 
 #[test]
 fn test_parse_transcript_events() {
@@ -72,4 +73,24 @@ fn test_detect_internal_initiator_subagent() {
     let content = include_str!("fixtures/claude_project_session.jsonl");
     let info = parse_project_session(content);
     assert!(info.has_internal_initiator);
+}
+
+#[test]
+fn test_inferred_to_primary_mapping() {
+    assert_eq!(
+        inferred_to_primary(InferredStatus::Running),
+        PrimaryStatus::Running
+    );
+    assert_eq!(
+        inferred_to_primary(InferredStatus::Waiting),
+        PrimaryStatus::Waiting
+    );
+    assert_eq!(
+        inferred_to_primary(InferredStatus::ToolCall),
+        PrimaryStatus::Running
+    );
+    assert_eq!(
+        inferred_to_primary(InferredStatus::Unknown),
+        PrimaryStatus::Running
+    );
 }

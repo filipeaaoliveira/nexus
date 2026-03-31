@@ -277,7 +277,7 @@ pub fn extract_tool_calls(events: &[RolloutEvent]) -> Vec<ToolCallInfo> {
                 arguments: p
                     .get("arguments")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("")
+                    .unwrap_or("{}")
                     .to_string(),
             })
         })
@@ -382,7 +382,7 @@ pub fn query_codex_threads(db_path: &Path) -> anyhow::Result<Vec<CodexThread>> {
         "SELECT id, title, cwd, source, model, git_branch,
                 agent_nickname, agent_role, created_at, updated_at,
                 archived, tokens_used, rollout_path
-         FROM thread
+         FROM threads
          WHERE archived = 0
          ORDER BY updated_at DESC
          LIMIT 50",

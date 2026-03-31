@@ -1,0 +1,267 @@
+use std::collections::VecDeque;
+
+use chrono::Local;
+
+use crate::config::Config;
+use crate::event::AgentEvent;
+use crate::types::*;
+
+const MAX_RECENT_EVENTS: usize = 20;
+
+pub struct AppState {
+    pub agents: Vec<Agent>,
+    pub selected: Option<usize>,
+    pub sort_mode: SortMode,
+    pub group_by_worktree: bool,
+    pub show_help: bool,
+    pub filter: Option<String>,
+    pub config: Config,
+    pub should_quit: bool,
+}
+
+impl AppState {
+    pub fn new(config: Config) -> Self {
+        Self {
+            agents: Vec::new(),
+            selected: None,
+            sort_mode: SortMode::Urgency,
+            group_by_worktree: false,
+            show_help: false,
+            filter: None,
+            config,
+            should_quit: false,
+        }
+    }
+
+    pub fn handle_event(&mut self, event: AgentEvent) {
+        match event {
+            AgentEvent::Discovered { tool, pid, cwd } => {
+                let id = AgentId::new(tool, pid);
+                if self.agents.iter().any(|a| a.id == id) {
+                    return;
+                }
+                let now = Local::now();
+                self.agents.push(Agent {
+                    id,
+                    tool,
+                    pid,
+                    status: PrimaryStatus::Running,
+                    activity: None,
+                    cwd,
+                    branch: None,
+                    is_worktree: false,
+                    started_at: now,
+                    last_activity: now,
+                    subagents: Vec::new(),
+                    recent_events: VecDeque::new(),
+                    session_id: None,
+                });
+                if self.selected.is_none() {
+                    self.selected = Some(0);
+                }
+            }
+
+            AgentEvent::StatusChanged {
+                pid,
+                tool,
+                old,
+                new,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.status = new;
+                    agent.last_activity = Local::now();
+                    push_event(
+                        &mut agent.recent_events,
+                        ActivityEventKind::StatusChanged,
+                        format!("{} → {}", old.as_str(), new.as_str()),
+                    );
+                }
+            }
+
+            AgentEvent::ActivityChanged {
+                pid,
+                tool,
+                activity,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.activity = Some(activity);
+                    agent.last_activity = Local::now();
+                }
+            }
+
+            AgentEvent::SubagentSpawned {
+                pid,
+                tool,
+                subagent,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    let desc = format!("spawned: {}", subagent.name);
+                    agent.subagents.push(subagent);
+                    agent.last_activity = Local::now();
+                    push_event(
+                        &mut agent.recent_events,
+                        ActivityEventKind::SubagentSpawned,
+                        desc,
+                    );
+                }
+            }
+
+            AgentEvent::SubagentCompleted {
+                pid,
+                tool,
+                subagent_name,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    if let Some(sub) = agent.subagents.iter_mut().find(|s| s.name == subagent_name)
+                    {
+                        sub.status = PrimaryStatus::Done;
+                        sub.ended_at = Some(Local::now());
+                    }
+                    agent.last_activity = Local::now();
+                    push_event(
+                        &mut agent.recent_events,
+                        ActivityEventKind::SubagentCompleted,
+                        format!("completed: {}", subagent_name),
+                    );
+                }
+            }
+
+            AgentEvent::ToolCallStarted {
+                pid,
+                tool,
+                tool_name,
+                args_summary,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.activity = Some(Activity::ToolCall);
+                    agent.last_activity = Local::now();
+                    let desc = match args_summary {
+                        Some(args) => format!("{} ({})", tool_name, args),
+                        None => tool_name,
+                    };
+                    push_event(&mut agent.recent_events, ActivityEventKind::ToolCall, desc);
+                }
+            }
+
+            AgentEvent::ToolCallCompleted {
+                pid,
+                tool,
+                tool_name: _,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    if agent.activity == Some(Activity::ToolCall) {
+                        agent.activity = Some(Activity::Idle);
+                    }
+                    agent.last_activity = Local::now();
+                }
+            }
+
+            AgentEvent::ProcessExited { pid, tool } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.status = PrimaryStatus::Exited;
+                    agent.last_activity = Local::now();
+                }
+            }
+
+            AgentEvent::SessionInfo {
+                pid,
+                tool,
+                session_id,
+                branch,
+                is_worktree,
+            } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.session_id = Some(session_id);
+                    agent.branch = branch;
+                    agent.is_worktree = is_worktree;
+                    agent.last_activity = Local::now();
+                }
+            }
+        }
+    }
+
+    pub fn visible_agents(&self) -> Vec<&Agent> {
+        let mut agents: Vec<&Agent> = self.agents.iter().collect();
+
+        // Apply filter
+        if let Some(ref filter) = self.filter {
+            let f = filter.to_lowercase();
+            agents.retain(|a| {
+                a.tool.as_str().contains(&f)
+                    || a.cwd.to_string_lossy().to_lowercase().contains(&f)
+                    || a.branch
+                        .as_deref()
+                        .map(|b| b.to_lowercase().contains(&f))
+                        .unwrap_or(false)
+            });
+        }
+
+        // Apply sort
+        match self.sort_mode {
+            SortMode::Urgency => agents.sort_by_key(|a| a.status),
+            SortMode::Name => agents.sort_by(|a, b| {
+                a.tool
+                    .as_str()
+                    .cmp(b.tool.as_str())
+                    .then_with(|| a.pid.cmp(&b.pid))
+            }),
+            SortMode::Elapsed => {
+                agents.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+            }
+        }
+
+        agents
+    }
+
+    pub fn count_by_status(&self, status: PrimaryStatus) -> usize {
+        self.agents.iter().filter(|a| a.status == status).count()
+    }
+
+    pub fn move_selection_down(&mut self) {
+        if self.agents.is_empty() {
+            return;
+        }
+        let max = self.agents.len() - 1;
+        self.selected = Some(self.selected.map_or(0, |s| (s + 1).min(max)));
+    }
+
+    pub fn move_selection_up(&mut self) {
+        if self.agents.is_empty() {
+            return;
+        }
+        self.selected = Some(self.selected.map_or(0, |s| s.saturating_sub(1)));
+    }
+
+    pub fn cycle_sort_mode(&mut self) {
+        self.sort_mode = self.sort_mode.next();
+    }
+
+    pub fn toggle_group_by_worktree(&mut self) {
+        self.group_by_worktree = !self.group_by_worktree;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
+
+    pub fn dismiss_overlay(&mut self) {
+        self.show_help = false;
+        self.filter = None;
+    }
+
+    fn find_agent_mut(&mut self, pid: u32, tool: AgentTool) -> Option<&mut Agent> {
+        let id = AgentId::new(tool, pid);
+        self.agents.iter_mut().find(|a| a.id == id)
+    }
+}
+
+fn push_event(events: &mut VecDeque<ActivityEvent>, kind: ActivityEventKind, description: String) {
+    events.push_front(ActivityEvent {
+        timestamp: Local::now(),
+        kind,
+        description,
+    });
+    while events.len() > MAX_RECENT_EVENTS {
+        events.pop_back();
+    }
+}

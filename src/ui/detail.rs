@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
+use crate::types;
 
 use super::theme;
 
@@ -83,7 +84,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
                 ),
                 Span::styled("  idle: ", Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    format_short_duration(agent.idle_duration()),
+                    types::format_duration_short(agent.idle_duration()),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
             ]));
@@ -94,15 +95,4 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
-}
-
-fn format_short_duration(d: chrono::Duration) -> String {
-    let secs = d.num_seconds().max(0);
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3600 {
-        format!("{}m", secs / 60)
-    } else {
-        format!("{}h", secs / 3600)
-    }
 }

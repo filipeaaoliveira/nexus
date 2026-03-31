@@ -178,7 +178,9 @@ impl AppState {
             } => {
                 if let Some(agent) = self.find_agent_mut(pid, tool) {
                     agent.session_id = Some(session_id);
-                    agent.branch = branch;
+                    if branch.is_some() {
+                        agent.branch = branch;
+                    }
                     agent.is_worktree = is_worktree;
                     agent.last_activity = Local::now();
                 }

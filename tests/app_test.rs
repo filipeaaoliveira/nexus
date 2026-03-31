@@ -180,3 +180,91 @@ fn test_toggle_help() {
     state.toggle_help();
     assert!(!state.show_help);
 }
+
+#[test]
+fn test_visible_agents_sort_by_urgency() {
+    let mut state = make_state();
+    // Add agents with different statuses
+    for (pid, tool) in [
+        (1, AgentTool::Claude),
+        (2, AgentTool::OpenCode),
+        (3, AgentTool::Codex),
+    ] {
+        state.handle_event(AgentEvent::Discovered {
+            tool,
+            pid,
+            cwd: PathBuf::from(format!("/tmp/{pid}")),
+        });
+    }
+    // Make agent 3 Waiting, agent 1 Done
+    state.handle_event(AgentEvent::StatusChanged {
+        pid: 3,
+        tool: AgentTool::Codex,
+        old: PrimaryStatus::Running,
+        new: PrimaryStatus::Waiting,
+    });
+    state.handle_event(AgentEvent::StatusChanged {
+        pid: 1,
+        tool: AgentTool::Claude,
+        old: PrimaryStatus::Running,
+        new: PrimaryStatus::Done,
+    });
+    // Urgency sort: Waiting < Running < Done
+    let visible = state.visible_agents();
+    assert_eq!(visible[0].pid, 3); // Waiting
+    assert_eq!(visible[1].pid, 2); // Running
+    assert_eq!(visible[2].pid, 1); // Done
+}
+
+#[test]
+fn test_visible_agents_sort_by_name() {
+    let mut state = make_state();
+    state.sort_mode = SortMode::Name;
+    for (pid, tool) in [
+        (1, AgentTool::OpenCode),
+        (2, AgentTool::Claude),
+        (3, AgentTool::Codex),
+    ] {
+        state.handle_event(AgentEvent::Discovered {
+            tool,
+            pid,
+            cwd: PathBuf::from(format!("/tmp/{pid}")),
+        });
+    }
+    let visible = state.visible_agents();
+    // Alphabetical: claude < codex < opencode
+    assert_eq!(visible[0].tool, AgentTool::Claude);
+    assert_eq!(visible[1].tool, AgentTool::Codex);
+    assert_eq!(visible[2].tool, AgentTool::OpenCode);
+}
+
+#[test]
+fn test_visible_agents_filter() {
+    let mut state = make_state();
+    for (pid, tool) in [
+        (1, AgentTool::Claude),
+        (2, AgentTool::OpenCode),
+        (3, AgentTool::Codex),
+    ] {
+        state.handle_event(AgentEvent::Discovered {
+            tool,
+            pid,
+            cwd: PathBuf::from(format!("/tmp/{pid}")),
+        });
+    }
+    // Filter for "claude"
+    state.filter = Some("claude".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].tool, AgentTool::Claude);
+
+    // Filter for status "RUNNING" — should match all
+    state.filter = Some("running".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 3);
+
+    // Filter for something that matches nothing
+    state.filter = Some("zzz".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 0);
+}

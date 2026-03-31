@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::ActivityEventKind;
+use crate::types::{self, ActivityEventKind};
 
 use super::theme;
 
@@ -57,10 +57,10 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
             let connector = if i == count - 1 { "└─" } else { "├─" };
             let elapsed = if let Some(ended) = sub.ended_at {
                 let d = ended - sub.started_at;
-                format_short_duration(d)
+                types::format_duration(d)
             } else {
                 let d = chrono::Local::now() - sub.started_at;
-                format_short_duration(d)
+                types::format_duration(d)
             };
 
             sub_lines.push(Line::from(vec![
@@ -116,15 +116,4 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     }
 
     frame.render_widget(Paragraph::new(event_lines), chunks[1]);
-}
-
-fn format_short_duration(d: chrono::Duration) -> String {
-    let secs = d.num_seconds().max(0);
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3600 {
-        format!("{}m{}s", secs / 60, secs % 60)
-    } else {
-        format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
-    }
 }

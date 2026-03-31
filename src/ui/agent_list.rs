@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::{Agent, PrimaryStatus};
+use crate::types::{self, Agent, PrimaryStatus};
 
 use super::theme;
 
@@ -39,7 +39,7 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
         _ => "●",
     };
 
-    let elapsed = format_duration(agent.elapsed());
+    let elapsed = types::format_duration(agent.elapsed());
     let subagent_count = agent.subagents.len();
 
     let line1 = Line::from(vec![
@@ -79,15 +79,4 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
     ]);
 
     ListItem::new(vec![line1, line2])
-}
-
-fn format_duration(d: chrono::Duration) -> String {
-    let secs = d.num_seconds().max(0);
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3600 {
-        format!("{}m{}s", secs / 60, secs % 60)
-    } else {
-        format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
-    }
 }

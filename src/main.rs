@@ -1,215 +1,76 @@
-use std::io;
-use std::path::PathBuf;
-use std::time::Duration;
-
-use chrono::Local;
-use clap::Parser;
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
-
 use ai_overview::app::AppState;
 use ai_overview::config::{Cli, Config};
+use ai_overview::detect::process;
+use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
-use ai_overview::input::{self, Action};
-use ai_overview::types::*;
+use ai_overview::input;
+use clap::Parser;
+use std::time::Duration;
+use tokio::sync::mpsc;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = Config::from_cli(&cli);
+    let poll_interval = Duration::from_secs(config.poll_interval_secs);
     let mut state = AppState::new(config);
 
-    // Inject fake agents for demonstration
-    inject_fake_agents(&mut state);
+    let (tx, mut rx) = mpsc::channel::<AgentEvent>(256);
 
-    // Initialize terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let scanner_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = process::run_process_scanner(scanner_tx, poll_interval).await {
+            tracing::error!("Process scanner failed: {e}");
+        }
+    });
 
-    // Main loop
-    let result = run_loop(&mut terminal, &mut state);
+    let mut terminal = ratatui::init();
+    terminal.clear()?;
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
+    let result = run_loop(&mut terminal, &mut state, &mut rx).await;
 
+    ratatui::restore();
     result
 }
 
-fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+async fn run_loop(
+    terminal: &mut ratatui::DefaultTerminal,
     state: &mut AppState,
+    rx: &mut mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {
     loop {
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::Discovered { tool, pid, ref cwd } = event {
+                let cwd_clone = cwd.clone();
+                state.handle_event(event);
+                let (branch, is_wt) = worktree::lookup_branch_info(&cwd_clone).await;
+                state.handle_event(AgentEvent::SessionInfo {
+                    pid,
+                    tool,
+                    session_id: String::new(),
+                    branch,
+                    is_worktree: is_wt,
+                });
+                continue;
+            }
+            state.handle_event(event);
+        }
+
         terminal.draw(|frame| {
             ai_overview::ui::render(frame, state);
         })?;
 
-        if state.should_quit {
-            break;
-        }
-
-        match input::poll_action(Duration::from_millis(250))? {
-            Some(Action::Quit) => {
-                state.should_quit = true;
-            }
-            Some(Action::MoveDown) => state.move_selection_down(),
-            Some(Action::MoveUp) => state.move_selection_up(),
-            Some(Action::ToggleGroupByWorktree) => state.toggle_group_by_worktree(),
-            Some(Action::CycleSortMode) => state.cycle_sort_mode(),
-            Some(Action::ShowHelp) => state.toggle_help(),
-            Some(Action::DismissOverlay) => state.dismiss_overlay(),
-            Some(Action::StartFilter) => {
-                // Filter input not yet implemented
-            }
-            Some(Action::Tick) | None => {}
+        match input::poll_action(Duration::from_millis(100))? {
+            Some(input::Action::Quit) => break,
+            Some(input::Action::MoveDown) => state.move_selection_down(),
+            Some(input::Action::MoveUp) => state.move_selection_up(),
+            Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
+            Some(input::Action::ToggleGroupByWorktree) => state.toggle_group_by_worktree(),
+            Some(input::Action::ShowHelp) => state.toggle_help(),
+            Some(input::Action::DismissOverlay) => state.dismiss_overlay(),
+            Some(input::Action::StartFilter) => {}
+            Some(input::Action::Tick) | None => {}
         }
     }
     Ok(())
-}
-
-fn inject_fake_agents(state: &mut AppState) {
-    let now = Local::now();
-
-    // Agent 1: OpenCode, waiting, 2 subagents
-    state.handle_event(AgentEvent::Discovered {
-        tool: AgentTool::OpenCode,
-        pid: 12001,
-        cwd: PathBuf::from("/home/user/projects/webapp"),
-    });
-    state.handle_event(AgentEvent::StatusChanged {
-        pid: 12001,
-        tool: AgentTool::OpenCode,
-        old: PrimaryStatus::Running,
-        new: PrimaryStatus::Waiting,
-    });
-    state.handle_event(AgentEvent::SessionInfo {
-        pid: 12001,
-        tool: AgentTool::OpenCode,
-        session_id: "sess-oc-001".to_string(),
-        branch: Some("feat/auth-flow".to_string()),
-        is_worktree: true,
-    });
-    state.handle_event(AgentEvent::SubagentSpawned {
-        pid: 12001,
-        tool: AgentTool::OpenCode,
-        subagent: Subagent {
-            name: "explore-codebase".to_string(),
-            status: PrimaryStatus::Running,
-            description: Some("searching for auth patterns".to_string()),
-            started_at: now - chrono::Duration::seconds(45),
-            ended_at: None,
-        },
-    });
-    state.handle_event(AgentEvent::SubagentSpawned {
-        pid: 12001,
-        tool: AgentTool::OpenCode,
-        subagent: Subagent {
-            name: "run-tests".to_string(),
-            status: PrimaryStatus::Done,
-            description: Some("running test suite".to_string()),
-            started_at: now - chrono::Duration::minutes(2),
-            ended_at: Some(now - chrono::Duration::seconds(90)),
-        },
-    });
-
-    // Backfill some started_at for realism
-    if let Some(agent) = state.agents.iter_mut().find(|a| a.pid == 12001) {
-        agent.started_at = now - chrono::Duration::minutes(8);
-    }
-
-    // Agent 2: Claude, running with tool call
-    state.handle_event(AgentEvent::Discovered {
-        tool: AgentTool::Claude,
-        pid: 12002,
-        cwd: PathBuf::from("/home/user/projects/api-server"),
-    });
-    state.handle_event(AgentEvent::SessionInfo {
-        pid: 12002,
-        tool: AgentTool::Claude,
-        session_id: "sess-cl-042".to_string(),
-        branch: Some("main".to_string()),
-        is_worktree: false,
-    });
-    state.handle_event(AgentEvent::ToolCallStarted {
-        pid: 12002,
-        tool: AgentTool::Claude,
-        tool_name: "Edit".to_string(),
-        args_summary: Some("src/handlers/auth.rs".to_string()),
-    });
-
-    if let Some(agent) = state.agents.iter_mut().find(|a| a.pid == 12002) {
-        agent.started_at = now - chrono::Duration::minutes(3);
-    }
-
-    // Agent 3: Codex, done
-    state.handle_event(AgentEvent::Discovered {
-        tool: AgentTool::Codex,
-        pid: 12003,
-        cwd: PathBuf::from("/home/user/projects/docs-site"),
-    });
-    state.handle_event(AgentEvent::StatusChanged {
-        pid: 12003,
-        tool: AgentTool::Codex,
-        old: PrimaryStatus::Running,
-        new: PrimaryStatus::Done,
-    });
-    state.handle_event(AgentEvent::SessionInfo {
-        pid: 12003,
-        tool: AgentTool::Codex,
-        session_id: "sess-cx-007".to_string(),
-        branch: Some("fix/typos".to_string()),
-        is_worktree: false,
-    });
-
-    if let Some(agent) = state.agents.iter_mut().find(|a| a.pid == 12003) {
-        agent.started_at = now - chrono::Duration::minutes(15);
-    }
-
-    // Agent 4: Claude, error
-    state.handle_event(AgentEvent::Discovered {
-        tool: AgentTool::Claude,
-        pid: 12004,
-        cwd: PathBuf::from("/home/user/projects/ml-pipeline"),
-    });
-    state.handle_event(AgentEvent::StatusChanged {
-        pid: 12004,
-        tool: AgentTool::Claude,
-        old: PrimaryStatus::Running,
-        new: PrimaryStatus::Error,
-    });
-    state.handle_event(AgentEvent::SessionInfo {
-        pid: 12004,
-        tool: AgentTool::Claude,
-        session_id: "sess-cl-099".to_string(),
-        branch: Some("feat/data-pipeline".to_string()),
-        is_worktree: true,
-    });
-
-    if let Some(agent) = state.agents.iter_mut().find(|a| a.pid == 12004) {
-        agent.started_at = now - chrono::Duration::minutes(1);
-        // Add some fake events
-        agent.recent_events.push_front(ActivityEvent {
-            timestamp: now - chrono::Duration::seconds(30),
-            kind: ActivityEventKind::ToolCall,
-            description: "Bash: cargo build".to_string(),
-        });
-        agent.recent_events.push_front(ActivityEvent {
-            timestamp: now - chrono::Duration::seconds(15),
-            kind: ActivityEventKind::StatusChanged,
-            description: "RUNNING → ERROR".to_string(),
-        });
-        agent.recent_events.push_front(ActivityEvent {
-            timestamp: now - chrono::Duration::seconds(10),
-            kind: ActivityEventKind::Message,
-            description: "compilation failed: 3 errors".to_string(),
-        });
-    }
 }

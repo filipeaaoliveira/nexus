@@ -84,7 +84,7 @@ impl AppState {
                 activity,
             } => {
                 if let Some(agent) = self.find_agent_mut(pid, tool) {
-                    agent.activity = Some(activity);
+                    agent.activity = activity;
                     agent.last_activity = Local::now();
                 }
             }
@@ -159,7 +159,13 @@ impl AppState {
             AgentEvent::ProcessExited { pid, tool } => {
                 if let Some(agent) = self.find_agent_mut(pid, tool) {
                     agent.status = PrimaryStatus::Exited;
+                    agent.activity = None;
                     agent.last_activity = Local::now();
+                    push_event(
+                        &mut agent.recent_events,
+                        ActivityEventKind::StatusChanged,
+                        "Process exited".to_string(),
+                    );
                 }
             }
 
@@ -187,7 +193,8 @@ impl AppState {
         if let Some(ref filter) = self.filter {
             let f = filter.to_lowercase();
             agents.retain(|a| {
-                a.tool.as_str().contains(&f)
+                a.display_name().to_lowercase().contains(&f)
+                    || a.status.as_str().to_lowercase().contains(&f)
                     || a.cwd.to_string_lossy().to_lowercase().contains(&f)
                     || a.branch
                         .as_deref()
@@ -218,15 +225,17 @@ impl AppState {
     }
 
     pub fn move_selection_down(&mut self) {
-        if self.agents.is_empty() {
+        let count = self.visible_agents().len();
+        if count == 0 {
             return;
         }
-        let max = self.agents.len() - 1;
+        let max = count - 1;
         self.selected = Some(self.selected.map_or(0, |s| (s + 1).min(max)));
     }
 
     pub fn move_selection_up(&mut self) {
-        if self.agents.is_empty() {
+        let count = self.visible_agents().len();
+        if count == 0 {
             return;
         }
         self.selected = Some(self.selected.map_or(0, |s| s.saturating_sub(1)));
@@ -256,12 +265,12 @@ impl AppState {
 }
 
 fn push_event(events: &mut VecDeque<ActivityEvent>, kind: ActivityEventKind, description: String) {
-    events.push_front(ActivityEvent {
+    events.push_back(ActivityEvent {
         timestamp: Local::now(),
         kind,
         description,
     });
     while events.len() > MAX_RECENT_EVENTS {
-        events.pop_back();
+        events.pop_front();
     }
 }

@@ -61,7 +61,7 @@ pub fn bar_style() -> Style {
 
 pub fn status_badge_style(status: PrimaryStatus) -> Style {
     Style::default()
-        .fg(BG_MAIN)
+        .fg(BG_HEADER)
         .bg(status_color(status))
         .add_modifier(Modifier::BOLD)
 }

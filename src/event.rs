@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use chrono::{DateTime, Local};
+
 use crate::types::{Activity, AgentTool, PrimaryStatus, Subagent};
 
 #[derive(Debug, Clone)]
@@ -18,7 +20,7 @@ pub enum AgentEvent {
     ActivityChanged {
         pid: u32,
         tool: AgentTool,
-        activity: Activity,
+        activity: Option<Activity>,
     },
     SubagentSpawned {
         pid: u32,
@@ -52,4 +54,11 @@ pub enum AgentEvent {
         branch: Option<String>,
         is_worktree: bool,
     },
+}
+
+impl AgentEvent {
+    /// Returns the timestamp for this event (always now — detectors emit in real time).
+    pub fn timestamp(&self) -> DateTime<Local> {
+        Local::now()
+    }
 }

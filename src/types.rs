@@ -73,7 +73,7 @@ impl Activity {
     pub fn as_str(&self) -> &'static str {
         match self {
             Activity::Generating => "generating",
-            Activity::ToolCall => "tool_call",
+            Activity::ToolCall => "tool call",
             Activity::Idle => "idle",
             Activity::Thinking => "thinking",
         }
@@ -139,8 +139,8 @@ impl Agent {
         Local::now() - self.last_activity
     }
 
-    pub fn display_name(&self) -> String {
-        format!("{} ({})", self.tool.as_str(), self.pid)
+    pub fn display_name(&self) -> &str {
+        self.tool.as_str()
     }
 }
 

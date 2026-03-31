@@ -35,8 +35,8 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
 
 fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
     let status_dot = match agent.status {
-        PrimaryStatus::Running => "●",
-        _ => "○",
+        PrimaryStatus::Done | PrimaryStatus::Exited => "○",
+        _ => "●",
     };
 
     let elapsed = format_duration(agent.elapsed());

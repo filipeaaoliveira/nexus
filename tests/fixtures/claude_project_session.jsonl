@@ -1,0 +1,4 @@
+{"type":"progress","sessionId":"b1508a89-test","timestamp":"2026-03-31T09:18:20.000Z","data":{"type":"hook_progress","hookEvent":"SessionStart"}}
+{"type":"user","sessionId":"b1508a89-test","timestamp":"2026-03-31T09:18:23.158Z","isMeta":false,"message":{"role":"user","content":"Add error handling"},"cwd":"/Users/dev/project","gitBranch":"feat/error-handling","version":"2.1.83"}
+{"type":"assistant","sessionId":"b1508a89-test","timestamp":"2026-03-31T09:18:30.000Z","message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"I'll help you add error handling."}]}}
+{"type":"user","sessionId":"b1508a89-test","timestamp":"2026-03-31T09:20:00.000Z","isMeta":false,"message":{"role":"user","content":"<!-- OMO_INTERNAL_INITIATOR -->\nRun the tests"},"cwd":"/Users/dev/project","gitBranch":"feat/error-handling"}

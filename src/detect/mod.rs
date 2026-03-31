@@ -1,3 +1,4 @@
+pub mod claude;
 pub mod process;
 pub mod worktree;
 

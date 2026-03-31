@@ -1,0 +1,6 @@
+  PID COMMAND
+12345 /Users/dev/.local/bin/opencode
+23456 /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude
+34567 /Users/dev/.cargo/bin/codex
+45678 /bin/bash
+99999 /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude

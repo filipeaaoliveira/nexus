@@ -1,0 +1,132 @@
+use crate::event::AgentEvent;
+use crate::types::AgentTool;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::sync::mpsc;
+use tracing::{debug, warn};
+
+#[derive(Debug, Clone)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub tool: AgentTool,
+}
+
+pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
+    let mut results = Vec::new();
+    for line in output.lines().skip(1) {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let pid_str = match parts.next() {
+            Some(s) => s.trim(),
+            None => continue,
+        };
+        let cmd = match parts.next() {
+            Some(s) => s.trim(),
+            None => continue,
+        };
+        let pid: u32 = match pid_str.parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if let Some(tool) = detect_tool_from_command(cmd) {
+            results.push(ProcessInfo { pid, tool });
+        }
+    }
+    results
+}
+
+fn detect_tool_from_command(cmd: &str) -> Option<AgentTool> {
+    let lower = cmd.to_lowercase();
+    if lower.contains("/opencode") || lower.starts_with("opencode") {
+        return Some(AgentTool::OpenCode);
+    }
+    if lower.contains("/claude") || lower.starts_with("claude") {
+        return Some(AgentTool::Claude);
+    }
+    if lower.contains("/codex") || lower.starts_with("codex") {
+        return Some(AgentTool::Codex);
+    }
+    None
+}
+
+pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
+    let output = Command::new("lsof")
+        .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(path) = line.strip_prefix('n') {
+            if path != "/" {
+                return Some(PathBuf::from(path));
+            }
+        }
+    }
+    None
+}
+
+pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
+    let output = match Command::new("ps")
+        .args(["-eo", "pid,command"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            warn!("Failed to run ps: {e}");
+            return Vec::new();
+        }
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let procs = parse_ps_output(&stdout);
+    let mut results = Vec::new();
+    for proc in procs {
+        if let Some(cwd) = get_process_cwd(proc.pid).await {
+            results.push((proc, cwd));
+        } else {
+            debug!("Could not get CWD for pid {}", proc.pid);
+        }
+    }
+    results
+}
+
+pub async fn run_process_scanner(
+    tx: mpsc::Sender<AgentEvent>,
+    poll_interval: Duration,
+) -> anyhow::Result<()> {
+    let mut known_pids: HashSet<(AgentTool, u32)> = HashSet::new();
+    loop {
+        let found = scan_processes().await;
+        let mut current_pids: HashSet<(AgentTool, u32)> = HashSet::new();
+        for (proc, cwd) in &found {
+            let key = (proc.tool, proc.pid);
+            current_pids.insert(key);
+            if !known_pids.contains(&key) {
+                debug!("Discovered {} pid={}", proc.tool.as_str(), proc.pid);
+                let _ = tx
+                    .send(AgentEvent::Discovered {
+                        tool: proc.tool,
+                        pid: proc.pid,
+                        cwd: cwd.clone(),
+                    })
+                    .await;
+            }
+        }
+        let exited: Vec<_> = known_pids.difference(&current_pids).cloned().collect();
+        for (tool, pid) in exited {
+            debug!("Process exited: {} pid={}", tool.as_str(), pid);
+            let _ = tx.send(AgentEvent::ProcessExited { pid, tool }).await;
+        }
+        known_pids = current_pids;
+        tokio::time::sleep(poll_interval).await;
+    }
+}

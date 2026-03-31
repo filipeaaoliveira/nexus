@@ -105,6 +105,19 @@ pub fn extract_subagent_type(title: &str) -> Option<&str> {
     Some(&title[start..end])
 }
 
+/// An OpenCode session from the SQLite database.
+#[derive(Debug, Clone)]
+pub struct OpenCodeSession {
+    pub id: String,
+    pub title: Option<String>,
+    pub directory: Option<PathBuf>,
+    pub parent_id: Option<String>,
+    pub time_created: i64,
+    pub time_updated: i64,
+    pub time_archived: Option<i64>,
+    pub branch: Option<String>,
+}
+
 /// Query OpenCode's SQLite database for active sessions and their state.
 pub fn query_opencode_sessions(
     db_path: &Path,
@@ -137,7 +150,13 @@ pub fn query_opencode_sessions(
                 branch: row.get(7)?,
             })
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(s) => Some(s),
+            Err(e) => {
+                debug!("failed to parse session row: {e}");
+                None
+            }
+        })
         .collect();
 
     Ok(sessions)
@@ -162,7 +181,13 @@ pub fn query_recent_parts(
         .query_map(rusqlite::params![session_id, limit as i64], |row| {
             row.get::<_, String>(0)
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(json) => Some(json),
+            Err(e) => {
+                debug!("failed to parse part row: {e}");
+                None
+            }
+        })
         .filter_map(|json| parse_part_data(&json))
         .collect();
 
@@ -199,22 +224,16 @@ pub fn query_subagent_sessions(
                 branch: row.get(7)?,
             })
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(s) => Some(s),
+            Err(e) => {
+                debug!("failed to parse subagent session row: {e}");
+                None
+            }
+        })
         .collect();
 
     Ok(sessions)
-}
-
-#[derive(Debug, Clone)]
-pub struct OpenCodeSession {
-    pub id: String,
-    pub title: Option<String>,
-    pub directory: Option<PathBuf>,
-    pub parent_id: Option<String>,
-    pub time_created: i64,
-    pub time_updated: i64,
-    pub time_archived: Option<i64>,
-    pub branch: Option<String>,
 }
 
 /// Run the OpenCode detector loop.

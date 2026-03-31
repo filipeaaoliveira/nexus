@@ -222,7 +222,7 @@ pub fn inferred_to_primary(inferred: InferredStatus) -> PrimaryStatus {
         InferredStatus::Running => PrimaryStatus::Running,
         InferredStatus::Waiting => PrimaryStatus::Waiting,
         InferredStatus::ToolCall => PrimaryStatus::Running,
-        InferredStatus::Unknown => PrimaryStatus::Waiting,
+        InferredStatus::Unknown => PrimaryStatus::Running,
     }
 }
 
@@ -286,53 +286,43 @@ pub async fn run_claude_detector(
     loop {
         if transcripts_dir.exists() {
             if let Ok(read_dir) = std::fs::read_dir(&transcripts_dir) {
-                // Scan subdirectories (each project gets a subdirectory)
-                for dir_entry in read_dir.flatten() {
-                    let dir_path = dir_entry.path();
-                    if !dir_path.is_dir() {
+                for entry in read_dir.flatten() {
+                    let file_path = entry.path();
+                    let name = match file_path.file_name().and_then(|n| n.to_str()) {
+                        Some(n) => n.to_string(),
+                        None => continue,
+                    };
+
+                    if !name.ends_with(".jsonl") {
                         continue;
                     }
 
-                    if let Ok(session_files) = std::fs::read_dir(&dir_path) {
-                        for file_entry in session_files.flatten() {
-                            let file_path = file_entry.path();
-                            let name = match file_path.file_name().and_then(|n| n.to_str()) {
-                                Some(n) => n.to_string(),
-                                None => continue,
-                            };
+                    let metadata = match entry.metadata() {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    };
 
-                            if !name.ends_with(".jsonl") {
-                                continue;
-                            }
+                    let current_size = metadata.len();
+                    let prev_size = file_sizes.get(&file_path).copied().unwrap_or(0);
 
-                            let metadata = match file_entry.metadata() {
-                                Ok(m) => m,
-                                Err(_) => continue,
-                            };
+                    if current_size > prev_size {
+                        debug!(
+                            path = %file_path.display(),
+                            prev_size,
+                            current_size,
+                            "transcript file grew"
+                        );
 
-                            let current_size = metadata.len();
-                            let prev_size = file_sizes.get(&file_path).copied().unwrap_or(0);
+                        // Read and parse the file content
+                        if let Ok(content) = std::fs::read_to_string(&file_path) {
+                            let entries = parse_transcript(&content);
+                            let _status = infer_status_from_transcript(&entries);
 
-                            if current_size > prev_size {
-                                debug!(
-                                    path = %file_path.display(),
-                                    prev_size,
-                                    current_size,
-                                    "transcript file grew"
-                                );
-
-                                // Read and parse the file content
-                                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                                    let entries = parse_transcript(&content);
-                                    let _status = infer_status_from_transcript(&entries);
-
-                                    // Event emission will be added in Task 6
-                                    // when PID-to-session mapping is available.
-                                }
-
-                                file_sizes.insert(file_path, current_size);
-                            }
+                            // Event emission will be added in Task 6
+                            // when PID-to-session mapping is available.
                         }
+
+                        file_sizes.insert(file_path, current_size);
                     }
                 }
             }

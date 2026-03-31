@@ -1,0 +1,8 @@
+{"timestamp":"2026-03-31T10:00:00.000Z","type":"session_meta","payload":{"id":"019d4422-test-uuid","cwd":"/Users/dev/project","cli_version":"0.117.0","source":"cli","model_provider":"openai","git":{"sha":"abc123","branch":"feat/new-feature","origin_url":"git@github.com:user/repo.git"}}}
+{"timestamp":"2026-03-31T10:00:01.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn_1"}}
+{"timestamp":"2026-03-31T10:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I'll help you implement this feature."}]}}
+{"timestamp":"2026-03-31T10:00:10.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"npm\",\"test\"]}"}}
+{"timestamp":"2026-03-31T10:00:15.000Z","type":"response_item","payload":{"type":"function_call_output","output":"All 42 tests passed"}}
+{"timestamp":"2026-03-31T10:00:20.000Z","type":"event_msg","payload":{"type":"collab_agent_spawn_end","call_id":"call_1","sender_thread_id":"019d4422-test-uuid","new_thread_id":"019d4423-sub-uuid","new_agent_nickname":"Parfit","new_agent_role":"worker","prompt":"Implement the validation logic"}}
+{"timestamp":"2026-03-31T10:00:30.000Z","type":"event_msg","payload":{"type":"collab_agent_interaction_end","call_id":"call_1"}}
+{"timestamp":"2026-03-31T10:00:35.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn_1","last_agent_message":"Done! I've implemented the feature."}}

@@ -274,15 +274,15 @@ impl AppState {
 
     pub fn filter_push_char(&mut self, c: char) {
         self.filter_input.push(c);
-        self.filter = if self.filter_input.is_empty() {
-            None
-        } else {
-            Some(self.filter_input.clone())
-        };
+        self.sync_filter();
     }
 
     pub fn filter_pop_char(&mut self) {
         self.filter_input.pop();
+        self.sync_filter();
+    }
+
+    fn sync_filter(&mut self) {
         self.filter = if self.filter_input.is_empty() {
             None
         } else {

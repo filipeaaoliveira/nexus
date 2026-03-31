@@ -15,6 +15,8 @@ pub struct AppState {
     pub group_by_worktree: bool,
     pub show_help: bool,
     pub filter: Option<String>,
+    pub filter_mode: bool,
+    pub filter_input: String,
     pub config: Config,
     pub should_quit: bool,
 }
@@ -28,6 +30,8 @@ impl AppState {
             group_by_worktree: false,
             show_help: false,
             filter: None,
+            filter_mode: false,
+            filter_input: String::new(),
             config,
             should_quit: false,
         }
@@ -257,7 +261,38 @@ impl AppState {
 
     pub fn dismiss_overlay(&mut self) {
         self.show_help = false;
+        self.filter_mode = false;
         self.filter = None;
+        self.filter_input.clear();
+    }
+
+    pub fn start_filter(&mut self) {
+        self.filter_mode = true;
+        self.filter_input.clear();
+        self.filter = None;
+    }
+
+    pub fn filter_push_char(&mut self, c: char) {
+        self.filter_input.push(c);
+        self.filter = if self.filter_input.is_empty() {
+            None
+        } else {
+            Some(self.filter_input.clone())
+        };
+    }
+
+    pub fn filter_pop_char(&mut self) {
+        self.filter_input.pop();
+        self.filter = if self.filter_input.is_empty() {
+            None
+        } else {
+            Some(self.filter_input.clone())
+        };
+    }
+
+    pub fn confirm_filter(&mut self) {
+        self.filter_mode = false;
+        // Keep filter active
     }
 
     fn find_agent_mut(&mut self, pid: u32, tool: AgentTool) -> Option<&mut Agent> {

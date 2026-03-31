@@ -59,7 +59,7 @@ async fn run_loop(
             ai_overview::ui::render(frame, state);
         })?;
 
-        match input::poll_action(Duration::from_millis(100))? {
+        match input::poll_action(Duration::from_millis(100), state.filter_mode)? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => state.move_selection_down(),
             Some(input::Action::MoveUp) => state.move_selection_up(),
@@ -67,7 +67,10 @@ async fn run_loop(
             Some(input::Action::ToggleGroupByWorktree) => state.toggle_group_by_worktree(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
             Some(input::Action::DismissOverlay) => state.dismiss_overlay(),
-            Some(input::Action::StartFilter) => {}
+            Some(input::Action::StartFilter) => state.start_filter(),
+            Some(input::Action::FilterChar(c)) => state.filter_push_char(c),
+            Some(input::Action::FilterBackspace) => state.filter_pop_char(),
+            Some(input::Action::FilterConfirm) => state.confirm_filter(),
             Some(input::Action::Tick) | None => {}
         }
     }

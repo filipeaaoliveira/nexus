@@ -268,3 +268,88 @@ fn test_visible_agents_filter() {
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 0);
 }
+
+#[test]
+fn test_filter_by_tool_name() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 1,
+        cwd: PathBuf::from("/a"),
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 2,
+        cwd: PathBuf::from("/b"),
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Codex,
+        pid: 3,
+        cwd: PathBuf::from("/c"),
+    });
+
+    state.filter = Some("claude".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].tool, AgentTool::Claude);
+}
+
+#[test]
+fn test_filter_by_branch() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 1,
+        cwd: PathBuf::from("/a"),
+    });
+    state.handle_event(AgentEvent::SessionInfo {
+        pid: 1,
+        tool: AgentTool::Claude,
+        session_id: "s1".to_string(),
+        branch: Some("feat/auth".to_string()),
+        is_worktree: false,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 2,
+        cwd: PathBuf::from("/b"),
+    });
+    state.handle_event(AgentEvent::SessionInfo {
+        pid: 2,
+        tool: AgentTool::OpenCode,
+        session_id: "s2".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+    });
+
+    state.filter = Some("auth".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].pid, 1);
+}
+
+#[test]
+fn test_filter_by_status() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 1,
+        cwd: PathBuf::from("/a"),
+    });
+    state.handle_event(AgentEvent::StatusChanged {
+        pid: 1,
+        tool: AgentTool::Claude,
+        old: PrimaryStatus::Running,
+        new: PrimaryStatus::Waiting,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 2,
+        cwd: PathBuf::from("/b"),
+    });
+
+    state.filter = Some("waiting".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].pid, 1);
+}

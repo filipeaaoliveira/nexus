@@ -8,6 +8,20 @@ use crate::app::AppState;
 use super::theme;
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+    if state.filter_mode {
+        let line = Line::from(vec![
+            Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
+            Span::styled(
+                &state.filter_input,
+                theme::bar_style().fg(theme::FG_DEFAULT),
+            ),
+            Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
+        ]);
+        let footer = Paragraph::new(line).style(theme::bar_style());
+        frame.render_widget(footer, area);
+        return;
+    }
+
     let sort_label = state.sort_mode.as_str();
     let line = Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),

@@ -10,17 +10,32 @@ pub enum Action {
     ToggleGroupByWorktree,
     CycleSortMode,
     StartFilter,
+    FilterChar(char),
+    FilterBackspace,
+    FilterConfirm,
     ShowHelp,
     DismissOverlay,
     Tick,
 }
 
-pub fn poll_action(timeout: Duration) -> anyhow::Result<Option<Action>> {
+pub fn poll_action(timeout: Duration, filter_mode: bool) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 return Ok(None);
             }
+
+            if filter_mode {
+                let action = match key.code {
+                    KeyCode::Esc => Some(Action::DismissOverlay),
+                    KeyCode::Enter => Some(Action::FilterConfirm),
+                    KeyCode::Backspace => Some(Action::FilterBackspace),
+                    KeyCode::Char(c) => Some(Action::FilterChar(c)),
+                    _ => None,
+                };
+                return Ok(action);
+            }
+
             let action = match key.code {
                 KeyCode::Char('q') => Some(Action::Quit),
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {

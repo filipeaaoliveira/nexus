@@ -1,0 +1,81 @@
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::Frame;
+
+use super::theme;
+
+pub fn render(frame: &mut Frame) {
+    let area = frame.area();
+
+    // Center the overlay: 50% width, 60% height
+    let overlay = centered_rect(50, 60, area);
+
+    frame.render_widget(Clear, overlay);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::FG_BORDER))
+        .title(Span::styled(
+            " keybinds ",
+            Style::default()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme::BG_SECTION));
+
+    let lines = vec![
+        Line::from(""),
+        keybind_line("j / ↓", "Move selection down"),
+        keybind_line("k / ↑", "Move selection up"),
+        Line::from(""),
+        keybind_line("/", "Start filter"),
+        keybind_line("g", "Toggle group by worktree"),
+        keybind_line("s", "Cycle sort mode"),
+        Line::from(""),
+        keybind_line("?", "Toggle help"),
+        keybind_line("Esc", "Dismiss overlay / clear filter"),
+        keybind_line("q", "Quit"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Press Esc or ? to close",
+            Style::default().fg(theme::FG_FADED),
+        )),
+    ];
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay);
+}
+
+fn keybind_line(key: &str, desc: &str) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            format!("  {key:<10}"),
+            Style::default()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(desc.to_string(), Style::default().fg(theme::FG_DIMMED)),
+    ])
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
+}

@@ -22,6 +22,12 @@ impl AgentTool {
     }
 }
 
+impl std::fmt::Display for AgentTool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 // ── AgentId ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,6 +65,12 @@ impl PrimaryStatus {
     }
 }
 
+impl std::fmt::Display for PrimaryStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 // ── Activity ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +89,12 @@ impl Activity {
             Activity::Idle => "idle",
             Activity::Thinking => "thinking",
         }
+    }
+}
+
+impl std::fmt::Display for Activity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -166,6 +184,12 @@ impl SortMode {
             SortMode::Name => "name",
             SortMode::Elapsed => "elapsed",
         }
+    }
+}
+
+impl std::fmt::Display for SortMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

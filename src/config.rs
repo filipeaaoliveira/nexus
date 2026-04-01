@@ -11,10 +11,6 @@ pub struct Cli {
     /// Poll interval in seconds
     #[arg(long, default_value = "2")]
     pub poll_interval: u64,
-
-    /// Path to config file
-    #[arg(long)]
-    pub config: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]

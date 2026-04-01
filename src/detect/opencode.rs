@@ -241,7 +241,13 @@ pub async fn run_opencode_detector(
 
     loop {
         if db_path.exists() {
-            match query_opencode_sessions(&db_path) {
+            let db = db_path.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                query_opencode_sessions(&db)
+            })
+            .await?;
+
+            match result {
                 Ok(sessions) => {
                     for session in &sessions {
                         debug!(

@@ -453,7 +453,13 @@ pub async fn run_codex_detector(
 
     loop {
         if db_path.exists() {
-            match query_codex_threads(&db_path) {
+            let db = db_path.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                query_codex_threads(&db)
+            })
+            .await?;
+
+            match result {
                 Ok(threads) => {
                     for thread in &threads {
                         debug!(

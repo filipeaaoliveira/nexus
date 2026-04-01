@@ -1,3 +1,4 @@
+use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::AgentTool;
 use std::collections::HashSet;
@@ -106,6 +107,7 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
 pub async fn run_process_scanner(
     tx: mpsc::Sender<AgentEvent>,
     poll_interval: Duration,
+    registry: AgentRegistry,
 ) -> anyhow::Result<()> {
     let mut known_pids: HashSet<(AgentTool, u32)> = HashSet::new();
     loop {
@@ -116,6 +118,7 @@ pub async fn run_process_scanner(
             current_pids.insert(key);
             if !known_pids.contains(&key) {
                 debug!("Discovered {} pid={}", proc.tool.as_str(), proc.pid);
+                registry.register(proc.tool, cwd.clone(), proc.pid);
                 let _ = tx
                     .send(AgentEvent::Discovered {
                         tool: proc.tool,
@@ -128,6 +131,7 @@ pub async fn run_process_scanner(
         let exited: Vec<_> = known_pids.difference(&current_pids).cloned().collect();
         for (tool, pid) in exited {
             debug!("Process exited: {} pid={}", tool.as_str(), pid);
+            registry.remove(pid);
             let _ = tx.send(AgentEvent::ProcessExited { pid, tool }).await;
         }
         known_pids = current_pids;

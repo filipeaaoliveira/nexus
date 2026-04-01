@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -5,7 +6,9 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::debug;
 
+use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
+use crate::types::{AgentTool, PrimaryStatus};
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -435,21 +438,41 @@ pub fn query_spawn_edges(db_path: &Path, parent_thread_id: &str) -> anyhow::Resu
     Ok(edges)
 }
 
+// ── Helpers ───────────────────────────────────────────────────────
+
+/// Map a CodexInferredStatus to a PrimaryStatus.
+fn codex_to_primary(status: CodexInferredStatus) -> PrimaryStatus {
+    match status {
+        CodexInferredStatus::Running => PrimaryStatus::Running,
+        CodexInferredStatus::Done => PrimaryStatus::Done,
+        CodexInferredStatus::Error => PrimaryStatus::Error,
+        CodexInferredStatus::Unknown => PrimaryStatus::Running,
+    }
+}
+
+/// State tracked per thread to avoid emitting duplicate events.
+#[derive(Debug, Clone, Default)]
+struct ThreadEmitState {
+    last_status: Option<PrimaryStatus>,
+    last_tool_call: Option<String>,
+    emitted_subagent_ids: Vec<String>,
+    session_info_sent: bool,
+}
+
 // ── Detector Loop ─────────────────────────────────────────────────
 
 /// Run the Codex detector polling loop.
 ///
 /// Watches the Codex data directory for state changes by polling the
 /// SQLite database at `codex_data_dir/state_5.sqlite`.
-///
-/// Event emission is deferred to Task 6 when PID-to-session mapping
-/// is available.
 pub async fn run_codex_detector(
-    _tx: mpsc::Sender<AgentEvent>,
+    tx: mpsc::Sender<AgentEvent>,
     codex_data_dir: PathBuf,
     poll_interval: Duration,
+    registry: AgentRegistry,
 ) -> anyhow::Result<()> {
     let db_path = codex_data_dir.join("state_5.sqlite");
+    let mut thread_states: HashMap<String, ThreadEmitState> = HashMap::new();
 
     loop {
         if db_path.exists() {
@@ -462,12 +485,151 @@ pub async fn run_codex_detector(
             match result {
                 Ok(threads) => {
                     for thread in &threads {
-                        debug!(
-                            "Codex thread: {} title={:?} updated={}",
-                            thread.id, thread.title, thread.updated_at
-                        );
-                        // Event emission will be added in Task 6
-                        // when PID-to-session mapping is available.
+                        let cwd_str = match &thread.cwd {
+                            Some(c) => c,
+                            None => continue,
+                        };
+                        let cwd = PathBuf::from(cwd_str);
+
+                        let pid = match registry.find_pid(AgentTool::Codex, &cwd) {
+                            Some(p) => p,
+                            None => continue, // no matching process discovered yet
+                        };
+
+                        let state = thread_states
+                            .entry(thread.id.clone())
+                            .or_default();
+
+                        // Emit SessionInfo once per thread
+                        if !state.session_info_sent {
+                            let _ = tx
+                                .send(AgentEvent::SessionInfo {
+                                    pid,
+                                    tool: AgentTool::Codex,
+                                    session_id: thread.id.clone(),
+                                    branch: thread.git_branch.clone(),
+                                    is_worktree: false,
+                                })
+                                .await;
+                            state.session_info_sent = true;
+                        }
+
+                        // Infer status from rollout file if available
+                        if let Some(ref rollout_path) = thread.rollout_path {
+                            let rp = PathBuf::from(rollout_path);
+                            if rp.exists() {
+                                let rp2 = rp.clone();
+                                if let Ok(Ok(content)) = tokio::task::spawn_blocking(move || {
+                                    std::fs::read_to_string(&rp2)
+                                })
+                                .await
+                                {
+                                    let events = parse_rollout(&content);
+                                    let inferred = codex_to_primary(infer_rollout_status(&events));
+
+                                    if state.last_status != Some(inferred) {
+                                        let old =
+                                            state.last_status.unwrap_or(PrimaryStatus::Running);
+                                        let _ = tx
+                                            .send(AgentEvent::StatusChanged {
+                                                pid,
+                                                tool: AgentTool::Codex,
+                                                old,
+                                                new: inferred,
+                                            })
+                                            .await;
+                                        state.last_status = Some(inferred);
+                                    }
+
+                                    // Emit tool calls from rollout
+                                    let tools = extract_tool_calls(&events);
+                                    if let Some(latest) = tools.last() {
+                                        if state.last_tool_call.as_deref() != Some(&latest.name) {
+                                            let args = if latest.arguments.len() > 100 {
+                                                Some(latest.arguments[..100].to_string())
+                                            } else if latest.arguments != "{}" {
+                                                Some(latest.arguments.clone())
+                                            } else {
+                                                None
+                                            };
+                                            let _ = tx
+                                                .send(AgentEvent::ToolCallStarted {
+                                                    pid,
+                                                    tool: AgentTool::Codex,
+                                                    tool_name: latest.name.clone(),
+                                                    args_summary: args,
+                                                })
+                                                .await;
+                                            state.last_tool_call = Some(latest.name.clone());
+                                        }
+                                    }
+
+                                    // Emit subagent spawns from rollout
+                                    let spawns = extract_subagent_spawns(&events);
+                                    for spawn in &spawns {
+                                        if !state
+                                            .emitted_subagent_ids
+                                            .contains(&spawn.thread_id)
+                                        {
+                                            let _ = tx
+                                                .send(AgentEvent::SubagentSpawned {
+                                                    pid,
+                                                    tool: AgentTool::Codex,
+                                                    subagent: crate::types::Subagent {
+                                                        name: spawn.nickname.clone(),
+                                                        status: PrimaryStatus::Running,
+                                                        description: Some(spawn.role.clone()),
+                                                        started_at: chrono::Local::now(),
+                                                        ended_at: None,
+                                                    },
+                                                })
+                                                .await;
+                                            state
+                                                .emitted_subagent_ids
+                                                .push(spawn.thread_id.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Query spawn edges for subagent info from DB
+                        let thread_id = thread.id.clone();
+                        let db2 = db_path.clone();
+                        if let Ok(Ok(edges)) = tokio::task::spawn_blocking(move || {
+                            query_spawn_edges(&db2, &thread_id)
+                        })
+                        .await
+                        {
+                            for edge in &edges {
+                                if !state
+                                    .emitted_subagent_ids
+                                    .contains(&edge.child_thread_id)
+                                {
+                                    let sub_status = if edge.status == "completed" {
+                                        PrimaryStatus::Done
+                                    } else {
+                                        PrimaryStatus::Running
+                                    };
+                                    let _ = tx
+                                        .send(AgentEvent::SubagentSpawned {
+                                            pid,
+                                            tool: AgentTool::Codex,
+                                            subagent: crate::types::Subagent {
+                                                name: edge.child_thread_id.clone(),
+                                                status: sub_status,
+                                                description: None,
+                                                started_at: chrono::Local::now(),
+                                                ended_at: None,
+                                            },
+                                        })
+                                        .await;
+                                    state
+                                        .emitted_subagent_ids
+                                        .push(edge.child_thread_id.clone());
+                                }
+                            }
+                        }
                     }
                 }
                 Err(e) => {

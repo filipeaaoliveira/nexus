@@ -5,10 +5,11 @@ use std::time::Duration;
 use anyhow::Result;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::warn;
 
+use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::PrimaryStatus;
+use crate::types::{AgentTool, PrimaryStatus};
 
 // ── TranscriptEntry ───────────────────────────────────────────────
 
@@ -261,26 +262,86 @@ pub fn find_transcript_for_pid(transcripts_dir: &Path, session_prefix: &str) -> 
     best.map(|(p, _)| p)
 }
 
+// ── State tracking ────────────────────────────────────────────────
+
+/// Per-session emit state to avoid duplicate events.
+#[derive(Debug, Clone, Default)]
+struct SessionEmitState {
+    last_status: Option<PrimaryStatus>,
+    last_tool_call: Option<String>,
+    emitted_subagent_tools: Vec<String>,
+    session_info_sent: bool,
+    entry_count: usize,
+}
+
 // ── run_claude_detector ───────────────────────────────────────────
 
-/// Polling loop that watches Claude transcript files for changes.
+/// Polling loop that watches Claude transcript and project session files.
 ///
-/// Scans `claude_data_dir/transcripts/` for `.jsonl` files, tracks their
-/// sizes, and parses new content when files grow. Emits events via `tx`.
-///
-/// Note: This detector does not yet map sessions to PIDs — that mapping
-/// is handled by the integration layer (Task 6).
+/// Scans `claude_data_dir/projects/` for project session JSONL files to
+/// extract CWD→session mappings, then reads transcript files to emit
+/// enrichment events (status, tool calls, subagents).
 pub async fn run_claude_detector(
-    _tx: mpsc::Sender<AgentEvent>,
+    tx: mpsc::Sender<AgentEvent>,
     claude_data_dir: PathBuf,
     poll_interval: Duration,
+    registry: AgentRegistry,
 ) -> Result<()> {
     let transcripts_dir = claude_data_dir.join("transcripts");
+    let projects_dir = claude_data_dir.join("projects");
 
     // Track file sizes to detect new content
     let mut file_sizes: HashMap<PathBuf, u64> = HashMap::new();
+    // Track emit state per session (keyed by session_id or transcript path)
+    let mut session_states: HashMap<String, SessionEmitState> = HashMap::new();
 
     loop {
+        // Phase 1: Scan project session files to build CWD→session_id map
+        let mut cwd_to_session: HashMap<PathBuf, ProjectSessionInfo> = HashMap::new();
+
+        if projects_dir.exists() {
+            let pdir = projects_dir.clone();
+            let project_scan = tokio::task::spawn_blocking(move || {
+                let mut results = Vec::new();
+                // Projects dir contains subdirs per project, each with session JSONL files
+                if let Ok(project_dirs) = std::fs::read_dir(&pdir) {
+                    for project_entry in project_dirs.flatten() {
+                        let project_path = project_entry.path();
+                        if !project_path.is_dir() {
+                            continue;
+                        }
+                        if let Ok(session_files) = std::fs::read_dir(&project_path) {
+                            for file_entry in session_files.flatten() {
+                                let file_path = file_entry.path();
+                                let name = match file_path.file_name().and_then(|n| n.to_str()) {
+                                    Some(n) => n.to_string(),
+                                    None => continue,
+                                };
+                                if !name.ends_with(".jsonl") {
+                                    continue;
+                                }
+                                if let Ok(content) = std::fs::read_to_string(&file_path) {
+                                    let info = parse_project_session(&content);
+                                    if info.cwd.is_some() {
+                                        results.push(info);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                results
+            })
+            .await?;
+
+            for info in project_scan {
+                if let Some(ref cwd) = info.cwd {
+                    cwd_to_session.insert(cwd.clone(), info);
+                }
+            }
+        }
+
+        // Phase 2: Scan transcripts and emit enrichment events
         if transcripts_dir.exists() {
             let dir = transcripts_dir.clone();
             let sizes = file_sizes.clone();
@@ -325,23 +386,164 @@ pub async fn run_claude_detector(
             let (new_sizes, results) = scan_result;
             file_sizes = new_sizes;
 
-            for (file_path, current_size, entries) in &results {
-                let prev_size = file_sizes
-                    .get(file_path)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_sub(*current_size);
-                debug!(
-                    path = %file_path.display(),
-                    prev_size,
-                    current_size,
-                    "transcript file grew"
-                );
+            for (file_path, _current_size, entries) in &results {
+                // Try to find a matching CWD for this transcript via project sessions.
+                // Transcript filenames may contain a session ID prefix that matches
+                // a project session. For simplicity, we try matching all known CWDs
+                // against the registry.
+                let mut matched_pid: Option<u32> = None;
+                let mut matched_session: Option<&ProjectSessionInfo> = None;
 
-                let _status = infer_status_from_transcript(entries);
+                for (cwd, session_info) in &cwd_to_session {
+                    if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd) {
+                        // Check if this transcript belongs to this session by matching
+                        // the session_id in the filename
+                        if let Some(ref sid) = session_info.session_id {
+                            if let Some(fname) = file_path.file_name().and_then(|n| n.to_str()) {
+                                if fname.contains(sid) {
+                                    matched_pid = Some(pid);
+                                    matched_session = Some(session_info);
+                                    break;
+                                }
+                            }
+                        }
+                        // Fallback: if we only have one Claude process, use it
+                        if matched_pid.is_none() {
+                            matched_pid = Some(pid);
+                            matched_session = Some(session_info);
+                        }
+                    }
+                }
 
-                // Event emission will be added in Task 6
-                // when PID-to-session mapping is available.
+                // If no project session match, try all known Claude PIDs
+                if matched_pid.is_none() {
+                    let claude_agents = registry.agents_for_tool(AgentTool::Claude);
+                    if claude_agents.len() == 1 {
+                        matched_pid = Some(claude_agents[0].1);
+                    }
+                }
+
+                let pid = match matched_pid {
+                    Some(p) => p,
+                    None => continue, // no matching process discovered yet
+                };
+
+                let session_key = file_path.to_string_lossy().to_string();
+                let state = session_states.entry(session_key).or_default();
+
+                // Emit SessionInfo once
+                if !state.session_info_sent {
+                    if let Some(session_info) = matched_session {
+                        let _ = tx
+                            .send(AgentEvent::SessionInfo {
+                                pid,
+                                tool: AgentTool::Claude,
+                                session_id: session_info
+                                    .session_id
+                                    .clone()
+                                    .unwrap_or_default(),
+                                branch: session_info.branch.clone(),
+                                is_worktree: false,
+                            })
+                            .await;
+                    }
+                    state.session_info_sent = true;
+                }
+
+                // Only process new entries since last check
+                if entries.len() <= state.entry_count {
+                    continue;
+                }
+                let new_entries = &entries[state.entry_count..];
+                state.entry_count = entries.len();
+
+                // Infer status from transcript
+                let inferred = infer_status_from_transcript(entries);
+                let primary = inferred_to_primary(inferred);
+
+                if state.last_status != Some(primary) {
+                    let old = state.last_status.unwrap_or(PrimaryStatus::Running);
+                    let _ = tx
+                        .send(AgentEvent::StatusChanged {
+                            pid,
+                            tool: AgentTool::Claude,
+                            old,
+                            new: primary,
+                        })
+                        .await;
+                    state.last_status = Some(primary);
+                }
+
+                // Emit tool call events from new entries
+                for entry in new_entries {
+                    match entry {
+                        TranscriptEntry::ToolUse {
+                            tool_name,
+                            tool_input,
+                            ..
+                        } => {
+                            // Check for subagent spawn (Task tool with subagent_type)
+                            if tool_name == "task" {
+                                if let Some(subagent_type) = tool_input
+                                    .get("subagent_type")
+                                    .and_then(|v| v.as_str())
+                                {
+                                    let key = format!("{}:{}", tool_name, subagent_type);
+                                    if !state.emitted_subagent_tools.contains(&key) {
+                                        let description = tool_input
+                                            .get("description")
+                                            .and_then(|v| v.as_str())
+                                            .map(String::from);
+                                        let _ = tx
+                                            .send(AgentEvent::SubagentSpawned {
+                                                pid,
+                                                tool: AgentTool::Claude,
+                                                subagent: crate::types::Subagent {
+                                                    name: subagent_type.to_string(),
+                                                    status: PrimaryStatus::Running,
+                                                    description,
+                                                    started_at: chrono::Local::now(),
+                                                    ended_at: None,
+                                                },
+                                            })
+                                            .await;
+                                        state.emitted_subagent_tools.push(key);
+                                    }
+                                    continue;
+                                }
+                            }
+
+                            // Regular tool call
+                            if state.last_tool_call.as_deref() != Some(tool_name) {
+                                let args_summary = tool_input
+                                    .get("command")
+                                    .or_else(|| tool_input.get("filePath"))
+                                    .or_else(|| tool_input.get("pattern"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                let _ = tx
+                                    .send(AgentEvent::ToolCallStarted {
+                                        pid,
+                                        tool: AgentTool::Claude,
+                                        tool_name: tool_name.clone(),
+                                        args_summary,
+                                    })
+                                    .await;
+                                state.last_tool_call = Some(tool_name.clone());
+                            }
+                        }
+                        TranscriptEntry::ToolResult { tool_name, .. } => {
+                            let _ = tx
+                                .send(AgentEvent::ToolCallCompleted {
+                                    pid,
+                                    tool: AgentTool::Claude,
+                                    tool_name: tool_name.clone(),
+                                })
+                                .await;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
 

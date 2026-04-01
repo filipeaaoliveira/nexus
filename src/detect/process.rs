@@ -41,15 +41,19 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
 }
 
 fn detect_tool_from_command(cmd: &str) -> Option<AgentTool> {
-    let lower = cmd.to_lowercase();
-    if lower.contains("/opencode") || lower.starts_with("opencode") {
-        return Some(AgentTool::OpenCode);
-    }
-    if lower.contains("/claude") || lower.starts_with("claude") {
-        return Some(AgentTool::Claude);
-    }
-    if lower.contains("/codex") || lower.starts_with("codex") {
-        return Some(AgentTool::Codex);
+    // Check each token in the command for a matching binary name.
+    // For commands like `node /Users/dev/.claude/local/claude`, the executable
+    // is `node` but the script path ends with `claude`. We extract the filename
+    // (after the last `/`) from each token and match exactly against known names.
+    for token in cmd.split_whitespace() {
+        let binary_name = token.rsplit('/').next().unwrap_or(token);
+        let lower = binary_name.to_lowercase();
+        match lower.as_str() {
+            "opencode" => return Some(AgentTool::OpenCode),
+            "claude" => return Some(AgentTool::Claude),
+            "codex" => return Some(AgentTool::Codex),
+            _ => {}
+        }
     }
     None
 }

@@ -51,8 +51,6 @@ fn test_agent_id_uniqueness() {
 fn test_agent_elapsed_time() {
     let agent = Agent {
         id: AgentId::new(AgentTool::Claude, 1000),
-        tool: AgentTool::Claude,
-        pid: 1000,
         status: PrimaryStatus::Running,
         activity: Some(Activity::Generating),
         cwd: std::path::PathBuf::from("/tmp/test"),

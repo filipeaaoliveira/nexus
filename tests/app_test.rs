@@ -27,8 +27,8 @@ fn test_discover_agent() {
         cwd: PathBuf::from("/tmp/project"),
     });
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].pid, 1234);
-    assert_eq!(state.agents[0].tool, AgentTool::Claude);
+    assert_eq!(state.agents[0].id.pid, 1234);
+    assert_eq!(state.agents[0].id.tool, AgentTool::Claude);
     assert_eq!(state.agents[0].status, PrimaryStatus::Running);
     assert_eq!(state.selected, Some(0));
 }
@@ -211,9 +211,9 @@ fn test_visible_agents_sort_by_urgency() {
     });
     // Urgency sort: Waiting < Running < Done
     let visible = state.visible_agents();
-    assert_eq!(visible[0].pid, 3); // Waiting
-    assert_eq!(visible[1].pid, 2); // Running
-    assert_eq!(visible[2].pid, 1); // Done
+    assert_eq!(visible[0].id.pid, 3); // Waiting
+    assert_eq!(visible[1].id.pid, 2); // Running
+    assert_eq!(visible[2].id.pid, 1); // Done
 }
 
 #[test]
@@ -233,9 +233,9 @@ fn test_visible_agents_sort_by_name() {
     }
     let visible = state.visible_agents();
     // Alphabetical: claude < codex < opencode
-    assert_eq!(visible[0].tool, AgentTool::Claude);
-    assert_eq!(visible[1].tool, AgentTool::Codex);
-    assert_eq!(visible[2].tool, AgentTool::OpenCode);
+    assert_eq!(visible[0].id.tool, AgentTool::Claude);
+    assert_eq!(visible[1].id.tool, AgentTool::Codex);
+    assert_eq!(visible[2].id.tool, AgentTool::OpenCode);
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn test_visible_agents_filter() {
     state.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].tool, AgentTool::Claude);
+    assert_eq!(visible[0].id.tool, AgentTool::Claude);
 
     // Filter for status "RUNNING" — should match all
     state.filter = Some("running".to_string());
@@ -291,7 +291,7 @@ fn test_filter_by_tool_name() {
     state.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].tool, AgentTool::Claude);
+    assert_eq!(visible[0].id.tool, AgentTool::Claude);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn test_filter_by_branch() {
     state.filter = Some("auth".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].pid, 1);
+    assert_eq!(visible[0].id.pid, 1);
 }
 
 #[test]
@@ -351,5 +351,28 @@ fn test_filter_by_status() {
     state.filter = Some("waiting".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].pid, 1);
+    assert_eq!(visible[0].id.pid, 1);
+}
+
+#[test]
+fn test_filter_clamps_selected_index() {
+    let mut state = make_state();
+    // Add 4 agents
+    for pid in [1, 2, 3, 4] {
+        state.handle_event(AgentEvent::Discovered {
+            tool: AgentTool::Claude,
+            pid,
+            cwd: PathBuf::from(format!("/tmp/{pid}")),
+        });
+    }
+    // Select the last agent (index 3)
+    state.selected = Some(3);
+
+    // Apply a filter that matches only 1 agent by cwd
+    state.start_filter();
+    state.filter_push_char('1');
+
+    // Only 1 visible agent, so selected must be clamped to 0
+    assert_eq!(state.visible_agents().len(), 1);
+    assert_eq!(state.selected, Some(0));
 }

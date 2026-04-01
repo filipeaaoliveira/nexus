@@ -116,8 +116,6 @@ pub struct Subagent {
 #[derive(Debug, Clone)]
 pub struct Agent {
     pub id: AgentId,
-    pub tool: AgentTool,
-    pub pid: u32,
     pub status: PrimaryStatus,
     pub activity: Option<Activity>,
     pub cwd: PathBuf,
@@ -140,7 +138,7 @@ impl Agent {
     }
 
     pub fn display_name(&self) -> &str {
-        self.tool.as_str()
+        self.id.tool.as_str()
     }
 }
 

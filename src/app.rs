@@ -47,8 +47,6 @@ impl AppState {
                 let now = Local::now();
                 self.agents.push(Agent {
                     id,
-                    tool,
-                    pid,
                     status: PrimaryStatus::Running,
                     activity: None,
                     cwd,
@@ -213,10 +211,10 @@ impl AppState {
         match self.sort_mode {
             SortMode::Urgency => agents.sort_by_key(|a| a.status),
             SortMode::Name => agents.sort_by(|a, b| {
-                a.tool
+                a.id.tool
                     .as_str()
-                    .cmp(b.tool.as_str())
-                    .then_with(|| a.pid.cmp(&b.pid))
+                    .cmp(b.id.tool.as_str())
+                    .then_with(|| a.id.pid.cmp(&b.id.pid))
             }),
             SortMode::Elapsed => {
                 agents.sort_by(|a, b| a.started_at.cmp(&b.started_at));
@@ -264,6 +262,7 @@ impl AppState {
         self.filter_mode = false;
         self.filter = None;
         self.filter_input.clear();
+        self.clamp_selection();
     }
 
     pub fn start_filter(&mut self) {
@@ -288,11 +287,24 @@ impl AppState {
         } else {
             Some(self.filter_input.clone())
         };
+        self.clamp_selection();
     }
 
     pub fn confirm_filter(&mut self) {
         self.filter_mode = false;
         // Keep filter active
+        self.clamp_selection();
+    }
+
+    fn clamp_selection(&mut self) {
+        let count = self.visible_agents().len();
+        if count == 0 {
+            self.selected = None;
+        } else if let Some(idx) = self.selected {
+            if idx >= count {
+                self.selected = Some(count - 1);
+            }
+        }
     }
 
     fn find_agent_mut(&mut self, pid: u32, tool: AgentTool) -> Option<&mut Agent> {

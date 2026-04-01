@@ -5,41 +5,32 @@ use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
 use ai_overview::input;
 use clap::Parser;
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::ExecutableCommand;
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
-use std::fs::File;
+use std::io::{IsTerminal, stdout};
 use std::time::Duration;
 use tokio::sync::mpsc;
-
-/// Open /dev/tty directly for the ratatui backend.
-///
-/// When running inside OpenCode (or similar agent wrappers), stdout is
-/// redirected to a socket, so `ratatui::init()` (which uses stdout) fails
-/// with "Device not configured" because crossterm cannot query the terminal
-/// size on a non-TTY fd. Opening /dev/tty gives us a real terminal device.
-fn init_terminal() -> anyhow::Result<Terminal<CrosstermBackend<File>>> {
-    terminal::enable_raw_mode()?;
-    let mut tty = File::options().read(true).write(true).open("/dev/tty")?;
-    tty.execute(EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(tty);
-    let terminal = Terminal::new(backend)?;
-    Ok(terminal)
-}
-
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<File>>) {
-    let _ = terminal::disable_raw_mode();
-    let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
-}
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
+    // Initialize tracing — log to a file so debug output doesn't corrupt the TUI.
+    // Use RUST_LOG env var to control level (default: warn).
+    // Logs go to /tmp/ai-overview.log when enabled.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
+    let log_file = std::fs::File::create("/tmp/ai-overview.log")?;
     tracing_subscriber::fmt()
-        .with_env_filter("ai_overview=debug")
-        .with_writer(std::io::stderr)
+        .with_env_filter(filter)
+        .with_writer(log_file)
+        .with_ansi(false)
         .init();
+
+    // Check that we're running in a real terminal (like Codex CLI does).
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!("stdin is not a terminal — ai-overview must run in an interactive terminal");
+    }
+    if !stdout().is_terminal() {
+        anyhow::bail!("stdout is not a terminal — ai-overview must run in an interactive terminal");
+    }
 
     let cli = Cli::parse();
     let config = Config::from_cli(&cli);
@@ -47,17 +38,17 @@ async fn main() -> anyhow::Result<()> {
 
     let mut rx = detect::spawn_detectors(&config);
 
-    let mut terminal = init_terminal()?;
+    let mut terminal = ratatui::init();
     terminal.clear()?;
 
     let result = run_loop(&mut terminal, &mut state, &mut rx).await;
 
-    restore_terminal(&mut terminal);
+    ratatui::restore();
     result
 }
 
 async fn run_loop(
-    terminal: &mut Terminal<CrosstermBackend<File>>,
+    terminal: &mut ratatui::DefaultTerminal,
     state: &mut AppState,
     rx: &mut mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {

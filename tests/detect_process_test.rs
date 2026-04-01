@@ -28,3 +28,54 @@ fn test_parse_ps_output_handles_empty() {
     let procs = parse_ps_output("");
     assert!(procs.is_empty());
 }
+
+#[test]
+fn test_no_false_positive_on_username_path() {
+    // /Users/claudette/bin/python should NOT match as Claude
+    let output = "  PID COMMAND\n11111 /Users/claudette/bin/python\n";
+    let procs = parse_ps_output(output);
+    assert!(
+        procs.is_empty(),
+        "path containing 'claude' as a directory name should not match"
+    );
+}
+
+#[test]
+fn test_no_false_positive_on_lib_path() {
+    // /home/user/codex-lib/main should NOT match as Codex
+    let output = "  PID COMMAND\n22222 /home/user/codex-lib/main\n";
+    let procs = parse_ps_output(output);
+    assert!(
+        procs.is_empty(),
+        "path containing 'codex' as a directory prefix should not match"
+    );
+}
+
+#[test]
+fn test_matches_binary_with_flags() {
+    // /usr/local/bin/claude --flag should match as Claude
+    let output = "  PID COMMAND\n33333 /usr/local/bin/claude --flag\n";
+    let procs = parse_ps_output(output);
+    assert_eq!(procs.len(), 1);
+    assert_eq!(procs[0].pid, 33333);
+    assert_eq!(procs[0].tool, AgentTool::Claude);
+}
+
+#[test]
+fn test_matches_bare_command() {
+    // bare `opencode` command should match
+    let output = "  PID COMMAND\n44444 opencode\n";
+    let procs = parse_ps_output(output);
+    assert_eq!(procs.len(), 1);
+    assert_eq!(procs[0].pid, 44444);
+    assert_eq!(procs[0].tool, AgentTool::OpenCode);
+}
+
+#[test]
+fn test_matches_codex_with_args() {
+    let output = "  PID COMMAND\n55555 codex --model gpt-4\n";
+    let procs = parse_ps_output(output);
+    assert_eq!(procs.len(), 1);
+    assert_eq!(procs[0].pid, 55555);
+    assert_eq!(procs[0].tool, AgentTool::Codex);
+}

@@ -5,8 +5,33 @@ use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
 use ai_overview::input;
 use clap::Parser;
+use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::ExecutableCommand;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
+use std::fs::File;
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// Open /dev/tty directly for the ratatui backend.
+///
+/// When running inside OpenCode (or similar agent wrappers), stdout is
+/// redirected to a socket, so `ratatui::init()` (which uses stdout) fails
+/// with "Device not configured" because crossterm cannot query the terminal
+/// size on a non-TTY fd. Opening /dev/tty gives us a real terminal device.
+fn init_terminal() -> anyhow::Result<Terminal<CrosstermBackend<File>>> {
+    terminal::enable_raw_mode()?;
+    let mut tty = File::options().read(true).write(true).open("/dev/tty")?;
+    tty.execute(EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(tty);
+    let terminal = Terminal::new(backend)?;
+    Ok(terminal)
+}
+
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<File>>) {
+    let _ = terminal::disable_raw_mode();
+    let _ = terminal.backend_mut().execute(LeaveAlternateScreen);
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,17 +47,17 @@ async fn main() -> anyhow::Result<()> {
 
     let mut rx = detect::spawn_detectors(&config);
 
-    let mut terminal = ratatui::init();
+    let mut terminal = init_terminal()?;
     terminal.clear()?;
 
     let result = run_loop(&mut terminal, &mut state, &mut rx).await;
 
-    ratatui::restore();
+    restore_terminal(&mut terminal);
     result
 }
 
 async fn run_loop(
-    terminal: &mut ratatui::DefaultTerminal,
+    terminal: &mut Terminal<CrosstermBackend<File>>,
     state: &mut AppState,
     rx: &mut mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {

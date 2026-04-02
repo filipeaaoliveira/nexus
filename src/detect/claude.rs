@@ -350,9 +350,13 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                     return NormalizedState::new(NormalizedStatus::Unknown, None);
                 }
                 TranscriptEntry::Assistant { content, .. } => {
-                    if let Some(state) = classify_assistant(content) {
-                        return state;
+                    let trimmed = content.trim();
+                    if trimmed.is_empty() {
+                        continue;
                     }
+                    return classify_assistant(trimmed).unwrap_or_else(|| {
+                        NormalizedState::new(NormalizedStatus::Unknown, None)
+                    });
                 }
             }
         }
@@ -372,9 +376,12 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                 return NormalizedState::new(NormalizedStatus::Working, None);
             }
             TranscriptEntry::Assistant { content, .. } => {
-                if let Some(state) = classify_assistant(content) {
-                    return state;
+                let trimmed = content.trim();
+                if trimmed.is_empty() {
+                    continue;
                 }
+                return classify_assistant(trimmed)
+                    .unwrap_or_else(|| NormalizedState::new(NormalizedStatus::Working, None));
             }
         }
     }

@@ -108,6 +108,19 @@ fn test_normalize_claude_review_text_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_normalize_claude_recent_generic_assistant_text_maps_to_working() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "I have reviewed the files and I am moving on.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
 fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
     let entries = vec![TranscriptEntry::User {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -160,6 +173,19 @@ fn test_normalize_claude_stale_blocked_still_maps_to_error() {
 
     assert_eq!(normalized.status, NormalizedStatus::Blocked);
     assert_eq!(normalized.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
+fn test_normalize_claude_stale_generic_assistant_text_maps_to_unknown() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "I have reviewed the files and I am moving on.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -256,6 +282,25 @@ fn test_normalize_claude_stale_trailing_user_activity_maps_to_unknown() {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "Please keep going.".to_string(),
     }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_stale_generic_assistant_after_older_review_does_not_revive_review() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Findings:\n- The implementation is solid overall.".to_string(),
+        },
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            content: "I have reviewed the files and I am moving on.".to_string(),
+        },
+    ];
 
     let normalized = normalize_claude_state(&entries, true);
 

@@ -758,17 +758,37 @@ fn looks_like_review_output(text: &str) -> bool {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    [
+    if [
         "### issues",
         "#### critical",
-        "requested changes",
-        "review findings",
         "merge-readiness assessment",
         "review assessment",
-        "audit findings",
     ]
     .iter()
     .any(|marker| lower.contains(marker))
+    {
+        return true;
+    }
+
+    [
+        "requested changes",
+        "review findings",
+        "audit findings",
+    ]
+    .iter()
+    .any(|marker| contains_review_section_marker(trimmed, marker))
+}
+
+fn contains_review_section_marker(text: &str, marker: &str) -> bool {
+    text.lines().map(str::trim_start).any(|line| {
+        let line = line.trim_start_matches(|ch: char| matches!(ch, '#' | '>' | '-' | '*' | ' ' | '\t'));
+        let lower = line.to_ascii_lowercase();
+
+        lower == marker
+            || lower.starts_with(&format!("{marker}:"))
+            || lower.starts_with(&format!("{marker} -"))
+            || lower.starts_with(&format!("{marker} "))
+    })
 }
 
 pub fn normalize_codex_session(

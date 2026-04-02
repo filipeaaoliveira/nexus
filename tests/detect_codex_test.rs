@@ -542,6 +542,17 @@ fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
 }
 
 #[test]
+fn test_codex_requested_changes_phrase_inside_completion_message_stays_done() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
+    let normalized =
+        normalize_codex_session(&session, Some("Implemented the requested changes and tests pass."));
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {

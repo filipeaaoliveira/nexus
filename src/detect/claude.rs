@@ -233,6 +233,9 @@ fn looks_like_review_output(text: &str) -> bool {
         "#### critical",
         "merge-readiness assessment",
         "review assessment",
+        "review findings",
+        "audit findings",
+        "requested changes",
     ]
     .iter()
     .any(|marker| lower.contains(marker))
@@ -241,31 +244,11 @@ fn looks_like_review_output(text: &str) -> bool {
     }
 
     [
-        "review findings",
-        "audit findings",
-        "findings",
-        "review report",
-        "report",
+        "issues",
         "requested changes",
     ]
     .iter()
     .any(|marker| contains_review_section_marker(trimmed, marker))
-}
-
-fn looks_like_user_choice_frame(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    [
-        "would you like me to",
-        "do you want me to",
-        "should i",
-        "can i",
-        "let me know if you'd like",
-        "let me know if you want",
-        "choose one",
-        "pick one",
-    ]
-    .iter()
-    .any(|marker| lower.contains(marker))
 }
 
 fn looks_like_terminal_failure_output(text: &str) -> bool {
@@ -276,21 +259,26 @@ fn looks_like_terminal_failure_output(text: &str) -> bool {
 
     let lower = trimmed.to_ascii_lowercase();
     let failure_markers = [
-        "cannot continue",
-        "can't continue",
-        "unable to continue",
-        "unrecoverable error",
-        "fatal error",
-        "failed permanently",
-        "blocking error",
+        "i can't continue",
+        "i cannot continue",
         "i'm blocked",
         "i am blocked",
+        "unable to continue",
+        "cannot continue",
+        "can't continue",
+        "unrecoverable error",
+        "failed permanently",
+        "blocking error",
         "could not complete",
         "can't complete",
         "cannot complete",
     ];
 
-    failure_markers.iter().any(|marker| lower.contains(marker)) && !looks_like_user_choice_frame(trimmed)
+    if failure_markers.iter().any(|marker| lower.contains(marker)) {
+        return true;
+    }
+
+    false
 }
 
 fn looks_like_done_output(text: &str) -> bool {

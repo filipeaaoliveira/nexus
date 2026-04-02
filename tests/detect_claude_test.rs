@@ -98,13 +98,30 @@ fn test_infer_status_from_empty() {
 fn test_normalize_claude_review_text_maps_to_needs_input_review() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
-        content: "Findings:\n- The implementation is solid overall.".to_string(),
+        content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, false);
 
     assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
     assert_eq!(normalized.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
+fn test_parse_transcript_parses_assistant_entry_and_normalizes_working() {
+    let content = concat!(
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-02T10:00:00Z\",\"content\":[",
+        "{\"type\":\"text\",\"text\":\"I have reviewed the files and I am moving on.\"}",
+        "]}\n"
+    );
+
+    let entries = parse_transcript(content);
+    assert_eq!(entries.len(), 1);
+    assert!(matches!(entries[0], TranscriptEntry::Assistant { .. }));
+
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -137,7 +154,7 @@ fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
 fn test_normalize_claude_stale_review_still_maps_to_needs_input_review() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
-        content: "Findings:\n- The implementation is solid overall.".to_string(),
+        content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, true);
@@ -173,6 +190,32 @@ fn test_normalize_claude_stale_blocked_still_maps_to_error() {
 
     assert_eq!(normalized.status, NormalizedStatus::Blocked);
     assert_eq!(normalized.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
+fn test_normalize_claude_generic_report_text_does_not_map_to_review() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Report:\nI investigated the codebase and summarized the findings.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_error_log_reference_does_not_map_to_blocked() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "I found fatal error in the logs and fixed it.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -229,7 +272,7 @@ fn test_normalize_claude_newer_user_overrides_older_assistant_review() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "Findings:\n- The implementation is solid overall.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
         },
         TranscriptEntry::User {
             timestamp: "2026-04-02T10:01:00Z".to_string(),
@@ -248,7 +291,7 @@ fn test_normalize_claude_newer_tool_result_overrides_older_assistant_review() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "Findings:\n- The implementation is solid overall.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
         },
         TranscriptEntry::ToolResult {
             timestamp: "2026-04-02T10:01:00Z".to_string(),
@@ -294,7 +337,7 @@ fn test_normalize_claude_stale_generic_assistant_after_older_review_does_not_rev
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "Findings:\n- The implementation is solid overall.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
         },
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:01:00Z".to_string(),

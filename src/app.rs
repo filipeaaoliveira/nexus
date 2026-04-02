@@ -62,6 +62,7 @@ impl AppState {
                     subagents: Vec::new(),
                     recent_events: VecDeque::new(),
                     session_id: None,
+                    alias: None,
                 });
                 if self.selected.is_none() {
                     self.selected = Some(0);

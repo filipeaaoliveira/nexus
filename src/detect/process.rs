@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 pub struct ProcessInfo {
     pub pid: u32,
     pub tool: AgentTool,
+    pub started_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
@@ -35,7 +36,7 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
             Err(_) => continue,
         };
         if let Some(tool) = detect_tool_from_command(cmd) {
-            results.push(ProcessInfo { pid, tool });
+            results.push(ProcessInfo { pid, tool, started_at: None });
         }
     }
     results

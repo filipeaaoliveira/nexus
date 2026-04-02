@@ -79,6 +79,7 @@ pub enum Activity {
     ToolCall,
     Idle,
     Thinking,
+    Compacting,
 }
 
 impl Activity {
@@ -88,6 +89,7 @@ impl Activity {
             Activity::ToolCall => "tool call",
             Activity::Idle => "idle",
             Activity::Thinking => "thinking",
+            Activity::Compacting => "compacting",
         }
     }
 }
@@ -144,6 +146,7 @@ pub struct Agent {
     pub subagents: Vec<Subagent>,
     pub recent_events: VecDeque<ActivityEvent>,
     pub session_id: Option<String>,
+    pub alias: Option<String>,
 }
 
 impl Agent {
@@ -156,7 +159,7 @@ impl Agent {
     }
 
     pub fn display_name(&self) -> &str {
-        self.id.tool.as_str()
+        self.alias.as_deref().unwrap_or(self.id.tool.as_str())
     }
 }
 

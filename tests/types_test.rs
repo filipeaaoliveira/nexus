@@ -61,6 +61,7 @@ fn test_agent_elapsed_time() {
         subagents: vec![],
         recent_events: std::collections::VecDeque::new(),
         session_id: None,
+        alias: None,
     };
     let elapsed = agent.elapsed();
     assert!(elapsed >= chrono::Duration::minutes(4));
@@ -110,6 +111,50 @@ fn test_from_rfc3339_valid() {
 fn test_from_rfc3339_invalid_returns_none() {
     assert!(from_rfc3339("not-a-date").is_none());
     assert!(from_rfc3339("").is_none());
+}
+
+#[test]
+fn test_activity_compacting_as_str() {
+    assert_eq!(Activity::Compacting.as_str(), "compacting");
+    assert_eq!(format!("{}", Activity::Compacting), "compacting");
+}
+
+#[test]
+fn test_display_name_without_alias() {
+    let agent = Agent {
+        id: AgentId::new(AgentTool::Claude, 100),
+        status: PrimaryStatus::Running,
+        activity: None,
+        cwd: std::path::PathBuf::from("/tmp"),
+        branch: None,
+        is_worktree: false,
+        started_at: chrono::Local::now(),
+        last_activity: chrono::Local::now(),
+        subagents: Vec::new(),
+        recent_events: std::collections::VecDeque::new(),
+        session_id: None,
+        alias: None,
+    };
+    assert_eq!(agent.display_name(), "claude");
+}
+
+#[test]
+fn test_display_name_with_alias() {
+    let agent = Agent {
+        id: AgentId::new(AgentTool::OpenCode, 200),
+        status: PrimaryStatus::Running,
+        activity: None,
+        cwd: std::path::PathBuf::from("/tmp"),
+        branch: None,
+        is_worktree: false,
+        started_at: chrono::Local::now(),
+        last_activity: chrono::Local::now(),
+        subagents: Vec::new(),
+        recent_events: std::collections::VecDeque::new(),
+        session_id: None,
+        alias: Some("my-agent".to_string()),
+    };
+    assert_eq!(agent.display_name(), "my-agent");
 }
 
 #[test]

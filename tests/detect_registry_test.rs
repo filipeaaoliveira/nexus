@@ -3,18 +3,30 @@ use ai_overview::types::AgentTool;
 use std::path::PathBuf;
 
 #[test]
-fn test_codex_registry_preserves_multiple_pids_per_cwd() {
+fn test_codex_registry_returns_none_for_ambiguous_cwd() {
     let registry = AgentRegistry::new();
     let cwd = PathBuf::from("/tmp/project");
 
     registry.register(AgentTool::Codex, cwd.clone(), 101);
     registry.register(AgentTool::Codex, cwd.clone(), 202);
 
-    assert_eq!(registry.find_pid(AgentTool::Codex, &cwd), Some(101));
+    assert_eq!(registry.find_pid(AgentTool::Codex, &cwd), None);
     assert_eq!(registry.find_pids(AgentTool::Codex, &cwd), vec![101, 202]);
 
     let agents = registry.agents_for_tool(AgentTool::Codex);
     assert_eq!(agents, vec![(cwd, 101), (PathBuf::from("/tmp/project"), 202)]);
+}
+
+#[test]
+fn test_codex_registry_returns_pid_for_single_cwd_candidate() {
+    let registry = AgentRegistry::new();
+    let cwd = PathBuf::from("/tmp/project");
+
+    registry.register(AgentTool::Codex, cwd.clone(), 101);
+
+    assert_eq!(registry.find_pid(AgentTool::Codex, &cwd), Some(101));
+    assert_eq!(registry.find_pids(AgentTool::Codex, &cwd), vec![101]);
+    assert_eq!(registry.agents_for_tool(AgentTool::Codex), vec![(cwd, 101)]);
 }
 
 #[test]

@@ -42,8 +42,15 @@ impl AgentRegistry {
     /// Find a PID by tool and CWD. Used by enrichment detectors.
     pub fn find_pid(&self, tool: AgentTool, cwd: &Path) -> Option<u32> {
         let map = self.inner.read().unwrap();
-        map.get(&(tool, cwd.to_path_buf()))
-            .and_then(|pids| pids.first().copied())
+        let pids = map.get(&(tool, cwd.to_path_buf()))?;
+        if tool == AgentTool::Codex {
+            match pids.as_slice() {
+                [pid] => Some(*pid),
+                _ => None,
+            }
+        } else {
+            pids.first().copied()
+        }
     }
 
     /// Find all PIDs by tool and CWD.

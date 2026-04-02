@@ -65,7 +65,7 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     naive
                         .and_local_timezone(Local)
                         .single()
-                        .unwrap_or_else(|| Local::now())
+                        .unwrap_or_else(Local::now)
                 });
 
             if let Some(tool) = detect_tool_from_command(cmd) {

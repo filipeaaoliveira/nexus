@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_epoch_millis, Activity, AgentTool, PrimaryStatus};
+use crate::types::{from_epoch_millis, Activity, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[derive(Debug, Clone)]
@@ -239,6 +239,33 @@ pub fn query_subagent_sessions(
     Ok(sessions)
 }
 
+/// Query todo items for a specific session from the OpenCode database.
+pub fn query_session_todos(db_path: &Path, session_id: &str) -> anyhow::Result<Vec<TodoItem>> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let mut stmt = conn.prepare(
+        "SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position ASC",
+    )?;
+    let todos = stmt
+        .query_map(rusqlite::params![session_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .map(|(content, status, priority)| TodoItem {
+            content,
+            status: TodoStatus::from_str(&status),
+            priority: TodoPriority::from_str(&priority),
+        })
+        .collect();
+    Ok(todos)
+}
+
 /// Check whether the latest assistant message's turn is completed.
 ///
 /// Returns `true` if `time.completed` is set on the latest assistant message,
@@ -288,6 +315,7 @@ struct SessionEmitState {
     last_part_time: i64,
     emitted_subagent_ids: Vec<String>,
     session_info_sent: bool,
+    last_todos: Vec<TodoItem>,
 }
 
 /// Infer a primary status from recent parts for an OpenCode session.
@@ -438,7 +466,13 @@ pub async fn run_opencode_detector(
                                 .query_map(rusqlite::params![&session_id, 5_i64], |row| {
                                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                                 })?
-                                .filter_map(|r| r.ok())
+        .filter_map(|r| match r {
+            Ok(t) => Some(t),
+            Err(e) => {
+                debug!("failed to parse todo row: {e}");
+                None
+            }
+        })
                                 .filter_map(|(json, tc)| parse_part_data(&json, tc))
                                 .collect();
 
@@ -579,6 +613,26 @@ pub async fn run_opencode_detector(
                                         .await;
                                     state.emitted_subagent_ids.push(sub.id.clone());
                                 }
+                            }
+                        }
+
+                        // Query todos and emit if changed
+                        let todo_session_id = session.id.clone();
+                        let db4 = db_path.clone();
+                        if let Ok(Ok(todos)) = tokio::task::spawn_blocking(move || {
+                            query_session_todos(&db4, &todo_session_id)
+                        })
+                        .await
+                        {
+                            if todos != state.last_todos {
+                                let _ = tx
+                                    .send(AgentEvent::TodosUpdated {
+                                        pid,
+                                        tool: AgentTool::OpenCode,
+                                        todos: todos.clone(),
+                                    })
+                                    .await;
+                                state.last_todos = todos;
                             }
                         }
                     }

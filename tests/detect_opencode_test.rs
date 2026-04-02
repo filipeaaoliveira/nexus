@@ -1,5 +1,5 @@
 use ai_overview::detect::opencode::*;
-use ai_overview::types::{Activity, PrimaryStatus};
+use ai_overview::types::{Activity, PrimaryStatus, TodoPriority, TodoStatus};
 use std::path::PathBuf;
 
 /// Create a temporary SQLite DB with the `message` table for testing.
@@ -268,4 +268,130 @@ fn test_non_compaction_part_not_affected() {
     }];
     let activity = infer_activity_from_parts(&parts);
     assert_eq!(activity, Some(Activity::Generating));
+}
+
+// ── Todo query tests ──────────────────────────────────────────────
+
+/// Helper: create a temp DB with the `todo` table.
+fn setup_todo_db(dir: &std::path::Path) -> std::path::PathBuf {
+    let db_path = dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE todo (
+            session_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            PRIMARY KEY (session_id, position)
+        );",
+    )
+    .unwrap();
+    db_path
+}
+
+#[test]
+fn test_query_session_todos_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert!(todos.is_empty());
+}
+
+#[test]
+fn test_query_session_todos_basic() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Fix bug", "in_progress", "high", 0, 1000, 1000],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Write tests", "pending", "medium", 1, 1001, 1001],
+    ).unwrap();
+
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert_eq!(todos.len(), 2);
+    assert_eq!(todos[0].content, "Fix bug");
+    assert_eq!(todos[0].status, TodoStatus::InProgress);
+    assert_eq!(todos[0].priority, TodoPriority::High);
+    assert_eq!(todos[1].content, "Write tests");
+    assert_eq!(todos[1].status, TodoStatus::Pending);
+    assert_eq!(todos[1].priority, TodoPriority::Medium);
+}
+
+#[test]
+fn test_query_session_todos_filters_by_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Task A", "pending", "high", 0, 1000, 1000],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-2", "Task B", "completed", "low", 0, 1000, 1000],
+    ).unwrap();
+
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].content, "Task A");
+}
+
+#[test]
+fn test_query_session_todos_ordered_by_position() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Third", "pending", "low", 2, 1000, 1000],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "First", "completed", "high", 0, 1000, 1000],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Second", "in_progress", "medium", 1, 1000, 1000],
+    ).unwrap();
+
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert_eq!(todos.len(), 3);
+    assert_eq!(todos[0].content, "First");
+    assert_eq!(todos[1].content, "Second");
+    assert_eq!(todos[2].content, "Third");
+}
+
+#[test]
+fn test_query_session_todos_unknown_status_defaults_to_pending() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Mystery", "some_new_status", "medium", 0, 1000, 1000],
+    ).unwrap();
+
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert_eq!(todos[0].status, TodoStatus::Pending);
+}
+
+#[test]
+fn test_query_session_todos_unknown_priority_defaults_to_medium() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_todo_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Mystery", "pending", "critical", 0, 1000, 1000],
+    ).unwrap();
+
+    let todos = query_session_todos(&db_path, "sess-1").unwrap();
+    assert_eq!(todos[0].priority, TodoPriority::Medium);
 }

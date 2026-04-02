@@ -461,6 +461,38 @@ pub fn query_spawn_edges(db_path: &Path, parent_thread_id: &str) -> anyhow::Resu
     Ok(edges)
 }
 
+/// Query all spawn edges (parent→child thread relationships) from the SQLite database.
+pub fn query_all_spawn_edges(db_path: &Path) -> anyhow::Result<Vec<SpawnEdge>> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT parent_thread_id, child_thread_id, status
+         FROM thread_spawn_edges",
+    )?;
+
+    let edges = stmt
+        .query_map([], |row| {
+            Ok(SpawnEdge {
+                parent_thread_id: row.get(0)?,
+                child_thread_id: row.get(1)?,
+                status: row.get(2)?,
+            })
+        })?
+        .filter_map(|r| match r {
+            Ok(e) => Some(e),
+            Err(e) => {
+                debug!("failed to parse spawn edge row: {e}");
+                None
+            }
+        })
+        .collect();
+
+    Ok(edges)
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
 
 /// Map a CodexInferredStatus to a PrimaryStatus.
@@ -540,6 +572,49 @@ pub fn build_codex_snapshot(
     snapshot
 }
 
+fn snapshot_child_threads_by_parent(
+    snapshot: &CodexSnapshot,
+) -> HashMap<String, Vec<ObservedCodexThread>> {
+    let mut grouped = HashMap::new();
+
+    for child in &snapshot.child_threads {
+        if let CodexThreadClassification::Child {
+            parent_thread_id: Some(parent_thread_id),
+        } = &child.classification
+        {
+            grouped
+                .entry(parent_thread_id.clone())
+                .or_insert_with(Vec::new)
+                .push(child.clone());
+        }
+    }
+
+    grouped
+}
+
+fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Option<String>) {
+    let source_info = child
+        .thread
+        .source
+        .as_deref()
+        .map(parse_source_field)
+        .unwrap_or(SourceInfo {
+            is_subagent: false,
+            parent_thread_id: None,
+            agent_nickname: None,
+            agent_role: None,
+        });
+    let name = child
+        .thread
+        .agent_nickname
+        .clone()
+        .or(source_info.agent_nickname)
+        .unwrap_or_else(|| child.thread.id.clone());
+    let description = child.thread.agent_role.clone().or(source_info.agent_role);
+
+    (name, description)
+}
+
 // ── Detector Loop ─────────────────────────────────────────────────
 
 /// Run the Codex detector polling loop.
@@ -558,18 +633,29 @@ pub async fn run_codex_detector(
     loop {
         if db_path.exists() {
             let db = db_path.clone();
-            let result = tokio::task::spawn_blocking(move || query_codex_threads(&db)).await?;
+            let result = tokio::task::spawn_blocking(move || {
+                let threads = query_codex_threads(&db)?;
+                let edges = query_all_spawn_edges(&db)?;
+                Ok::<_, anyhow::Error>((threads, edges))
+            })
+            .await?;
 
             match result {
-                Ok(threads) => {
-                    for thread in &threads {
-                        let cwd_str = match &thread.cwd {
-                            Some(c) => c,
-                            None => continue,
-                        };
-                        let cwd = PathBuf::from(cwd_str);
-                        let pid = codex_pid_for_thread(&registry, &cwd);
-                        let agent_id = AgentId::session(AgentTool::Codex, thread.id.clone());
+                Ok((threads, spawn_edges)) => {
+                    let snapshot = build_codex_snapshot(&threads, &spawn_edges, &registry);
+                    let child_threads_by_parent = snapshot_child_threads_by_parent(&snapshot);
+                    let spawn_status_by_child: HashMap<&str, &str> = spawn_edges
+                        .iter()
+                        .map(|edge| (edge.child_thread_id.as_str(), edge.status.as_str()))
+                        .collect();
+
+                    for observed in &snapshot.top_level_threads {
+                        let thread = &observed.thread;
+                        if thread.cwd.is_none() {
+                            continue;
+                        }
+                        let pid = observed.pid;
+                        let agent_id = observed.agent_id.clone();
 
                         let state = thread_states.entry(thread.id.clone()).or_default();
 
@@ -665,36 +751,32 @@ pub async fn run_codex_detector(
                             }
                         }
 
-                        // Query spawn edges for subagent info from DB
-                        let thread_id = thread.id.clone();
-                        let db2 = db_path.clone();
-                        if let Ok(Ok(edges)) =
-                            tokio::task::spawn_blocking(move || query_spawn_edges(&db2, &thread_id))
-                                .await
-                        {
-                            for edge in &edges {
-                                if !state.emitted_subagent_ids.contains(&edge.child_thread_id) {
-                                    let sub_status = if edge.status == "completed" {
-                                        PrimaryStatus::Done
-                                    } else {
-                                        PrimaryStatus::Running
+                        if let Some(children) = child_threads_by_parent.get(&thread.id) {
+                            for child in children {
+                                if !state.emitted_subagent_ids.contains(&child.thread.id) {
+                                    let sub_status = match spawn_status_by_child
+                                        .get(child.thread.id.as_str())
+                                        .copied()
+                                    {
+                                        Some("completed") => PrimaryStatus::Done,
+                                        _ => PrimaryStatus::Running,
                                     };
+                                    let (name, description) =
+                                        child_thread_subagent_metadata(child);
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
                                             id: agent_id.clone(),
                                             pid,
                                             subagent: crate::types::Subagent {
-                                                name: edge.child_thread_id.clone(),
+                                                name,
                                                 status: sub_status,
-                                                description: None,
+                                                description,
                                                 started_at: chrono::Local::now(),
                                                 ended_at: None,
                                             },
                                         })
                                         .await;
-                                    state
-                                        .emitted_subagent_ids
-                                        .push(edge.child_thread_id.clone());
+                                    state.emitted_subagent_ids.push(child.thread.id.clone());
                                 }
                             }
                         }
@@ -712,9 +794,12 @@ pub async fn run_codex_detector(
 
 #[cfg(test)]
 mod tests {
-    use super::codex_pid_for_thread;
+    use super::{
+        codex_pid_for_thread, snapshot_child_threads_by_parent, CodexThread,
+        CodexThreadClassification, CodexSnapshot, ObservedCodexThread,
+    };
     use crate::detect::registry::AgentRegistry;
-    use crate::types::AgentTool;
+    use crate::types::{AgentId, AgentTool};
     use std::path::PathBuf;
 
     #[test]
@@ -729,5 +814,82 @@ mod tests {
 
         registry.register(AgentTool::Codex, cwd.clone(), 202);
         assert_eq!(codex_pid_for_thread(&registry, &cwd), None);
+    }
+
+    #[test]
+    fn snapshot_child_threads_by_parent_uses_classification() {
+        let snapshot = CodexSnapshot {
+            top_level_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "parent".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: None,
+                    agent_nickname: None,
+                    agent_role: None,
+                    created_at: 1,
+                    updated_at: 1,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: None,
+                classification: CodexThreadClassification::TopLevel,
+            }],
+            child_threads: vec![
+                ObservedCodexThread {
+                    thread: CodexThread {
+                        id: "child-a".into(),
+                        title: None,
+                        cwd: Some("/tmp/project".into()),
+                        source: Some("cli".into()),
+                        model: None,
+                        git_branch: None,
+                        agent_nickname: None,
+                        agent_role: None,
+                        created_at: 2,
+                        updated_at: 2,
+                        archived: 0,
+                        tokens_used: None,
+                        rollout_path: None,
+                    },
+                    agent_id: AgentId::session(AgentTool::Codex, "child-a"),
+                    pid: None,
+                    classification: CodexThreadClassification::Child {
+                        parent_thread_id: Some("parent".into()),
+                    },
+                },
+                ObservedCodexThread {
+                    thread: CodexThread {
+                        id: "orphan".into(),
+                        title: None,
+                        cwd: Some("/tmp/project".into()),
+                        source: Some("cli".into()),
+                        model: None,
+                        git_branch: None,
+                        agent_nickname: None,
+                        agent_role: None,
+                        created_at: 3,
+                        updated_at: 3,
+                        archived: 0,
+                        tokens_used: None,
+                        rollout_path: None,
+                    },
+                    agent_id: AgentId::session(AgentTool::Codex, "orphan"),
+                    pid: None,
+                    classification: CodexThreadClassification::Child {
+                        parent_thread_id: None,
+                    },
+                },
+            ],
+        };
+
+        let grouped = snapshot_child_threads_by_parent(&snapshot);
+
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped["parent"][0].thread.id, "child-a");
     }
 }

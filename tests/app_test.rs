@@ -787,7 +787,7 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
         None,
     ));
 
-    assert_eq!(state.agents.len(), 3);
+    assert_eq!(state.agents.len(), 2);
     let session_agents: Vec<_> = state
         .agents
         .iter()
@@ -795,14 +795,12 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
         .collect();
     assert_eq!(session_agents.len(), 2);
     assert!(session_agents.iter().all(|a| a.cwd.as_os_str().is_empty()));
-
-    let process_agent = state
-        .agents
-        .iter()
-        .find(|a| a.id.is_process() && a.pid == Some(44))
-        .expect("process-backed Codex discovery should not be absorbed ambiguously");
-    assert_eq!(process_agent.cwd, PathBuf::from("/tmp/ambiguous"));
-    assert_eq!(process_agent.session_id, None);
+    assert!(
+        state
+            .agents
+            .iter()
+            .all(|a| a.id.is_session() && a.pid == Some(44))
+    );
 }
 
 #[test]

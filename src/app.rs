@@ -56,6 +56,19 @@ impl AppState {
                 let session_id = id.session_id().map(str::to_string);
                 if id.tool() == AgentTool::Codex {
                     if let Some(pid) = pid {
+                        let matching_session_agents = self
+                            .agents
+                            .iter()
+                            .filter(|a| {
+                                a.id.tool() == id.tool()
+                                    && a.id.is_session()
+                                    && a.pid == Some(pid)
+                                    && (a.cwd.as_os_str().is_empty() || a.cwd == cwd)
+                            })
+                            .count();
+                        if matching_session_agents > 1 {
+                            return;
+                        }
                         if let Some(agent_idx) =
                             self.find_unique_session_agent_index_by_pid(id.tool(), pid, &cwd)
                         {

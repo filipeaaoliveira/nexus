@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use chrono::{DateTime, Local};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::debug;
@@ -119,6 +120,41 @@ pub struct ObservedCodexThread {
 pub struct CodexSnapshot {
     pub top_level_threads: Vec<ObservedCodexThread>,
     pub child_threads: Vec<ObservedCodexThread>,
+}
+
+/// Snapshot of the active top-level tool call for a Codex session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedToolCall {
+    pub name: String,
+    pub args_summary: Option<String>,
+}
+
+/// Snapshot of a child thread represented as a subagent under its parent session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedCodexSubagent {
+    pub thread_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub status: PrimaryStatus,
+}
+
+/// Event-facing snapshot for a top-level Codex session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedCodexSession {
+    pub agent_id: AgentId,
+    pub pid: Option<u32>,
+    pub cwd: PathBuf,
+    pub branch: Option<String>,
+    pub started_at: Option<DateTime<Local>>,
+    pub status: PrimaryStatus,
+    pub latest_tool_call: Option<ObservedToolCall>,
+    pub subagents: Vec<ObservedCodexSubagent>,
+}
+
+/// Reconciled Codex snapshot keyed by top-level session/thread identity.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CodexEventSnapshot {
+    pub sessions: Vec<ObservedCodexSession>,
 }
 
 // ── JSONL Parsing ─────────────────────────────────────────────────
@@ -505,28 +541,6 @@ fn codex_to_primary(status: CodexInferredStatus) -> PrimaryStatus {
     }
 }
 
-/// State tracked per thread to avoid emitting duplicate events.
-#[derive(Debug, Clone, Default)]
-struct ThreadEmitState {
-    last_status: Option<PrimaryStatus>,
-    last_tool_call: Option<String>,
-    emitted_subagent_ids: Vec<String>,
-    child_statuses: HashMap<String, PrimaryStatus>,
-    session_info_sent: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ChildLifecycleEvent {
-    Spawned {
-        name: String,
-        status: PrimaryStatus,
-        description: Option<String>,
-    },
-    Completed {
-        subagent_name: String,
-    },
-}
-
 fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
     match registry.find_pids(AgentTool::Codex, cwd).as_slice() {
         [pid] => Some(*pid),
@@ -541,7 +555,12 @@ pub fn build_codex_snapshot(
 ) -> CodexSnapshot {
     let edge_parent_by_child: HashMap<&str, &str> = spawn_edges
         .iter()
-        .map(|edge| (edge.child_thread_id.as_str(), edge.parent_thread_id.as_str()))
+        .map(|edge| {
+            (
+                edge.child_thread_id.as_str(),
+                edge.parent_thread_id.as_str(),
+            )
+        })
         .collect();
     let mut snapshot = CodexSnapshot::default();
 
@@ -556,9 +575,11 @@ pub fn build_codex_snapshot(
                 agent_nickname: None,
                 agent_role: None,
             });
-        let parent_thread_id = source_info
-            .parent_thread_id
-            .or_else(|| edge_parent_by_child.get(thread.id.as_str()).map(|id| (*id).to_string()));
+        let parent_thread_id = source_info.parent_thread_id.or_else(|| {
+            edge_parent_by_child
+                .get(thread.id.as_str())
+                .map(|id| (*id).to_string())
+        });
         let classification = if source_info.is_subagent || parent_thread_id.is_some() {
             CodexThreadClassification::Child { parent_thread_id }
         } else {
@@ -615,6 +636,40 @@ fn snapshot_child_threads_by_parent(
     grouped
 }
 
+fn summarize_tool_arguments(arguments: &str) -> Option<String> {
+    if arguments == "{}" {
+        None
+    } else if arguments.len() > 100 {
+        Some(arguments[..100].to_string())
+    } else {
+        Some(arguments.to_string())
+    }
+}
+
+fn rollout_state_for_thread(thread: &CodexThread) -> (PrimaryStatus, Option<ObservedToolCall>) {
+    let mut status = PrimaryStatus::Running;
+    let mut latest_tool_call = None;
+
+    if let Some(ref rollout_path) = thread.rollout_path {
+        let path = PathBuf::from(rollout_path);
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                let events = parse_rollout(&content);
+                status = codex_to_primary(infer_rollout_status(&events));
+                latest_tool_call =
+                    extract_tool_calls(&events)
+                        .last()
+                        .map(|tool| ObservedToolCall {
+                            name: tool.name.clone(),
+                            args_summary: summarize_tool_arguments(&tool.arguments),
+                        });
+            }
+        }
+    }
+
+    (status, latest_tool_call)
+}
+
 fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Option<String>) {
     let source_info = child
         .thread
@@ -657,27 +712,198 @@ fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -
     }
 }
 
-fn child_transition(
-    state: &mut ThreadEmitState,
-    child: &ObservedCodexThread,
-    status: PrimaryStatus,
-) -> Option<ChildLifecycleEvent> {
-    let (name, description) = child_thread_subagent_metadata(child);
-    let previous = state.child_statuses.get(&child.thread.id).copied();
-    state.child_statuses.insert(child.thread.id.clone(), status);
+fn observed_subagents_for_parent(
+    parent: &ObservedCodexThread,
+    child_threads_by_parent: &HashMap<String, Vec<ObservedCodexThread>>,
+    spawn_status_by_child: &HashMap<&str, &str>,
+) -> Vec<ObservedCodexSubagent> {
+    let mut subagents = child_threads_by_parent
+        .get(&parent.thread.id)
+        .into_iter()
+        .flatten()
+        .map(|child| {
+            let (name, description) = child_thread_subagent_metadata(child);
+            let status = child_thread_status(
+                child,
+                spawn_status_by_child.get(child.thread.id.as_str()).copied(),
+            );
 
-    match previous {
-        None => Some(ChildLifecycleEvent::Spawned {
-            name,
-            status,
-            description,
-        }),
-        Some(PrimaryStatus::Done) => None,
-        Some(_) if status == PrimaryStatus::Done => Some(ChildLifecycleEvent::Completed {
-            subagent_name: name,
-        }),
-        Some(_) => None,
+            ObservedCodexSubagent {
+                thread_id: child.thread.id.clone(),
+                name,
+                description,
+                status,
+            }
+        })
+        .collect::<Vec<_>>();
+    subagents.sort_by(|a, b| a.thread_id.cmp(&b.thread_id));
+    subagents
+}
+
+pub fn build_codex_event_snapshot(
+    snapshot: &CodexSnapshot,
+    spawn_edges: &[SpawnEdge],
+) -> CodexEventSnapshot {
+    let child_threads_by_parent = snapshot_child_threads_by_parent(snapshot);
+    let spawn_status_by_child: HashMap<&str, &str> = spawn_edges
+        .iter()
+        .map(|edge| (edge.child_thread_id.as_str(), edge.status.as_str()))
+        .collect();
+    let mut sessions = snapshot
+        .top_level_threads
+        .iter()
+        .filter_map(|observed| {
+            let cwd = PathBuf::from(observed.thread.cwd.as_deref()?);
+            let (status, latest_tool_call) = rollout_state_for_thread(&observed.thread);
+
+            Some(ObservedCodexSession {
+                agent_id: observed.agent_id.clone(),
+                pid: observed.pid,
+                cwd,
+                branch: observed.thread.git_branch.clone(),
+                started_at: from_epoch_secs(observed.thread.created_at),
+                status,
+                latest_tool_call,
+                subagents: observed_subagents_for_parent(
+                    observed,
+                    &child_threads_by_parent,
+                    &spawn_status_by_child,
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    sessions.sort_by(|a, b| a.agent_id.session_id().cmp(&b.agent_id.session_id()));
+
+    CodexEventSnapshot { sessions }
+}
+
+pub fn reconcile_codex_snapshots(
+    previous: Option<&CodexEventSnapshot>,
+    current: &CodexEventSnapshot,
+) -> Vec<AgentEvent> {
+    let previous_sessions: HashMap<&str, &ObservedCodexSession> = previous
+        .into_iter()
+        .flat_map(|snapshot| snapshot.sessions.iter())
+        .filter_map(|session| session.agent_id.session_id().map(|id| (id, session)))
+        .collect();
+    let mut events = Vec::new();
+
+    for session in &current.sessions {
+        let Some(session_id) = session.agent_id.session_id() else {
+            continue;
+        };
+        let previous_session = previous_sessions.get(session_id).copied();
+
+        if previous_session.is_none() {
+            events.push(AgentEvent::Discovered {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                cwd: session.cwd.clone(),
+                started_at: session.started_at,
+            });
+        }
+
+        let session_info_changed = previous_session.is_none_or(|previous_session| {
+            previous_session.pid != session.pid
+                || previous_session.branch != session.branch
+                || previous_session.started_at != session.started_at
+        });
+        if session_info_changed {
+            events.push(AgentEvent::SessionInfo {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                session_id: session_id.to_string(),
+                branch: session.branch.clone(),
+                is_worktree: false,
+                started_at: session.started_at,
+            });
+        }
+
+        let previous_status = previous_session.map(|session| session.status);
+        if previous_status != Some(session.status)
+            && !(previous_status.is_none() && session.status == PrimaryStatus::Running)
+        {
+            events.push(AgentEvent::StatusChanged {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                old: previous_status.unwrap_or(PrimaryStatus::Running),
+                new: session.status,
+            });
+        }
+
+        let previous_tool_call =
+            previous_session.and_then(|session| session.latest_tool_call.as_ref());
+        match (previous_tool_call, session.latest_tool_call.as_ref()) {
+            (Some(previous_tool_call), Some(current_tool_call))
+                if previous_tool_call != current_tool_call =>
+            {
+                events.push(AgentEvent::ToolCallCompleted {
+                    id: session.agent_id.clone(),
+                    pid: session.pid,
+                    tool_name: previous_tool_call.name.clone(),
+                });
+                events.push(AgentEvent::ToolCallStarted {
+                    id: session.agent_id.clone(),
+                    pid: session.pid,
+                    tool_name: current_tool_call.name.clone(),
+                    args_summary: current_tool_call.args_summary.clone(),
+                });
+            }
+            (Some(previous_tool_call), None) => {
+                events.push(AgentEvent::ToolCallCompleted {
+                    id: session.agent_id.clone(),
+                    pid: session.pid,
+                    tool_name: previous_tool_call.name.clone(),
+                });
+            }
+            (None, Some(current_tool_call)) => {
+                events.push(AgentEvent::ToolCallStarted {
+                    id: session.agent_id.clone(),
+                    pid: session.pid,
+                    tool_name: current_tool_call.name.clone(),
+                    args_summary: current_tool_call.args_summary.clone(),
+                });
+            }
+            _ => {}
+        }
+
+        let previous_subagents: HashMap<&str, &ObservedCodexSubagent> = previous_session
+            .into_iter()
+            .flat_map(|session| session.subagents.iter())
+            .map(|subagent| (subagent.thread_id.as_str(), subagent))
+            .collect();
+
+        for subagent in &session.subagents {
+            match previous_subagents.get(subagent.thread_id.as_str()).copied() {
+                None => {
+                    events.push(AgentEvent::SubagentSpawned {
+                        id: session.agent_id.clone(),
+                        pid: session.pid,
+                        subagent: crate::types::Subagent {
+                            name: subagent.name.clone(),
+                            status: subagent.status,
+                            description: subagent.description.clone(),
+                            started_at: Local::now(),
+                            ended_at: (subagent.status == PrimaryStatus::Done).then(Local::now),
+                        },
+                    });
+                }
+                Some(previous_subagent)
+                    if previous_subagent.status != PrimaryStatus::Done
+                        && subagent.status == PrimaryStatus::Done =>
+                {
+                    events.push(AgentEvent::SubagentCompleted {
+                        id: session.agent_id.clone(),
+                        pid: session.pid,
+                        subagent_name: subagent.name.clone(),
+                    });
+                }
+                _ => {}
+            }
+        }
     }
+
+    events
 }
 
 // ── Detector Loop ─────────────────────────────────────────────────
@@ -693,7 +919,7 @@ pub async fn run_codex_detector(
     registry: AgentRegistry,
 ) -> anyhow::Result<()> {
     let db_path = codex_data_dir.join("state_5.sqlite");
-    let mut thread_states: HashMap<String, ThreadEmitState> = HashMap::new();
+    let mut previous_snapshot: Option<CodexEventSnapshot> = None;
 
     loop {
         if db_path.exists() {
@@ -708,158 +934,15 @@ pub async fn run_codex_detector(
             match result {
                 Ok((threads, spawn_edges)) => {
                     let snapshot = build_codex_snapshot(&threads, &spawn_edges, &registry);
-                    let child_threads_by_parent = snapshot_child_threads_by_parent(&snapshot);
-                    let spawn_status_by_child: HashMap<&str, &str> = spawn_edges
-                        .iter()
-                        .map(|edge| (edge.child_thread_id.as_str(), edge.status.as_str()))
-                        .collect();
+                    let current_snapshot = build_codex_event_snapshot(&snapshot, &spawn_edges);
+                    let events =
+                        reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);
 
-                    for observed in &snapshot.top_level_threads {
-                        let thread = &observed.thread;
-                        if thread.cwd.is_none() {
-                            continue;
-                        }
-                        let pid = observed.pid;
-                        let agent_id = observed.agent_id.clone();
-
-                        let state = thread_states.entry(thread.id.clone()).or_default();
-
-                        // Emit SessionInfo once per thread
-                        if !state.session_info_sent {
-                            let session_started = from_epoch_secs(thread.created_at);
-                            let _ = tx
-                                .send(AgentEvent::SessionInfo {
-                                    id: agent_id.clone(),
-                                    pid,
-                                    session_id: thread.id.clone(),
-                                    branch: thread.git_branch.clone(),
-                                    is_worktree: false,
-                                    started_at: session_started,
-                                })
-                                .await;
-                            state.session_info_sent = true;
-                        }
-
-                        // Infer status from rollout file if available
-                        if let Some(ref rollout_path) = thread.rollout_path {
-                            let rp = PathBuf::from(rollout_path);
-                            if rp.exists() {
-                                let rp2 = rp.clone();
-                                if let Ok(Ok(content)) = tokio::task::spawn_blocking(move || {
-                                    std::fs::read_to_string(&rp2)
-                                })
-                                .await
-                                {
-                                    let events = parse_rollout(&content);
-                                    let inferred = codex_to_primary(infer_rollout_status(&events));
-
-                                    if state.last_status != Some(inferred) {
-                                        let old =
-                                            state.last_status.unwrap_or(PrimaryStatus::Running);
-                                        let _ = tx
-                                            .send(AgentEvent::StatusChanged {
-                                                id: agent_id.clone(),
-                                                pid,
-                                                old,
-                                                new: inferred,
-                                            })
-                                            .await;
-                                        state.last_status = Some(inferred);
-                                    }
-
-                                    // Emit tool calls from rollout
-                                    let tools = extract_tool_calls(&events);
-                                    if let Some(latest) = tools.last() {
-                                        if state.last_tool_call.as_deref() != Some(&latest.name) {
-                                            let args = if latest.arguments.len() > 100 {
-                                                Some(latest.arguments[..100].to_string())
-                                            } else if latest.arguments != "{}" {
-                                                Some(latest.arguments.clone())
-                                            } else {
-                                                None
-                                            };
-                                            let _ = tx
-                                                .send(AgentEvent::ToolCallStarted {
-                                                    id: agent_id.clone(),
-                                                    pid,
-                                                    tool_name: latest.name.clone(),
-                                                    args_summary: args,
-                                                })
-                                                .await;
-                                            state.last_tool_call = Some(latest.name.clone());
-                                        }
-                                    }
-
-                                    // Emit subagent spawns from rollout
-                                    let spawns = extract_subagent_spawns(&events);
-                                    for spawn in &spawns {
-                                        if !state.emitted_subagent_ids.contains(&spawn.thread_id) {
-                                            let _ = tx
-                                                .send(AgentEvent::SubagentSpawned {
-                                                    id: agent_id.clone(),
-                                                    pid,
-                                                    subagent: crate::types::Subagent {
-                                                        name: spawn.nickname.clone(),
-                                                        status: PrimaryStatus::Running,
-                                                        description: Some(spawn.role.clone()),
-                                                        started_at: chrono::Local::now(),
-                                                        ended_at: None,
-                                                    },
-                                                })
-                                                .await;
-                                            state
-                                                .emitted_subagent_ids
-                                                .push(spawn.thread_id.clone());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(children) = child_threads_by_parent.get(&thread.id) {
-                            for child in children {
-                                let sub_status = child_thread_status(
-                                    child,
-                                    spawn_status_by_child.get(child.thread.id.as_str()).copied(),
-                                );
-                                if let Some(event) = child_transition(state, child, sub_status) {
-                                    match event {
-                                        ChildLifecycleEvent::Spawned {
-                                            name,
-                                            status,
-                                            description,
-                                        } => {
-                                            let _ = tx
-                                                .send(AgentEvent::SubagentSpawned {
-                                                    id: agent_id.clone(),
-                                                    pid,
-                                                    subagent: crate::types::Subagent {
-                                                        name,
-                                                        status,
-                                                        description,
-                                                        started_at: chrono::Local::now(),
-                                                        ended_at: None,
-                                                    },
-                                                })
-                                                .await;
-                                        }
-                                        ChildLifecycleEvent::Completed { subagent_name } => {
-                                            let _ = tx
-                                                .send(AgentEvent::SubagentCompleted {
-                                                    id: agent_id.clone(),
-                                                    pid,
-                                                    subagent_name,
-                                                })
-                                                .await;
-                                        }
-                                    }
-                                }
-                                if !state.emitted_subagent_ids.contains(&child.thread.id) {
-                                    state.emitted_subagent_ids.push(child.thread.id.clone());
-                                }
-                            }
-                        }
+                    for event in events {
+                        let _ = tx.send(event).await;
                     }
+
+                    previous_snapshot = Some(current_snapshot);
                 }
                 Err(e) => {
                     debug!("Failed to query Codex DB: {e}");
@@ -874,11 +957,13 @@ pub async fn run_codex_detector(
 #[cfg(test)]
 mod tests {
     use super::{
-        child_transition, codex_pid_for_thread, load_spawn_edges_snapshot,
-        snapshot_child_threads_by_parent, CodexThread, CodexThreadClassification, CodexSnapshot,
-        ObservedCodexThread,
+        build_codex_event_snapshot, codex_pid_for_thread, load_spawn_edges_snapshot,
+        reconcile_codex_snapshots, snapshot_child_threads_by_parent, CodexEventSnapshot,
+        CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
+        ObservedCodexSubagent, ObservedCodexThread,
     };
     use crate::detect::registry::AgentRegistry;
+    use crate::event::AgentEvent;
     use crate::types::{AgentId, AgentTool, PrimaryStatus};
     use rusqlite::Connection;
     use std::path::PathBuf;
@@ -992,44 +1077,95 @@ mod tests {
     }
 
     #[test]
-    fn child_transition_emits_completion_for_known_done_child() {
-        let child = ObservedCodexThread {
-            thread: CodexThread {
-                id: "child-a".into(),
-                title: None,
-                cwd: Some("/tmp/project".into()),
-                source: Some("cli".into()),
-                model: None,
-                git_branch: None,
-                agent_nickname: Some("worker".into()),
-                agent_role: Some("worker".into()),
-                created_at: 2,
-                updated_at: 2,
-                archived: 0,
-                tokens_used: None,
-                rollout_path: None,
-            },
-            agent_id: AgentId::session(AgentTool::Codex, "child-a"),
-            pid: None,
-            classification: CodexThreadClassification::Child {
-                parent_thread_id: Some("parent".into()),
-            },
+    fn build_codex_event_snapshot_includes_child_threads_as_subagents() {
+        let snapshot = CodexSnapshot {
+            top_level_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "parent".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: Some("main".into()),
+                    agent_nickname: None,
+                    agent_role: None,
+                    created_at: 1,
+                    updated_at: 1,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: Some(44),
+                classification: CodexThreadClassification::TopLevel,
+            }],
+            child_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "child-a".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: None,
+                    agent_nickname: Some("worker".into()),
+                    agent_role: Some("worker".into()),
+                    created_at: 2,
+                    updated_at: 2,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "child-a"),
+                pid: None,
+                classification: CodexThreadClassification::Child {
+                    parent_thread_id: Some("parent".into()),
+                },
+            }],
         };
-        let mut state = super::ThreadEmitState::default();
-        state
-            .child_statuses
-            .insert("child-a".into(), PrimaryStatus::Running);
 
-        let transition = child_transition(&mut state, &child, PrimaryStatus::Done);
+        let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+
+        assert_eq!(event_snapshot.sessions.len(), 1);
+        assert_eq!(event_snapshot.sessions[0].subagents.len(), 1);
+        assert_eq!(event_snapshot.sessions[0].subagents[0].thread_id, "child-a");
+        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "worker");
+    }
+
+    #[test]
+    fn reconcile_codex_snapshots_emits_subagent_completion_delta() {
+        let previous = CodexEventSnapshot {
+            sessions: vec![ObservedCodexSession {
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: Some(44),
+                cwd: PathBuf::from("/tmp/project"),
+                branch: Some("main".into()),
+                started_at: crate::types::from_epoch_secs(1),
+                status: PrimaryStatus::Running,
+                latest_tool_call: None,
+                subagents: vec![ObservedCodexSubagent {
+                    thread_id: "child-a".into(),
+                    name: "worker".into(),
+                    description: Some("worker".into()),
+                    status: PrimaryStatus::Running,
+                }],
+            }],
+        };
+        let current = CodexEventSnapshot {
+            sessions: vec![ObservedCodexSession {
+                subagents: vec![ObservedCodexSubagent {
+                    status: PrimaryStatus::Done,
+                    ..previous.sessions[0].subagents[0].clone()
+                }],
+                ..previous.sessions[0].clone()
+            }],
+        };
+
+        let events = reconcile_codex_snapshots(Some(&previous), &current);
 
         assert!(matches!(
-            transition,
-            Some(super::ChildLifecycleEvent::Completed { ref subagent_name })
+            events.as_slice(),
+            [AgentEvent::SubagentCompleted { subagent_name, .. }]
                 if subagent_name == "worker"
         ));
-        assert_eq!(
-            state.child_statuses.get("child-a"),
-            Some(&PrimaryStatus::Done)
-        );
     }
 }

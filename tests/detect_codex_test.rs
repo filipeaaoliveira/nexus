@@ -1,6 +1,25 @@
 use ai_overview::detect::codex::*;
 use ai_overview::detect::registry::AgentRegistry;
-use ai_overview::types::{AgentId, AgentTool};
+use ai_overview::event::AgentEvent;
+use ai_overview::types::{AgentId, AgentTool, PrimaryStatus};
+use std::path::PathBuf;
+
+fn observed_session(
+    session_id: &str,
+    pid: Option<u32>,
+    status: PrimaryStatus,
+) -> ObservedCodexSession {
+    ObservedCodexSession {
+        agent_id: AgentId::session(AgentTool::Codex, session_id),
+        pid,
+        cwd: PathBuf::from("/tmp/project"),
+        branch: Some("main".to_string()),
+        started_at: ai_overview::types::from_epoch_secs(10),
+        status,
+        latest_tool_call: None,
+        subagents: Vec::new(),
+    }
+}
 
 #[test]
 fn test_parse_rollout_events() {
@@ -230,4 +249,134 @@ fn test_build_codex_snapshot_keeps_same_cwd_top_level_threads_distinct() {
     assert!(snapshot.child_threads.is_empty());
     assert_eq!(snapshot.top_level_threads[0].thread.id, "thread-a");
     assert_eq!(snapshot.top_level_threads[1].thread.id, "thread-b");
+}
+
+#[test]
+fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            latest_tool_call: Some(ObservedToolCall {
+                name: "shell".to_string(),
+                args_summary: Some("{\"cmd\":\"cargo test\"}".to_string()),
+            }),
+            subagents: vec![ObservedCodexSubagent {
+                thread_id: "child-a".to_string(),
+                name: "Nash".to_string(),
+                description: Some("worker".to_string()),
+                status: PrimaryStatus::Running,
+            }],
+            ..observed_session("session-a", Some(41), PrimaryStatus::Done)
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(None, &current);
+
+    assert!(matches!(
+        &events[0],
+        AgentEvent::Discovered { id, pid, cwd, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && pid == &Some(41)
+                && cwd == &PathBuf::from("/tmp/project")
+    ));
+    assert!(matches!(
+        &events[1],
+        AgentEvent::SessionInfo { id, pid, session_id, branch, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && pid == &Some(41)
+                && session_id == "session-a"
+                && branch.as_deref() == Some("main")
+    ));
+    assert!(matches!(
+        &events[2],
+        AgentEvent::StatusChanged { id, old, new, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && old == &PrimaryStatus::Running
+                && new == &PrimaryStatus::Done
+    ));
+    assert!(matches!(
+        &events[3],
+        AgentEvent::ToolCallStarted { id, tool_name, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && tool_name == "shell"
+    ));
+    assert!(matches!(
+        &events[4],
+        AgentEvent::SubagentSpawned { id, subagent, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && subagent.name == "Nash"
+                && subagent.status == PrimaryStatus::Running
+    ));
+}
+
+#[test]
+fn test_reconcile_codex_snapshots_emits_tool_completion_and_restart() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            latest_tool_call: Some(ObservedToolCall {
+                name: "shell".to_string(),
+                args_summary: Some("ls".to_string()),
+            }),
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            latest_tool_call: Some(ObservedToolCall {
+                name: "apply_patch".to_string(),
+                args_summary: Some("src/detect/codex.rs".to_string()),
+            }),
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert!(matches!(
+        &events[0],
+        AgentEvent::ToolCallCompleted { id, tool_name, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && tool_name == "shell"
+    ));
+    assert!(matches!(
+        &events[1],
+        AgentEvent::ToolCallStarted { id, tool_name, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && tool_name == "apply_patch"
+    ));
+}
+
+#[test]
+fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            subagents: vec![ObservedCodexSubagent {
+                thread_id: "child-a".to_string(),
+                name: "Nash".to_string(),
+                description: Some("worker".to_string()),
+                status: PrimaryStatus::Running,
+            }],
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            subagents: vec![ObservedCodexSubagent {
+                thread_id: "child-a".to_string(),
+                name: "Nash".to_string(),
+                description: Some("worker".to_string()),
+                status: PrimaryStatus::Done,
+            }],
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        AgentEvent::SubagentCompleted { id, subagent_name, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && subagent_name == "Nash"
+    ));
 }

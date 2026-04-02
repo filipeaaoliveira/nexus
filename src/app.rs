@@ -54,6 +54,24 @@ impl AppState {
                 let now = Local::now();
                 let pid = pid.or_else(|| id.pid());
                 let session_id = id.session_id().map(str::to_string);
+                if id.tool() == AgentTool::Codex {
+                    if let Some(pid) = pid {
+                        if let Some(agent) = self.find_agent_mut_by_pid(id.tool(), pid) {
+                            if agent.id.is_session() && (agent.cwd.as_os_str().is_empty() || agent.cwd == cwd)
+                            {
+                                agent.cwd = cwd;
+                                agent.pid = Some(pid);
+                                if let Some(real_start) = real_start {
+                                    if real_start < agent.started_at {
+                                        agent.started_at = real_start;
+                                    }
+                                }
+                                agent.last_activity = now;
+                                return;
+                            }
+                        }
+                    }
+                }
                 self.agents.push(Agent {
                     id,
                     pid,

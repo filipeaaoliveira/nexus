@@ -736,6 +736,31 @@ fn test_codex_session_info_uses_session_identity() {
 }
 
 #[test]
+fn test_codex_discovery_merges_into_existing_session_row() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        44,
+        PathBuf::from("/tmp/merged"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/merged"));
+    assert_eq!(state.agents[0].session_id, Some("session-a".to_string()));
+    assert_eq!(state.agents[0].pid, Some(44));
+}
+
+#[test]
 fn test_agent_identity_session_has_no_pid() {
     let id = AgentId::session(AgentTool::Codex, "session-a");
     assert_eq!(

@@ -35,6 +35,8 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
             format!(" sort:{sort_label}"),
             theme::bar_style().fg(theme::FG_DIMMED),
         ),
+        Span::styled("  d", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" remove", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  ?", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" help", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),

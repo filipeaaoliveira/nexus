@@ -33,6 +33,7 @@ pub fn render(frame: &mut Frame) {
         keybind_line("/", "Start filter"),
         keybind_line("g", "Toggle group by worktree"),
         keybind_line("s", "Cycle sort mode"),
+        keybind_line("d", "Remove selected agent"),
         Line::from(""),
         keybind_line("?", "Toggle help"),
         keybind_line("Esc", "Dismiss overlay / clear filter"),

@@ -308,6 +308,22 @@ impl AppState {
         self.clamp_selection();
     }
 
+    pub fn remove_selected(&mut self) {
+        let idx = match self.selected {
+            Some(i) => i,
+            None => return,
+        };
+        if idx >= self.agents.len() {
+            return;
+        }
+        self.agents.remove(idx);
+        if self.agents.is_empty() {
+            self.selected = None;
+        } else if idx >= self.agents.len() {
+            self.selected = Some(self.agents.len() - 1);
+        }
+    }
+
     fn clamp_selection(&mut self) {
         let count = self.visible_agents().len();
         if count == 0 {

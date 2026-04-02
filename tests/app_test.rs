@@ -430,6 +430,79 @@ fn test_discover_without_start_time_uses_now() {
 }
 
 #[test]
+fn test_remove_selected_agent() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 200,
+        cwd: "/tmp/b".into(),
+        started_at: None,
+    });
+    assert_eq!(state.agents.len(), 2);
+    state.selected = Some(0);
+    state.remove_selected();
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].id.pid, 200);
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
+fn test_remove_selected_last_item_clamps() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 200,
+        cwd: "/tmp/b".into(),
+        started_at: None,
+    });
+    state.selected = Some(1);
+    state.remove_selected();
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
+fn test_remove_selected_only_item() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.remove_selected();
+    assert_eq!(state.agents.len(), 0);
+    assert_eq!(state.selected, None);
+}
+
+#[test]
+fn test_remove_selected_none_selected() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = None;
+    state.remove_selected();
+    assert_eq!(state.agents.len(), 1); // no change
+}
+
+#[test]
 fn test_session_info_only_applies_earlier_start_time() {
     let mut state = make_state();
     let now = chrono::Local::now();

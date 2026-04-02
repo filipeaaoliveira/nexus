@@ -15,6 +15,7 @@ pub enum Action {
     FilterConfirm,
     ShowHelp,
     DismissOverlay,
+    RemoveAgent,
     Tick,
 }
 
@@ -47,6 +48,7 @@ pub fn poll_action(timeout: Duration, filter_mode: bool) -> anyhow::Result<Optio
                 KeyCode::Char('s') => Some(Action::CycleSortMode),
                 KeyCode::Char('/') => Some(Action::StartFilter),
                 KeyCode::Char('?') => Some(Action::ShowHelp),
+                KeyCode::Char('d') => Some(Action::RemoveAgent),
                 KeyCode::Esc => Some(Action::DismissOverlay),
                 _ => None,
             };

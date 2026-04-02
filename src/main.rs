@@ -89,6 +89,7 @@ async fn run_loop(
             Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
             Some(input::Action::ToggleGroupByWorktree) => state.toggle_group_by_worktree(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
+            Some(input::Action::RemoveAgent) => state.remove_selected(),
             Some(input::Action::DismissOverlay) => state.dismiss_overlay(),
             Some(input::Action::StartFilter) => state.start_filter(),
             Some(input::Action::FilterChar(c)) => state.filter_push_char(c),

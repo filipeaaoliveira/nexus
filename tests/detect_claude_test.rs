@@ -157,6 +157,58 @@ fn test_normalize_claude_completed_work_maps_to_done_ready_for_next_task() {
 }
 
 #[test]
+fn test_normalize_claude_newer_user_overrides_older_assistant_review() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Findings:\n- The implementation is solid overall.".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            content: "Please keep going.".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_newer_tool_result_overrides_older_assistant_review() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Findings:\n- The implementation is solid overall.".to_string(),
+        },
+        TranscriptEntry::ToolResult {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            tool_name: "read".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_stale_trailing_tool_use_maps_to_unknown() {
+    let entries = vec![TranscriptEntry::ToolUse {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        tool_name: "read".to_string(),
+        tool_input: serde_json::Map::new(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
 fn test_parse_project_session_extracts_branch() {
     let content = include_str!("fixtures/claude_project_session.jsonl");
     let info = parse_project_session(content);

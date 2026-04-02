@@ -283,7 +283,6 @@ fn looks_like_terminal_failure_output(text: &str) -> bool {
         "fatal error",
         "failed permanently",
         "blocking error",
-        "stopping here",
         "i'm blocked",
         "i am blocked",
         "could not complete",
@@ -312,7 +311,9 @@ fn looks_like_done_output(text: &str) -> bool {
 }
 
 pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> NormalizedState {
-    let mut saw_meaningful_entry = false;
+    if is_stale {
+        return NormalizedState::new(NormalizedStatus::Unknown, None);
+    }
 
     for entry in entries.iter().rev() {
         match entry {
@@ -322,12 +323,14 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                     Some(NormalizedReason::ToolCall),
                 );
             }
+            TranscriptEntry::ToolResult { .. } | TranscriptEntry::User { .. } => {
+                return NormalizedState::new(NormalizedStatus::Working, None);
+            }
             TranscriptEntry::Assistant { content, .. } => {
                 let trimmed = content.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
-                saw_meaningful_entry = true;
 
                 if looks_like_review_output(trimmed) {
                     return NormalizedState::new(
@@ -350,14 +353,7 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                     );
                 }
             }
-            TranscriptEntry::ToolResult { .. } | TranscriptEntry::User { .. } => {
-                saw_meaningful_entry = true;
-            }
         }
-    }
-
-    if saw_meaningful_entry && !is_stale {
-        return NormalizedState::new(NormalizedStatus::Working, None);
     }
 
     NormalizedState::new(NormalizedStatus::Unknown, None)

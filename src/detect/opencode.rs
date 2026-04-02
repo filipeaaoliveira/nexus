@@ -363,15 +363,23 @@ pub fn resolve_status(parts: &[PartData], assistant_turn_completed: bool) -> Pri
 
 /// Infer an Activity from recent parts.
 ///
-/// Scans all parts for running tools first (takes priority), then falls
-/// back to the latest part type.
+/// Examines the most recent tool state first. If the newest tool part in the
+/// recent window is active (`running` or `pending`), report `ToolCall`.
+/// Otherwise, fall back to the latest part type so stale tool snapshots do not
+/// override newer terminal states.
 pub fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
-    // Priority: any running tool anywhere in the list
-    if parts
+    // Parts are ordered newest-first. Use the newest tool state we can see,
+    // rather than letting older tool snapshots override newer terminal states.
+    if let Some(latest_tool) = parts
         .iter()
-        .any(|p| p.tool_status.as_deref() == Some("running"))
+        .find(|p| matches!(p.part_type.as_str(), "tool" | "tool-invocation"))
     {
-        return Some(Activity::ToolCall);
+        if matches!(
+            latest_tool.tool_status.as_deref(),
+            Some("running" | "pending")
+        ) {
+            return Some(Activity::ToolCall);
+        }
     }
 
     // Fall back to latest part type

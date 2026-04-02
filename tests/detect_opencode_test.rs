@@ -352,6 +352,55 @@ fn test_infer_activity_running_tool_in_non_latest_position() {
 }
 
 #[test]
+fn test_infer_activity_pending_tool_in_non_latest_position() {
+    let parts = vec![
+        PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 3000,
+        },
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("write".to_string()),
+            tool_status: Some("pending".to_string()),
+            tool_input_summary: None,
+            time_created: 2000,
+        },
+    ];
+    assert_eq!(infer_activity_from_parts(&parts), Some(Activity::ToolCall));
+}
+
+#[test]
+fn test_infer_activity_completed_tool_overrides_older_running_tool() {
+    let parts = vec![
+        PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 4000,
+        },
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("completed".to_string()),
+            tool_input_summary: None,
+            time_created: 3000,
+        },
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("running".to_string()),
+            tool_input_summary: None,
+            time_created: 2000,
+        },
+    ];
+    assert_eq!(infer_activity_from_parts(&parts), Some(Activity::Generating));
+}
+
+#[test]
 fn test_infer_activity_reasoning_part() {
     let parts = vec![PartData {
         part_type: "reasoning".to_string(),

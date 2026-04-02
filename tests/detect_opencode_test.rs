@@ -95,54 +95,7 @@ fn test_extract_subagent_type() {
 }
 
 #[test]
-fn test_waiting_status_when_assistant_done_no_running_parts() {
-    // When the assistant turn is completed and no parts are running or pending,
-    // the status should be Waiting.
-    let parts = vec![
-        PartData {
-            part_type: "tool".to_string(),
-            tool_name: Some("bash".to_string()),
-            tool_status: Some("completed".to_string()),
-            tool_input_summary: None,
-            time_created: 2000,
-        },
-        PartData {
-            part_type: "text".to_string(),
-            tool_name: None,
-            tool_status: None,
-            tool_input_summary: None,
-            time_created: 1000,
-        },
-    ];
-
-    let inferred = infer_status_from_parts(&parts);
-    // assistant_turn_completed = true → Waiting
-    let status = resolve_status(inferred, &parts, true);
-
-    assert_eq!(status, PrimaryStatus::Waiting);
-}
-
-#[test]
-fn test_running_status_when_session_is_fresh() {
-    // Even if last message is assistant and no running parts, a fresh session
-    // means the agent is still actively working → Running, not Waiting.
-    let parts = vec![PartData {
-        part_type: "tool".to_string(),
-        tool_name: Some("bash".to_string()),
-        tool_status: Some("completed".to_string()),
-        tool_input_summary: None,
-        time_created: 2000,
-    }];
-
-    let inferred = infer_status_from_parts(&parts);
-    // assistant_turn_completed = false → still Running
-    let status = resolve_status(inferred, &parts, false);
-
-    assert_eq!(status, PrimaryStatus::Running);
-}
-
-#[test]
-fn test_running_status_when_parts_are_running() {
+fn test_resolve_status_running_tool() {
     let parts = vec![PartData {
         part_type: "tool".to_string(),
         tool_name: Some("bash".to_string()),
@@ -150,17 +103,11 @@ fn test_running_status_when_parts_are_running() {
         tool_input_summary: None,
         time_created: 2000,
     }];
-
-    // Even if assistant_turn_completed is true, a running part means Running.
-    let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, &parts, true);
-
-    assert_eq!(status, PrimaryStatus::Running);
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
 }
 
 #[test]
-fn test_running_status_when_parts_are_pending() {
-    // A pending tool call also means the agent is working, not waiting.
+fn test_resolve_status_pending_tool() {
     let parts = vec![PartData {
         part_type: "tool".to_string(),
         tool_name: Some("write".to_string()),
@@ -168,27 +115,138 @@ fn test_running_status_when_parts_are_pending() {
         tool_input_summary: None,
         time_created: 2000,
     }];
-
-    let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, &parts, true);
-
-    assert_eq!(status, PrimaryStatus::Running);
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
 }
 
 #[test]
-fn test_error_status_preserved_even_with_assistant_role() {
+fn test_resolve_status_completed_tool() {
     let parts = vec![PartData {
-        part_type: "error".to_string(),
+        part_type: "tool".to_string(),
+        tool_name: Some("bash".to_string()),
+        tool_status: Some("completed".to_string()),
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_step_start() {
+    let parts = vec![PartData {
+        part_type: "step-start".to_string(),
         tool_name: None,
         tool_status: None,
         tool_input_summary: None,
-        time_created: 3000,
+        time_created: 2000,
     }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
 
-    let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, &parts, true);
+#[test]
+fn test_resolve_status_text() {
+    let parts = vec![PartData {
+        part_type: "text".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
 
-    assert_eq!(status, PrimaryStatus::Error);
+#[test]
+fn test_resolve_status_compaction() {
+    let parts = vec![PartData {
+        part_type: "compaction".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_step_finish_turn_not_completed() {
+    let parts = vec![PartData {
+        part_type: "step-finish".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_step_finish_turn_completed() {
+    let parts = vec![PartData {
+        part_type: "step-finish".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, true), PrimaryStatus::Waiting);
+}
+
+#[test]
+fn test_resolve_status_no_parts_turn_completed() {
+    let parts: Vec<PartData> = vec![];
+    assert_eq!(resolve_status(&parts, true), PrimaryStatus::Waiting);
+}
+
+#[test]
+fn test_resolve_status_no_parts_turn_not_completed() {
+    let parts: Vec<PartData> = vec![];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_running_tool_deep_overrides_step_finish() {
+    // A running tool deeper in the list should override a step-finish at the top
+    let parts = vec![
+        PartData {
+            part_type: "step-finish".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 3000,
+        },
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("running".to_string()),
+            tool_input_summary: None,
+            time_created: 2000,
+        },
+    ];
+    assert_eq!(resolve_status(&parts, true), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_reasoning() {
+    let parts = vec![PartData {
+        part_type: "reasoning".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, false), PrimaryStatus::Running);
+}
+
+#[test]
+fn test_resolve_status_running_tool_overrides_turn_completed() {
+    // Even if assistant_turn_completed is true, a running tool means Running
+    let parts = vec![PartData {
+        part_type: "tool".to_string(),
+        tool_name: Some("bash".to_string()),
+        tool_status: Some("running".to_string()),
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+    assert_eq!(resolve_status(&parts, true), PrimaryStatus::Running);
 }
 
 #[test]

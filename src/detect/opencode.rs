@@ -318,54 +318,47 @@ struct SessionEmitState {
     last_todos: Vec<TodoItem>,
 }
 
-/// Infer a primary status from recent parts for an OpenCode session.
+/// Resolve the primary status from recent parts and whether the assistant
+/// turn has completed.
 ///
-/// Every part type maps to `Running` except `"error"` → `Error`.
-/// The explicit match documents each known part type for clarity.
-pub fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
-    // Parts are ordered most-recent-first from the query
-    if let Some(latest) = parts.first() {
-        if latest.part_type == "error" {
-            return PrimaryStatus::Error;
-        }
-    }
-    PrimaryStatus::Running
-}
-
-/// Resolve the final status from the inferred status, recent parts,
-/// and whether the assistant turn has completed.
-///
-/// - If `inferred` is `Error`, return `Error`.
-/// - If any tool part is `"running"` or `"pending"`, the agent is actively
-///   working → return `Running`.
-/// - If `assistant_turn_completed` is `true` (OpenCode wrote `time.completed`
-///   on the latest assistant message), the turn is finished → return `Waiting`.
-/// - Otherwise return `inferred`.
-///
-/// `assistant_turn_completed` should be derived from checking whether
-/// `json_extract(message.data, '$.time.completed')` is non-NULL on the
-/// latest assistant message in the session.
-pub fn resolve_status(
-    inferred: PrimaryStatus,
-    parts: &[PartData],
-    assistant_turn_completed: bool,
-) -> PrimaryStatus {
-    if inferred == PrimaryStatus::Error {
-        return PrimaryStatus::Error;
-    }
-    // If any tool part is still pending or running, the agent is actively working.
+/// Decision priority:
+/// 1. Any tool part with `running` or `pending` status → Running
+/// 2. Latest part type determines status (most map to Running)
+/// 3. `step-finish` + `assistant_turn_completed` → Waiting
+/// 4. No parts + `assistant_turn_completed` → Waiting
+/// 5. Otherwise → Running
+pub fn resolve_status(parts: &[PartData], assistant_turn_completed: bool) -> PrimaryStatus {
+    // Priority 1: any running/pending tool anywhere in the list
     if parts
         .iter()
         .any(|p| matches!(p.tool_status.as_deref(), Some("running" | "pending")))
     {
         return PrimaryStatus::Running;
     }
-    // If OpenCode has written time.completed on the assistant message,
-    // the turn is finished and the agent is waiting for user input.
-    if assistant_turn_completed {
-        return PrimaryStatus::Waiting;
+
+    // Priority 2: look at the latest part
+    if let Some(latest) = parts.first() {
+        return match latest.part_type.as_str() {
+            "step-finish" => {
+                if assistant_turn_completed {
+                    PrimaryStatus::Waiting
+                } else {
+                    PrimaryStatus::Running
+                }
+            }
+            // All other part types indicate active work.
+            // Note: OpenCode does not emit "error" parts — errors are stored
+            // in the assistant message's `data.error` field, not as part types.
+            _ => PrimaryStatus::Running,
+        };
     }
-    inferred
+
+    // No parts at all
+    if assistant_turn_completed {
+        PrimaryStatus::Waiting
+    } else {
+        PrimaryStatus::Running
+    }
 }
 
 /// Infer an Activity from recent parts.
@@ -493,12 +486,7 @@ pub async fn run_opencode_detector(
                             }
 
                             // Determine final status using resolve_status.
-                            let inferred = infer_status_from_parts(&parts);
-                            let status = resolve_status(
-                                inferred,
-                                &parts,
-                                assistant_turn_completed,
-                            );
+                            let status = resolve_status(&parts, assistant_turn_completed);
 
                             // Emit status change if different from last known
                             if state.last_status != Some(status) {

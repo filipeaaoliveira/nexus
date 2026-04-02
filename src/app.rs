@@ -108,6 +108,10 @@ impl AppState {
                     id,
                     pid,
                     status: PrimaryStatus::Running,
+                    normalized: NormalizedState::new(
+                        NormalizedStatus::Unknown,
+                        NormalizedReason::Custom(String::new()),
+                    ),
                     activity: None,
                     cwd,
                     branch: None,
@@ -324,6 +328,10 @@ impl AppState {
                         started_at: started_at.unwrap_or(now),
                         last_activity: now,
                         subagents: Vec::new(),
+                        normalized: NormalizedState::new(
+                            NormalizedStatus::Unknown,
+                            NormalizedReason::Custom(String::new()),
+                        ),
                         recent_events: VecDeque::new(),
                         session_id: Some(session_id),
                         alias: None,

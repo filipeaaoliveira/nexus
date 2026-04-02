@@ -2,6 +2,31 @@ use ai_overview::types::*;
 use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
 
 #[test]
+fn test_normalized_status_labels() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    assert_eq!(NormalizedStatus::Working.as_str(), "working");
+    assert_eq!(NormalizedStatus::NeedsInput.as_str(), "needs input");
+    assert_eq!(NormalizedStatus::Blocked.as_str(), "blocked");
+    assert_eq!(NormalizedStatus::Done.as_str(), "done");
+    assert_eq!(NormalizedStatus::Unknown.as_str(), "unknown");
+
+    assert_eq!(NormalizedReason::Subagent.as_str(), "subagent");
+    assert_eq!(NormalizedReason::Review.as_str(), "review");
+    assert_eq!(NormalizedReason::ReadyForNextTask.as_str(), "ready for next task");
+}
+
+#[test]
+fn test_normalized_status_precedence_order() {
+    use ai_overview::types::NormalizedStatus;
+
+    assert!(NormalizedStatus::NeedsInput > NormalizedStatus::Blocked);
+    assert!(NormalizedStatus::Blocked > NormalizedStatus::Working);
+    assert!(NormalizedStatus::Working > NormalizedStatus::Done);
+    assert!(NormalizedStatus::Done > NormalizedStatus::Unknown);
+}
+
+#[test]
 fn test_primary_status_ordering() {
     let mut statuses = vec![
         PrimaryStatus::Done,
@@ -68,6 +93,10 @@ fn test_agent_elapsed_time() {
         id: AgentId::new(AgentTool::Claude, 1000),
         pid: Some(1000),
         status: PrimaryStatus::Running,
+        normalized: NormalizedState::new(
+            NormalizedStatus::Unknown,
+            NormalizedReason::Custom(String::new()),
+        ),
         activity: Some(Activity::Generating),
         cwd: std::path::PathBuf::from("/tmp/test"),
         branch: Some("main".to_string()),
@@ -142,6 +171,10 @@ fn test_display_name_without_alias() {
         id: AgentId::new(AgentTool::Claude, 100),
         pid: Some(100),
         status: PrimaryStatus::Running,
+        normalized: NormalizedState::new(
+            NormalizedStatus::Unknown,
+            NormalizedReason::Custom(String::new()),
+        ),
         activity: None,
         cwd: std::path::PathBuf::from("/tmp"),
         branch: None,
@@ -163,6 +196,10 @@ fn test_display_name_with_alias() {
         id: AgentId::new(AgentTool::OpenCode, 200),
         pid: Some(200),
         status: PrimaryStatus::Running,
+        normalized: NormalizedState::new(
+            NormalizedStatus::Unknown,
+            NormalizedReason::Custom(String::new()),
+        ),
         activity: None,
         cwd: std::path::PathBuf::from("/tmp"),
         branch: None,

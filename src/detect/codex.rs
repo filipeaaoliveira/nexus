@@ -555,6 +555,14 @@ fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
     }
 }
 
+fn thread_has_readable_rollout(thread: &CodexThread) -> bool {
+    thread
+        .rollout_path
+        .as_deref()
+        .map(Path::new)
+        .is_some_and(|path| path.exists())
+}
+
 fn classify_codex_thread(
     thread: &CodexThread,
     edge_parent_by_child: &HashMap<&str, &str>,
@@ -620,12 +628,15 @@ pub fn build_codex_snapshot(
 
     for (thread, classification) in classified_threads {
         let pid = match &classification {
-            CodexThreadClassification::TopLevel => thread.cwd.as_deref().and_then(|cwd| {
-                (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
-                    .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
-                    .flatten()
-            }),
+            CodexThreadClassification::TopLevel if thread_has_readable_rollout(&thread) => {
+                thread.cwd.as_deref().and_then(|cwd| {
+                    (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
+                        .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
+                        .flatten()
+                })
+            }
             CodexThreadClassification::Child { .. } => None,
+            CodexThreadClassification::TopLevel => None,
         };
         let observed = ObservedCodexThread {
             agent_id: AgentId::session(AgentTool::Codex, thread.id.clone()),

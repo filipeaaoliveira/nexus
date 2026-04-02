@@ -435,6 +435,16 @@ fn test_codex_review_completion_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_codex_assessment_completion_maps_to_needs_input_review() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
+    let normalized = normalize_codex_session(&session, Some("Merge-readiness assessment"));
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {

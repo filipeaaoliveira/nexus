@@ -755,10 +755,18 @@ fn looks_like_review_output(text: &str) -> bool {
     }
 
     let lower = trimmed.to_ascii_lowercase();
-    lower.contains("### issues")
-        || lower.contains("#### critical")
-        || lower.contains("requested changes")
-        || lower.contains("review findings")
+    [
+        "### issues",
+        "#### critical",
+        "requested changes",
+        "review findings",
+        "review",
+        "findings",
+        "merge-readiness",
+        "assessment",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
 }
 
 pub fn normalize_codex_session(

@@ -30,15 +30,69 @@ impl std::fmt::Display for AgentTool {
 
 // ── AgentId ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct AgentId {
     pub tool: AgentTool,
     pub pid: u32,
+    pub session_id: Option<String>,
 }
 
 impl AgentId {
     pub fn new(tool: AgentTool, pid: u32) -> Self {
-        Self { tool, pid }
+        Self {
+            tool,
+            pid,
+            session_id: None,
+        }
+    }
+
+    pub fn session(tool: AgentTool, pid: u32, session_id: impl Into<String>) -> Self {
+        Self {
+            tool,
+            pid,
+            session_id: Some(session_id.into()),
+        }
+    }
+
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn is_session_keyed(&self) -> bool {
+        self.session_id.is_some()
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session_id.as_deref()
+    }
+}
+
+impl PartialEq for AgentId {
+    fn eq(&self, other: &Self) -> bool {
+        match (self.session_id.as_deref(), other.session_id.as_deref()) {
+            (Some(a), Some(b)) => self.tool == other.tool && a == b,
+            (None, None) => self.tool == other.tool && self.pid == other.pid,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for AgentId {}
+
+impl std::hash::Hash for AgentId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.tool.hash(state);
+        match self.session_id.as_deref() {
+            Some(session_id) => {
+                1u8.hash(state);
+                session_id.hash(state);
+            }
+            None => {
+                0u8.hash(state);
+                self.pid.hash(state);
+            }
+        }
     }
 }
 

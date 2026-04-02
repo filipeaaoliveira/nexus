@@ -9,7 +9,9 @@ use tracing::warn;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_rfc3339, Activity, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus};
+use crate::types::{
+    from_rfc3339, Activity, AgentId, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus,
+};
 
 /// Seconds since last transcript write before we consider the agent to be
 /// waiting for user input. Derived from transcript gap analysis: p90 = 25.6 s.
@@ -167,7 +169,9 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
         Some(TranscriptEntry::ToolUse { .. }) => Some(Activity::ToolCall),
         Some(TranscriptEntry::ToolResult { .. }) => Some(Activity::Thinking),
         Some(TranscriptEntry::User { content, .. }) => {
-            if content.contains("[restore checkpointed session agent configuration after compaction]") {
+            if content
+                .contains("[restore checkpointed session agent configuration after compaction]")
+            {
                 Some(Activity::Compacting)
             } else {
                 Some(Activity::Generating)
@@ -544,18 +548,12 @@ pub async fn run_claude_detector(
                 // Emit SessionInfo once
                 if !state.session_info_sent {
                     if let Some(session_info) = matched_session {
-                        let session_started = session_info
-                            .started_at
-                            .as_deref()
-                            .and_then(from_rfc3339);
+                        let session_started =
+                            session_info.started_at.as_deref().and_then(from_rfc3339);
                         let _ = tx
                             .send(AgentEvent::SessionInfo {
-                                pid,
-                                tool: AgentTool::Claude,
-                                session_id: session_info
-                                    .session_id
-                                    .clone()
-                                    .unwrap_or_default(),
+                                id: AgentId::new(AgentTool::Claude, pid),
+                                session_id: session_info.session_id.clone().unwrap_or_default(),
                                 branch: session_info.branch.clone(),
                                 is_worktree: false,
                                 started_at: session_started,
@@ -574,8 +572,7 @@ pub async fn run_claude_detector(
                 if state.last_status == Some(PrimaryStatus::Waiting) {
                     let _ = tx
                         .send(AgentEvent::StatusChanged {
-                            pid,
-                            tool: AgentTool::Claude,
+                            id: AgentId::new(AgentTool::Claude, pid),
                             old: PrimaryStatus::Waiting,
                             new: PrimaryStatus::Running,
                         })
@@ -595,8 +592,7 @@ pub async fn run_claude_detector(
                     let old = state.last_status.unwrap_or(PrimaryStatus::Running);
                     let _ = tx
                         .send(AgentEvent::StatusChanged {
-                            pid,
-                            tool: AgentTool::Claude,
+                            id: AgentId::new(AgentTool::Claude, pid),
                             old,
                             new: primary,
                         })
@@ -614,9 +610,8 @@ pub async fn run_claude_detector(
                         } => {
                             // Check for subagent spawn (Task tool with subagent_type)
                             if tool_name == "task" {
-                                if let Some(subagent_type) = tool_input
-                                    .get("subagent_type")
-                                    .and_then(|v| v.as_str())
+                                if let Some(subagent_type) =
+                                    tool_input.get("subagent_type").and_then(|v| v.as_str())
                                 {
                                     let key = format!("{}:{}", tool_name, subagent_type);
                                     if !state.emitted_subagent_tools.contains(&key) {
@@ -626,16 +621,13 @@ pub async fn run_claude_detector(
                                             .map(String::from);
                                         let _ = tx
                                             .send(AgentEvent::SubagentSpawned {
-                                                pid,
-                                                tool: AgentTool::Claude,
+                                                id: AgentId::new(AgentTool::Claude, pid),
                                                 subagent: crate::types::Subagent {
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
                                                     description,
-                                                    started_at: from_rfc3339(
-                                                        entry_timestamp,
-                                                    )
-                                                    .unwrap_or_else(chrono::Local::now),
+                                                    started_at: from_rfc3339(entry_timestamp)
+                                                        .unwrap_or_else(chrono::Local::now),
                                                     ended_at: None,
                                                 },
                                             })
@@ -656,8 +648,7 @@ pub async fn run_claude_detector(
                                     .map(String::from);
                                 let _ = tx
                                     .send(AgentEvent::ToolCallStarted {
-                                        pid,
-                                        tool: AgentTool::Claude,
+                                        id: AgentId::new(AgentTool::Claude, pid),
                                         tool_name: tool_name.clone(),
                                         args_summary,
                                     })
@@ -678,8 +669,7 @@ pub async fn run_claude_detector(
                 let new_activity = infer_activity_from_last_entry(entries);
                 let _ = tx
                     .send(AgentEvent::ActivityChanged {
-                        pid,
-                        tool: AgentTool::Claude,
+                        id: AgentId::new(AgentTool::Claude, pid),
                         activity: new_activity,
                     })
                     .await;
@@ -689,8 +679,7 @@ pub async fn run_claude_detector(
                 if todos != state.last_todos {
                     let _ = tx
                         .send(AgentEvent::TodosUpdated {
-                            pid,
-                            tool: AgentTool::Claude,
+                            id: AgentId::new(AgentTool::Claude, pid),
                             todos: todos.clone(),
                         })
                         .await;
@@ -719,16 +708,14 @@ pub async fn run_claude_detector(
                 let old = state.last_status.unwrap_or(PrimaryStatus::Running);
                 let _ = tx
                     .send(AgentEvent::StatusChanged {
-                        pid,
-                        tool: AgentTool::Claude,
+                        id: AgentId::new(AgentTool::Claude, pid),
                         old,
                         new: PrimaryStatus::Waiting,
                     })
                     .await;
                 let _ = tx
                     .send(AgentEvent::ActivityChanged {
-                        pid,
-                        tool: AgentTool::Claude,
+                        id: AgentId::new(AgentTool::Claude, pid),
                         activity: None, // clear activity when Waiting
                     })
                     .await;

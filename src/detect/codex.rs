@@ -8,7 +8,7 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_epoch_secs, AgentTool, PrimaryStatus};
+use crate::types::{from_epoch_secs, AgentId, AgentTool, PrimaryStatus};
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -477,10 +477,7 @@ pub async fn run_codex_detector(
     loop {
         if db_path.exists() {
             let db = db_path.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                query_codex_threads(&db)
-            })
-            .await?;
+            let result = tokio::task::spawn_blocking(move || query_codex_threads(&db)).await?;
 
             match result {
                 Ok(threads) => {
@@ -495,19 +492,16 @@ pub async fn run_codex_detector(
                             Some(p) => p,
                             None => continue, // no matching process discovered yet
                         };
+                        let agent_id = AgentId::session(AgentTool::Codex, pid, thread.id.clone());
 
-                        let state = thread_states
-                            .entry(thread.id.clone())
-                            .or_default();
+                        let state = thread_states.entry(thread.id.clone()).or_default();
 
                         // Emit SessionInfo once per thread
                         if !state.session_info_sent {
-                            let session_started =
-                                from_epoch_secs(thread.created_at);
+                            let session_started = from_epoch_secs(thread.created_at);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
-                                    pid,
-                                    tool: AgentTool::Codex,
+                                    id: agent_id.clone(),
                                     session_id: thread.id.clone(),
                                     branch: thread.git_branch.clone(),
                                     is_worktree: false,
@@ -535,8 +529,7 @@ pub async fn run_codex_detector(
                                             state.last_status.unwrap_or(PrimaryStatus::Running);
                                         let _ = tx
                                             .send(AgentEvent::StatusChanged {
-                                                pid,
-                                                tool: AgentTool::Codex,
+                                                id: agent_id.clone(),
                                                 old,
                                                 new: inferred,
                                             })
@@ -557,8 +550,7 @@ pub async fn run_codex_detector(
                                             };
                                             let _ = tx
                                                 .send(AgentEvent::ToolCallStarted {
-                                                    pid,
-                                                    tool: AgentTool::Codex,
+                                                    id: agent_id.clone(),
                                                     tool_name: latest.name.clone(),
                                                     args_summary: args,
                                                 })
@@ -570,14 +562,10 @@ pub async fn run_codex_detector(
                                     // Emit subagent spawns from rollout
                                     let spawns = extract_subagent_spawns(&events);
                                     for spawn in &spawns {
-                                        if !state
-                                            .emitted_subagent_ids
-                                            .contains(&spawn.thread_id)
-                                        {
+                                        if !state.emitted_subagent_ids.contains(&spawn.thread_id) {
                                             let _ = tx
                                                 .send(AgentEvent::SubagentSpawned {
-                                                    pid,
-                                                    tool: AgentTool::Codex,
+                                                    id: agent_id.clone(),
                                                     subagent: crate::types::Subagent {
                                                         name: spawn.nickname.clone(),
                                                         status: PrimaryStatus::Running,
@@ -599,16 +587,12 @@ pub async fn run_codex_detector(
                         // Query spawn edges for subagent info from DB
                         let thread_id = thread.id.clone();
                         let db2 = db_path.clone();
-                        if let Ok(Ok(edges)) = tokio::task::spawn_blocking(move || {
-                            query_spawn_edges(&db2, &thread_id)
-                        })
-                        .await
+                        if let Ok(Ok(edges)) =
+                            tokio::task::spawn_blocking(move || query_spawn_edges(&db2, &thread_id))
+                                .await
                         {
                             for edge in &edges {
-                                if !state
-                                    .emitted_subagent_ids
-                                    .contains(&edge.child_thread_id)
-                                {
+                                if !state.emitted_subagent_ids.contains(&edge.child_thread_id) {
                                     let sub_status = if edge.status == "completed" {
                                         PrimaryStatus::Done
                                     } else {
@@ -616,8 +600,7 @@ pub async fn run_codex_detector(
                                     };
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
-                                            pid,
-                                            tool: AgentTool::Codex,
+                                            id: agent_id.clone(),
                                             subagent: crate::types::Subagent {
                                                 name: edge.child_thread_id.clone(),
                                                 status: sub_status,

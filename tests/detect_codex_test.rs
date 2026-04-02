@@ -503,6 +503,18 @@ fn test_reconcile_codex_snapshots_retires_missing_session() {
 }
 
 #[test]
+fn test_reconcile_codex_snapshots_does_not_retire_missing_unbound_session() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![observed_session("session-a", None, PrimaryStatus::Running)],
+    };
+    let current = CodexEventSnapshot { sessions: vec![] };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert!(events.is_empty());
+}
+
+#[test]
 fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

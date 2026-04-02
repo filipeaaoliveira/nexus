@@ -970,7 +970,7 @@ pub fn reconcile_codex_snapshots(
     }
 
     for (session_id, previous_session) in previous_sessions {
-        if !current_session_ids.contains(session_id) {
+        if !current_session_ids.contains(session_id) && previous_session.pid.is_some() {
             events.push(AgentEvent::ProcessExited {
                 id: previous_session.agent_id.clone(),
                 pid: previous_session.pid,

@@ -898,7 +898,7 @@ fn test_codex_session_info_revives_exited_session_row() {
 }
 
 #[test]
-fn test_codex_discovery_merge_revives_exited_session_row() {
+fn test_codex_session_discovery_revives_exited_session_row() {
     let mut state = make_state();
 
     state.handle_event(session_info(
@@ -913,18 +913,52 @@ fn test_codex_discovery_merge_revives_exited_session_row() {
 
     assert_eq!(state.agents[0].status, PrimaryStatus::Exited);
 
-    state.handle_event(discovered(
-        AgentTool::Codex,
-        44,
-        PathBuf::from("/tmp/revive"),
-        None,
-    ));
+    state.handle_event(AgentEvent::Discovered {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: Some(44),
+        cwd: PathBuf::from("/tmp/revive"),
+        started_at: None,
+    });
 
     assert_eq!(state.agents.len(), 1);
     assert!(state.agents[0].id.is_session());
     assert_eq!(state.agents[0].status, PrimaryStatus::Running);
     assert_eq!(state.agents[0].pid, Some(44));
     assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/revive"));
+}
+
+#[test]
+fn test_codex_discovery_does_not_revive_exited_session_row_on_pid_reuse() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(process_exited(AgentTool::Codex, 44));
+
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        44,
+        PathBuf::from("/tmp/reused"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 2);
+    assert_eq!(state.agents.iter().filter(|a| a.id.is_session()).count(), 1);
+    assert_eq!(state.agents.iter().filter(|a| a.id.is_process()).count(), 1);
+
+    let exited_session = state.agents.iter().find(|a| a.id.is_session()).unwrap();
+    assert_eq!(exited_session.status, PrimaryStatus::Exited);
+    assert_eq!(exited_session.pid, Some(44));
+
+    let process_agent = state.agents.iter().find(|a| a.id.is_process()).unwrap();
+    assert_eq!(process_agent.status, PrimaryStatus::Running);
+    assert_eq!(process_agent.cwd, PathBuf::from("/tmp/reused"));
 }
 
 #[test]

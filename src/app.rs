@@ -553,6 +553,7 @@ impl AppState {
                 a.id.tool() == tool
                     && a.id.is_session()
                     && a.pid == Some(pid)
+                    && a.status != PrimaryStatus::Exited
                     && (a.cwd.as_os_str().is_empty() || a.cwd == *cwd)
             })
             .map(|(idx, _)| idx)

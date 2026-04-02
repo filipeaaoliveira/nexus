@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::{self, Agent, NormalizedStatus, PrimaryStatus};
+use crate::types::{self, Agent, NormalizedStatus};
 
 use super::{theme, RenderData};
 
@@ -33,11 +33,6 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
 }
 
 fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
-    let status_dot = match agent.status {
-        PrimaryStatus::Done | PrimaryStatus::Exited => "○",
-        _ => "●",
-    };
-
     let elapsed = types::format_duration(agent.elapsed());
     let subagent_count = agent.subagents.len();
     let status_text = match &agent.normalized.reason {
@@ -46,10 +41,13 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
     };
 
     let line1 = Line::from(vec![
-        Span::styled(" ▎", Style::default().fg(theme::status_color(agent.status))),
         Span::styled(
-            format!("{status_dot} "),
-            theme::status_dot_style(agent.status),
+            " ▎",
+            Style::default().fg(normalized_status_color(agent.normalized.status)),
+        ),
+        Span::styled(
+            format!("{} ", normalized_status_dot(agent.normalized.status)),
+            normalized_status_dot_style(agent.normalized.status),
         ),
         Span::styled(
             format!("{} ", agent.display_name()),
@@ -91,5 +89,38 @@ fn normalized_status_color(status: NormalizedStatus) -> ratatui::style::Color {
         NormalizedStatus::Blocked => theme::STATUS_ERROR,
         NormalizedStatus::Done => theme::STATUS_DONE,
         NormalizedStatus::Unknown => theme::FG_DIMMED,
+    }
+}
+
+fn normalized_status_dot(status: NormalizedStatus) -> &'static str {
+    match status {
+        NormalizedStatus::Done => "○",
+        NormalizedStatus::Working
+        | NormalizedStatus::NeedsInput
+        | NormalizedStatus::Blocked
+        | NormalizedStatus::Unknown => "●",
+    }
+}
+
+fn normalized_status_dot_style(status: NormalizedStatus) -> Style {
+    Style::default().fg(normalized_status_color(status))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalized_status_visuals_follow_normalized_state() {
+        assert_eq!(normalized_status_dot(NormalizedStatus::NeedsInput), "●");
+        assert_eq!(
+            normalized_status_color(NormalizedStatus::NeedsInput),
+            theme::STATUS_WAITING
+        );
+        assert_eq!(normalized_status_dot(NormalizedStatus::Done), "○");
+        assert_eq!(
+            normalized_status_color(NormalizedStatus::Done),
+            theme::STATUS_DONE
+        );
     }
 }

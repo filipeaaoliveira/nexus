@@ -205,6 +205,12 @@ impl AppState {
                     agent.last_activity = Local::now();
                 }
             }
+
+            AgentEvent::TodosUpdated { pid, tool, todos } => {
+                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                    agent.todos = todos;
+                }
+            }
         }
     }
 

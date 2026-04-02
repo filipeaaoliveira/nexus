@@ -767,3 +767,92 @@ fn test_start_rename_no_selection() {
     state.start_rename();
     assert!(!state.rename_mode);
 }
+
+#[test]
+fn test_todos_updated_sets_todos() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: PathBuf::from("/tmp"),
+        started_at: None,
+    });
+    let todos = vec![
+        TodoItem {
+            content: "Fix bug".to_string(),
+            status: TodoStatus::InProgress,
+            priority: TodoPriority::High,
+        },
+        TodoItem {
+            content: "Write tests".to_string(),
+            status: TodoStatus::Pending,
+            priority: TodoPriority::High,
+        },
+    ];
+    state.handle_event(AgentEvent::TodosUpdated {
+        pid: 100,
+        tool: AgentTool::Claude,
+        todos: todos.clone(),
+    });
+    assert_eq!(state.agents[0].todos, todos);
+}
+
+#[test]
+fn test_todos_updated_replaces_previous() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: PathBuf::from("/tmp"),
+        started_at: None,
+    });
+    let todos_v1 = vec![TodoItem {
+        content: "Task A".to_string(),
+        status: TodoStatus::Pending,
+        priority: TodoPriority::Medium,
+    }];
+    state.handle_event(AgentEvent::TodosUpdated {
+        pid: 100,
+        tool: AgentTool::Claude,
+        todos: todos_v1,
+    });
+    let todos_v2 = vec![
+        TodoItem {
+            content: "Task A".to_string(),
+            status: TodoStatus::Completed,
+            priority: TodoPriority::Medium,
+        },
+        TodoItem {
+            content: "Task B".to_string(),
+            status: TodoStatus::InProgress,
+            priority: TodoPriority::High,
+        },
+    ];
+    state.handle_event(AgentEvent::TodosUpdated {
+        pid: 100,
+        tool: AgentTool::Claude,
+        todos: todos_v2.clone(),
+    });
+    assert_eq!(state.agents[0].todos, todos_v2);
+}
+
+#[test]
+fn test_todos_updated_ignores_unknown_pid() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: PathBuf::from("/tmp"),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::TodosUpdated {
+        pid: 999,
+        tool: AgentTool::Claude,
+        todos: vec![TodoItem {
+            content: "Ghost".to_string(),
+            status: TodoStatus::Pending,
+            priority: TodoPriority::Low,
+        }],
+    });
+    assert!(state.agents[0].todos.is_empty());
+}

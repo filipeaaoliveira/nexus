@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 
-use crate::types::{Activity, AgentTool, PrimaryStatus, Subagent};
+use crate::types::{Activity, AgentTool, PrimaryStatus, Subagent, TodoItem};
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
@@ -47,6 +47,11 @@ pub enum AgentEvent {
     ProcessExited {
         pid: u32,
         tool: AgentTool,
+    },
+    TodosUpdated {
+        pid: u32,
+        tool: AgentTool,
+        todos: Vec<TodoItem>,
     },
     SessionInfo {
         pid: u32,

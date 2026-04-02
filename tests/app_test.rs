@@ -1079,6 +1079,69 @@ fn test_claude_session_info_stays_process_keyed() {
 }
 
 #[test]
+fn test_mixed_process_and_session_identities_stay_independent() {
+    let mut state = make_state();
+
+    state.handle_event(discovered(
+        AgentTool::Claude,
+        44,
+        PathBuf::from("/tmp/claude"),
+        None,
+    ));
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        55,
+        "codex-session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 2);
+    assert_eq!(state.visible_agents().len(), 2);
+
+    state.selected = Some(1);
+    state.start_rename();
+    assert_eq!(state.rename_input, "codex");
+    state.rename_input = "codex-session".to_string();
+    state.confirm_rename();
+
+    let claude = state
+        .agents
+        .iter()
+        .find(|agent| agent.id.tool() == AgentTool::Claude)
+        .unwrap();
+    let codex = state
+        .agents
+        .iter()
+        .find(|agent| agent.id.is_session())
+        .unwrap();
+    assert_eq!(claude.alias, None);
+    assert_eq!(codex.alias.as_deref(), Some("codex-session"));
+    assert_eq!(codex.display_name(), "codex-session");
+
+    state.handle_event(status_changed(
+        AgentTool::Claude,
+        44,
+        PrimaryStatus::Running,
+        PrimaryStatus::Done,
+    ));
+
+    let claude = state
+        .agents
+        .iter()
+        .find(|agent| agent.id.tool() == AgentTool::Claude)
+        .unwrap();
+    let codex = state
+        .agents
+        .iter()
+        .find(|agent| agent.id.is_session())
+        .unwrap();
+    assert_eq!(claude.status, PrimaryStatus::Done);
+    assert_eq!(codex.status, PrimaryStatus::Running);
+}
+
+#[test]
 fn test_default_sort_mode_is_name() {
     let state = make_state();
     assert_eq!(state.sort_mode, SortMode::Name);

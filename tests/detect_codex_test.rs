@@ -1,4 +1,6 @@
 use ai_overview::detect::codex::*;
+use ai_overview::detect::registry::AgentRegistry;
+use ai_overview::types::{AgentId, AgentTool};
 
 #[test]
 fn test_parse_rollout_events() {
@@ -80,4 +82,152 @@ fn test_parse_codex_source_cli() {
     let info = parse_source_field("cli");
     assert!(!info.is_subagent);
     assert!(info.parent_thread_id.is_none());
+}
+
+#[test]
+fn test_build_codex_snapshot_classifies_top_level_and_child_threads() {
+    let registry = AgentRegistry::new();
+    let threads = vec![
+        CodexThread {
+            id: "parent-thread".into(),
+            title: Some("Parent".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 10,
+            updated_at: 20,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "child-thread".into(),
+            title: Some("Child".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some(
+                r#"{"subagent":{"thread_spawn":{"parent_thread_id":"parent-thread","depth":1,"agent_nickname":"Nash","agent_role":"worker"}}}"#
+                    .into(),
+            ),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: Some("Nash".into()),
+            agent_role: Some("worker".into()),
+            created_at: 11,
+            updated_at: 21,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "edge-only-child".into(),
+            title: Some("Edge child".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 12,
+            updated_at: 22,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+    let edges = vec![
+        SpawnEdge {
+            parent_thread_id: "parent-thread".into(),
+            child_thread_id: "child-thread".into(),
+            status: "running".into(),
+        },
+        SpawnEdge {
+            parent_thread_id: "parent-thread".into(),
+            child_thread_id: "edge-only-child".into(),
+            status: "running".into(),
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &edges, &registry);
+
+    assert_eq!(snapshot.top_level_threads.len(), 1);
+    assert_eq!(snapshot.child_threads.len(), 2);
+
+    let parent = &snapshot.top_level_threads[0];
+    assert_eq!(parent.thread.id, "parent-thread");
+    assert_eq!(parent.classification, CodexThreadClassification::TopLevel);
+    assert_eq!(
+        parent.agent_id,
+        AgentId::session(AgentTool::Codex, "parent-thread")
+    );
+
+    let source_child = snapshot
+        .child_threads
+        .iter()
+        .find(|thread| thread.thread.id == "child-thread")
+        .unwrap();
+    assert_eq!(
+        source_child.classification,
+        CodexThreadClassification::Child {
+            parent_thread_id: Some("parent-thread".into()),
+        }
+    );
+
+    let edge_child = snapshot
+        .child_threads
+        .iter()
+        .find(|thread| thread.thread.id == "edge-only-child")
+        .unwrap();
+    assert_eq!(
+        edge_child.classification,
+        CodexThreadClassification::Child {
+            parent_thread_id: Some("parent-thread".into()),
+        }
+    );
+}
+
+#[test]
+fn test_build_codex_snapshot_keeps_same_cwd_top_level_threads_distinct() {
+    let registry = AgentRegistry::new();
+    let threads = vec![
+        CodexThread {
+            id: "thread-a".into(),
+            title: Some("A".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 10,
+            updated_at: 30,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "thread-b".into(),
+            title: Some("B".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 11,
+            updated_at: 31,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &[], &registry);
+
+    assert_eq!(snapshot.top_level_threads.len(), 2);
+    assert!(snapshot.child_threads.is_empty());
+    assert_eq!(snapshot.top_level_threads[0].thread.id, "thread-a");
+    assert_eq!(snapshot.top_level_threads[1].thread.id, "thread-b");
 }

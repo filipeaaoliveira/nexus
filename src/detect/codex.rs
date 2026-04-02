@@ -98,6 +98,29 @@ pub struct SpawnEdge {
     pub status: String,
 }
 
+/// Snapshot classification for an observed Codex thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexThreadClassification {
+    TopLevel,
+    Child { parent_thread_id: Option<String> },
+}
+
+/// An observed Codex thread enriched with identity and classification.
+#[derive(Debug, Clone)]
+pub struct ObservedCodexThread {
+    pub thread: CodexThread,
+    pub agent_id: AgentId,
+    pub pid: Option<u32>,
+    pub classification: CodexThreadClassification,
+}
+
+/// Grouped Codex observation snapshot for the current polling pass.
+#[derive(Debug, Clone, Default)]
+pub struct CodexSnapshot {
+    pub top_level_threads: Vec<ObservedCodexThread>,
+    pub child_threads: Vec<ObservedCodexThread>,
+}
+
 // ── JSONL Parsing ─────────────────────────────────────────────────
 
 /// Parse a Codex rollout JSONL string into a list of events.
@@ -464,6 +487,57 @@ fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
         [pid] => Some(*pid),
         _ => None,
     }
+}
+
+pub fn build_codex_snapshot(
+    threads: &[CodexThread],
+    spawn_edges: &[SpawnEdge],
+    registry: &AgentRegistry,
+) -> CodexSnapshot {
+    let edge_parent_by_child: HashMap<&str, &str> = spawn_edges
+        .iter()
+        .map(|edge| (edge.child_thread_id.as_str(), edge.parent_thread_id.as_str()))
+        .collect();
+    let mut snapshot = CodexSnapshot::default();
+
+    for thread in threads {
+        let source_info = thread
+            .source
+            .as_deref()
+            .map(parse_source_field)
+            .unwrap_or(SourceInfo {
+                is_subagent: false,
+                parent_thread_id: None,
+                agent_nickname: None,
+                agent_role: None,
+            });
+        let parent_thread_id = source_info
+            .parent_thread_id
+            .or_else(|| edge_parent_by_child.get(thread.id.as_str()).map(|id| (*id).to_string()));
+        let classification = if source_info.is_subagent || parent_thread_id.is_some() {
+            CodexThreadClassification::Child { parent_thread_id }
+        } else {
+            CodexThreadClassification::TopLevel
+        };
+        let pid = thread
+            .cwd
+            .as_deref()
+            .map(Path::new)
+            .and_then(|cwd| codex_pid_for_thread(registry, cwd));
+        let observed = ObservedCodexThread {
+            thread: thread.clone(),
+            agent_id: AgentId::session(AgentTool::Codex, thread.id.clone()),
+            pid,
+            classification: classification.clone(),
+        };
+
+        match classification {
+            CodexThreadClassification::TopLevel => snapshot.top_level_threads.push(observed),
+            CodexThreadClassification::Child { .. } => snapshot.child_threads.push(observed),
+        }
+    }
+
+    snapshot
 }
 
 // ── Detector Loop ─────────────────────────────────────────────────

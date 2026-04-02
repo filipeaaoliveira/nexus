@@ -761,6 +761,51 @@ fn test_codex_discovery_merges_into_existing_session_row() {
 }
 
 #[test]
+fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-b".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        44,
+        PathBuf::from("/tmp/ambiguous"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 3);
+    let session_agents: Vec<_> = state
+        .agents
+        .iter()
+        .filter(|a| a.id.is_session())
+        .collect();
+    assert_eq!(session_agents.len(), 2);
+    assert!(session_agents.iter().all(|a| a.cwd.as_os_str().is_empty()));
+
+    let process_agent = state
+        .agents
+        .iter()
+        .find(|a| a.id.is_process() && a.pid == Some(44))
+        .expect("process-backed Codex discovery should not be absorbed ambiguously");
+    assert_eq!(process_agent.cwd, PathBuf::from("/tmp/ambiguous"));
+    assert_eq!(process_agent.session_id, None);
+}
+
+#[test]
 fn test_agent_identity_session_has_no_pid() {
     let id = AgentId::session(AgentTool::Codex, "session-a");
     assert_eq!(

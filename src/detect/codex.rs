@@ -705,11 +705,14 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
                         });
                 summary.spawned_subagents = extract_subagent_spawns(&events)
                     .into_iter()
-                    .map(|spawn| ObservedCodexSubagent {
-                        name: spawn.thread_id.clone(),
-                        thread_id: spawn.thread_id,
-                        description: Some(spawn.role),
-                        status: PrimaryStatus::Running,
+                    .map(|spawn| {
+                        let thread_id = spawn.thread_id;
+                        ObservedCodexSubagent {
+                            name: spawn.nickname,
+                            thread_id: thread_id.clone(),
+                            description: Some(thread_id),
+                            status: PrimaryStatus::Running,
+                        }
                     })
                     .collect();
             }
@@ -731,15 +734,14 @@ fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Optio
             agent_nickname: None,
             agent_role: None,
         });
-    let description = child
+    let name = child
         .thread
-        .agent_role
+        .agent_nickname
         .clone()
-        .or(source_info.agent_role)
-        .or(child.thread.agent_nickname.clone())
-        .or(source_info.agent_nickname);
+        .or(source_info.agent_nickname)
+        .unwrap_or_else(|| child.thread.id.clone());
 
-    (child.thread.id.clone(), description)
+    (name, Some(child.thread.id.clone()))
 }
 
 fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -> PrimaryStatus {
@@ -852,11 +854,6 @@ pub fn reconcile_codex_snapshots(
         .flat_map(|snapshot| snapshot.sessions.iter())
         .filter_map(|session| session.agent_id.session_id().map(|id| (id, session)))
         .collect();
-    let current_session_ids = current
-        .sessions
-        .iter()
-        .filter_map(|session| session.agent_id.session_id())
-        .collect::<std::collections::HashSet<_>>();
     let mut events = Vec::new();
 
     for session in &current.sessions {
@@ -966,20 +963,11 @@ pub fn reconcile_codex_snapshots(
                     events.push(AgentEvent::SubagentCompleted {
                         id: session.agent_id.clone(),
                         pid: session.pid,
-                        subagent_name: subagent.name.clone(),
+                        subagent_name: subagent.thread_id.clone(),
                     });
                 }
                 _ => {}
             }
-        }
-    }
-
-    for (session_id, previous_session) in previous_sessions {
-        if !current_session_ids.contains(session_id) && previous_session.pid.is_some() {
-            events.push(AgentEvent::ProcessExited {
-                id: previous_session.agent_id.clone(),
-                pid: previous_session.pid,
-            });
         }
     }
 
@@ -1208,7 +1196,7 @@ mod tests {
         assert_eq!(event_snapshot.sessions.len(), 1);
         assert_eq!(event_snapshot.sessions[0].subagents.len(), 1);
         assert_eq!(event_snapshot.sessions[0].subagents[0].thread_id, "child-a");
-        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "child-a");
+        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "worker");
     }
 
     #[test]

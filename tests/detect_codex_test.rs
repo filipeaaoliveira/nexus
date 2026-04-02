@@ -309,8 +309,8 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
             }),
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "child-a".to_string(),
-                description: Some("worker".to_string()),
+                name: "Nash".to_string(),
+                description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Done)
@@ -351,7 +351,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
         &events[4],
         AgentEvent::SubagentSpawned { id, subagent, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
-                && subagent.name == "child-a"
+                && subagent.name == "Nash"
                 && subagent.status == PrimaryStatus::Running
     ));
 }
@@ -399,8 +399,8 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
         sessions: vec![ObservedCodexSession {
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "child-a".to_string(),
-                description: Some("worker".to_string()),
+                name: "Nash".to_string(),
+                description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -410,8 +410,8 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
         sessions: vec![ObservedCodexSession {
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "child-a".to_string(),
-                description: Some("worker".to_string()),
+                name: "Nash".to_string(),
+                description: Some("child-a".to_string()),
                 status: PrimaryStatus::Done,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -436,14 +436,14 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
             subagents: vec![
                 ObservedCodexSubagent {
                     thread_id: "child-a".to_string(),
-                    name: "child-a".to_string(),
-                    description: Some("Nash".to_string()),
+                    name: "Nash".to_string(),
+                    description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
-                    name: "child-b".to_string(),
-                    description: Some("Nash".to_string()),
+                    name: "Nash".to_string(),
+                    description: Some("child-b".to_string()),
                     status: PrimaryStatus::Running,
                 },
             ],
@@ -455,14 +455,14 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
             subagents: vec![
                 ObservedCodexSubagent {
                     thread_id: "child-a".to_string(),
-                    name: "child-a".to_string(),
-                    description: Some("Nash".to_string()),
+                    name: "Nash".to_string(),
+                    description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
-                    name: "child-b".to_string(),
-                    description: Some("Nash".to_string()),
+                    name: "Nash".to_string(),
+                    description: Some("child-b".to_string()),
                     status: PrimaryStatus::Done,
                 },
             ],
@@ -481,7 +481,7 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
 }
 
 #[test]
-fn test_reconcile_codex_snapshots_retires_missing_session() {
+fn test_reconcile_codex_snapshots_does_not_retire_missing_bound_session() {
     let previous = CodexEventSnapshot {
         sessions: vec![observed_session(
             "session-a",
@@ -493,13 +493,7 @@ fn test_reconcile_codex_snapshots_retires_missing_session() {
 
     let events = reconcile_codex_snapshots(Some(&previous), &current);
 
-    assert_eq!(events.len(), 1);
-    assert!(matches!(
-        &events[0],
-        AgentEvent::ProcessExited { id, pid }
-            if id == &AgentId::session(AgentTool::Codex, "session-a")
-                && pid == &Some(41)
-    ));
+    assert!(events.is_empty());
 }
 
 #[test]
@@ -598,15 +592,12 @@ fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
         event_snapshot.sessions[0].subagents[0].thread_id,
         "child-rollout"
     );
-    assert_eq!(
-        event_snapshot.sessions[0].subagents[0].name,
-        "child-rollout"
-    );
+    assert_eq!(event_snapshot.sessions[0].subagents[0].name, "Parfit");
     assert_eq!(
         event_snapshot.sessions[0].subagents[0]
             .description
             .as_deref(),
-        Some("worker")
+        Some("child-rollout")
     );
 
     std::fs::remove_file(rollout_path).unwrap();

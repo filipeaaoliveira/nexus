@@ -167,8 +167,15 @@ impl AppState {
             } => {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
-                    if let Some(sub) = agent.subagents.iter_mut().find(|s| s.name == subagent_name)
-                    {
+                    let matching_subagent = if id.tool() == AgentTool::Codex {
+                        agent.subagents.iter_mut().find(|s| {
+                            s.name == subagent_name
+                                || s.description.as_deref() == Some(subagent_name.as_str())
+                        })
+                    } else {
+                        agent.subagents.iter_mut().find(|s| s.name == subagent_name)
+                    };
+                    if let Some(sub) = matching_subagent {
                         sub.status = PrimaryStatus::Done;
                         sub.ended_at = Some(Local::now());
                     }
@@ -283,9 +290,6 @@ impl AppState {
                                 is_worktree,
                                 started_at,
                             );
-                            if id.tool() == AgentTool::Codex {
-                                agent.status = PrimaryStatus::Running;
-                            }
                             agent.pid
                         };
                         self.remove_redundant_codex_process_agents(absorbed_pid);
@@ -303,7 +307,6 @@ impl AppState {
                                 is_worktree,
                                 started_at,
                             );
-                            agent.status = PrimaryStatus::Running;
                             self.remove_redundant_codex_process_agents(Some(pid));
                             return;
                         }

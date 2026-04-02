@@ -867,7 +867,7 @@ fn test_codex_session_info_absorbs_stale_process_row_after_ambiguous_pid_resolve
 }
 
 #[test]
-fn test_codex_session_info_revives_exited_session_row() {
+fn test_codex_session_info_preserves_terminal_status() {
     let mut state = make_state();
 
     state.handle_event(session_info(
@@ -878,9 +878,14 @@ fn test_codex_session_info_revives_exited_session_row() {
         false,
         None,
     ));
-    state.handle_event(process_exited(AgentTool::Codex, 44));
+    state.handle_event(AgentEvent::StatusChanged {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: Some(44),
+        old: PrimaryStatus::Running,
+        new: PrimaryStatus::Done,
+    });
 
-    assert_eq!(state.agents[0].status, PrimaryStatus::Exited);
+    assert_eq!(state.agents[0].status, PrimaryStatus::Done);
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -893,7 +898,7 @@ fn test_codex_session_info_revives_exited_session_row() {
 
     assert_eq!(state.agents.len(), 1);
     assert!(state.agents[0].id.is_session());
-    assert_eq!(state.agents[0].status, PrimaryStatus::Running);
+    assert_eq!(state.agents[0].status, PrimaryStatus::Done);
     assert_eq!(state.agents[0].pid, Some(55));
 }
 
@@ -987,6 +992,42 @@ fn test_codex_discovery_does_not_revive_exited_session_row_on_pid_reuse() {
     let process_agent = state.agents.iter().find(|a| a.id.is_process()).unwrap();
     assert_eq!(process_agent.status, PrimaryStatus::Running);
     assert_eq!(process_agent.cwd, PathBuf::from("/tmp/reused"));
+}
+
+#[test]
+fn test_codex_subagent_completion_matches_stable_key_and_keeps_human_name() {
+    let mut state = make_state();
+    let id = AgentId::session(AgentTool::Codex, "session-a");
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: id.clone(),
+        pid: Some(44),
+        session_id: "session-a".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::SubagentSpawned {
+        id: id.clone(),
+        pid: Some(44),
+        subagent: Subagent {
+            name: "Nash".to_string(),
+            status: PrimaryStatus::Running,
+            description: Some("child-a".to_string()),
+            started_at: chrono::Local::now(),
+            ended_at: None,
+        },
+    });
+
+    state.handle_event(AgentEvent::SubagentCompleted {
+        id,
+        pid: Some(44),
+        subagent_name: "child-a".to_string(),
+    });
+
+    assert_eq!(state.agents[0].subagents.len(), 1);
+    assert_eq!(state.agents[0].subagents[0].name, "Nash");
+    assert_eq!(state.agents[0].subagents[0].status, PrimaryStatus::Done);
 }
 
 #[test]

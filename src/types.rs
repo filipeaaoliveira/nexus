@@ -237,7 +237,7 @@ pub fn from_epoch_secs(secs: i64) -> Option<DateTime<Local>> {
     chrono::DateTime::from_timestamp(secs, 0).map(|dt| dt.with_timezone(&Local))
 }
 
-/// Parse an RFC3339 timestamp string to local DateTime.
+/// Parse an RFC3339 timestamp string to local DateTime. Returns None for invalid input.
 pub fn from_rfc3339(s: &str) -> Option<DateTime<Local>> {
     chrono::DateTime::parse_from_rfc3339(s)
         .ok()

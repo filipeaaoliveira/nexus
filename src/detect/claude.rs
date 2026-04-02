@@ -166,7 +166,13 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
     match entries.last() {
         Some(TranscriptEntry::ToolUse { .. }) => Some(Activity::ToolCall),
         Some(TranscriptEntry::ToolResult { .. }) => Some(Activity::Thinking),
-        Some(TranscriptEntry::User { .. }) => Some(Activity::Generating),
+        Some(TranscriptEntry::User { content, .. }) => {
+            if content.contains("[restore checkpointed session agent configuration after compaction]") {
+                Some(Activity::Compacting)
+            } else {
+                Some(Activity::Generating)
+            }
+        }
         None => None,
     }
 }

@@ -1,5 +1,5 @@
 use ai_overview::detect::claude::*;
-use ai_overview::types::PrimaryStatus;
+use ai_overview::types::{Activity, PrimaryStatus};
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -159,4 +159,24 @@ fn test_is_stale_recent_mtime() {
     use std::time::SystemTime;
     let now = SystemTime::now();
     assert!(!ai_overview::detect::claude::is_stale(now, 10));
+}
+
+#[test]
+fn test_infer_activity_compaction_entry() {
+    let entries = vec![TranscriptEntry::User {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "[restore checkpointed session agent configuration after compaction]".to_string(),
+    }];
+    let activity = infer_activity_from_last_entry(&entries);
+    assert_eq!(activity, Some(Activity::Compacting));
+}
+
+#[test]
+fn test_infer_activity_normal_user_entry_not_compaction() {
+    let entries = vec![TranscriptEntry::User {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Please fix the bug in main.rs".to_string(),
+    }];
+    let activity = infer_activity_from_last_entry(&entries);
+    assert_eq!(activity, Some(Activity::Generating));
 }

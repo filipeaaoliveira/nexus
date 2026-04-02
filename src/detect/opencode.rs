@@ -277,25 +277,42 @@ struct SessionEmitState {
 }
 
 /// Infer a primary status from recent parts for an OpenCode session.
+///
+/// Every part type maps to `Running` except `"error"` → `Error`.
+/// The explicit match documents each known part type for clarity.
 pub fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
     // Parts are ordered most-recent-first from the query
     if let Some(latest) = parts.first() {
-        match latest.part_type.as_str() {
-            "tool" | "tool-invocation" => {
-                if latest.tool_status.as_deref() == Some("running") {
-                    return PrimaryStatus::Running;
-                }
-                // Completed tool call — still running (generating next step)
-                return PrimaryStatus::Running;
-            }
-            "step-start" => return PrimaryStatus::Running,
-            "step-finish" => return PrimaryStatus::Running,
-            "text" => return PrimaryStatus::Running,
-            "error" => return PrimaryStatus::Error,
-            _ => {}
+        if latest.part_type == "error" {
+            return PrimaryStatus::Error;
         }
     }
     PrimaryStatus::Running
+}
+
+/// Resolve the final status from the inferred status, the latest message role,
+/// and the parts.
+///
+/// - If `inferred` is `Error`, return `Error`.
+/// - If `latest_role` is `"assistant"` and no parts have `tool_status == "running"`,
+///   the agent is waiting for user input → return `Waiting`.
+/// - Otherwise return `inferred`.
+pub fn resolve_status(
+    inferred: PrimaryStatus,
+    latest_role: Option<&str>,
+    parts: &[PartData],
+) -> PrimaryStatus {
+    if inferred == PrimaryStatus::Error {
+        return PrimaryStatus::Error;
+    }
+    if latest_role == Some("assistant")
+        && !parts
+            .iter()
+            .any(|p| p.tool_status.as_deref() == Some("running"))
+    {
+        return PrimaryStatus::Waiting;
+    }
+    inferred
 }
 
 /// Infer an Activity from recent parts.
@@ -374,14 +391,44 @@ pub async fn run_opencode_detector(
                             state.session_info_sent = true;
                         }
 
-                        // Query recent parts for tool call and status events
+                        // Query recent parts and latest message role in a single blocking call
                         let session_id = session.id.clone();
                         let db2 = db_path.clone();
-                        if let Ok(Ok(parts)) = tokio::task::spawn_blocking(move || {
-                            query_recent_parts(&db2, &session_id, 5)
+                        let db_result = tokio::task::spawn_blocking(move || {
+                            let conn = rusqlite::Connection::open_with_flags(
+                                &db2,
+                                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+                            )?;
+
+                            // Query recent parts
+                            let mut stmt = conn.prepare(
+                                "SELECT data, time_created FROM part WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
+                            )?;
+                            let parts: Vec<PartData> = stmt
+                                .query_map(rusqlite::params![&session_id, 5_i64], |row| {
+                                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                                })?
+                                .filter_map(|r| r.ok())
+                                .filter_map(|(json, tc)| parse_part_data(&json, tc))
+                                .collect();
+
+                            // Query latest message role
+                            let mut stmt2 = conn.prepare(
+                                "SELECT json_extract(data, '$.role') FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 1",
+                            )?;
+                            let role: Option<String> = stmt2
+                                .query_row(rusqlite::params![&session_id], |row| {
+                                    row.get::<_, Option<String>>(0)
+                                })
+                                .optional()?
+                                .flatten();
+
+                            Ok::<_, anyhow::Error>((parts, role))
                         })
-                        .await
-                        {
+                        .await;
+
+                        if let Ok(Ok((parts, latest_role))) = db_result {
                             // Check if there's new activity by comparing the most
                             // recent part's time_created against what we saw last poll.
                             let newest_time = parts.first().map(|p| p.time_created).unwrap_or(0);
@@ -390,30 +437,13 @@ pub async fn run_opencode_detector(
                                 state.last_part_time = newest_time;
                             }
 
-                            // Query the latest message role to detect Waiting status.
-                            let msg_session_id = session.id.clone();
-                            let db_msg = db_path.clone();
-                            let latest_role = tokio::task::spawn_blocking(move || {
-                                query_latest_message_role(&db_msg, &msg_session_id)
-                            })
-                            .await
-                            .ok()
-                            .and_then(|r| r.ok())
-                            .flatten();
-
-                            // Determine status: if the parts-based inference says Error, keep it.
-                            // Otherwise, check if the agent is waiting for user input:
-                            // the last message is from the assistant AND no parts are running.
+                            // Determine final status using resolve_status.
                             let inferred = infer_status_from_parts(&parts);
-                            let status = if inferred == PrimaryStatus::Error {
-                                PrimaryStatus::Error
-                            } else if latest_role.as_deref() == Some("assistant")
-                                && !parts.iter().any(|p| p.tool_status.as_deref() == Some("running"))
-                            {
-                                PrimaryStatus::Waiting
-                            } else {
-                                inferred
-                            };
+                            let status = resolve_status(
+                                inferred,
+                                latest_role.as_deref(),
+                                &parts,
+                            );
 
                             // Emit status change if different from last known
                             if state.last_status != Some(status) {

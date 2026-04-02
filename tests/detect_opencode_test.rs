@@ -1,4 +1,24 @@
 use ai_overview::detect::opencode::*;
+use ai_overview::types::PrimaryStatus;
+use std::path::PathBuf;
+
+/// Create a temporary SQLite DB with the `message` table for testing.
+fn setup_message_db() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            time_created INTEGER NOT NULL
+        );",
+    )
+    .unwrap();
+    drop(conn);
+    (dir, db_path)
+}
 
 #[test]
 fn test_parse_message_data_user() {
@@ -78,21 +98,7 @@ fn test_extract_subagent_type() {
 
 #[test]
 fn test_query_latest_message_role_nonexistent_session() {
-    // In-memory DB won't work with query_latest_message_role because it opens by path.
-    // Use a temp file instead.
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test.db");
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            data TEXT NOT NULL,
-            time_created INTEGER NOT NULL
-        );",
-    )
-    .unwrap();
-    drop(conn);
+    let (_dir, db_path) = setup_message_db();
 
     let result = query_latest_message_role(&db_path, "nonexistent-session");
     assert!(result.is_ok());
@@ -101,18 +107,8 @@ fn test_query_latest_message_role_nonexistent_session() {
 
 #[test]
 fn test_query_latest_message_role_returns_assistant() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test.db");
+    let (_dir, db_path) = setup_message_db();
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            data TEXT NOT NULL,
-            time_created INTEGER NOT NULL
-        );",
-    )
-    .unwrap();
 
     // Insert a user message then an assistant message
     conn.execute(
@@ -134,18 +130,8 @@ fn test_query_latest_message_role_returns_assistant() {
 
 #[test]
 fn test_query_latest_message_role_returns_user() {
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test.db");
+    let (_dir, db_path) = setup_message_db();
     let conn = rusqlite::Connection::open(&db_path).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE message (
-            id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            data TEXT NOT NULL,
-            time_created INTEGER NOT NULL
-        );",
-    )
-    .unwrap();
 
     // Insert assistant then user (user is latest)
     conn.execute(
@@ -169,9 +155,6 @@ fn test_query_latest_message_role_returns_user() {
 fn test_waiting_status_when_assistant_done_no_running_parts() {
     // When the last message is from the assistant and no parts are running,
     // the status should be Waiting (not Running).
-    use ai_overview::types::PrimaryStatus;
-
-    // Build parts with no running tool calls (all completed)
     let parts = vec![
         PartData {
             part_type: "tool".to_string(),
@@ -189,34 +172,14 @@ fn test_waiting_status_when_assistant_done_no_running_parts() {
         },
     ];
 
-    // infer_status_from_parts returns Running for completed tools
-    // (the agent is still processing after a tool completes).
-    // But when the last message is assistant and no parts are running,
-    // the combined logic should produce Waiting.
-
-    // Simulate the same logic used in run_opencode_detector:
     let inferred = infer_status_from_parts(&parts);
-    let latest_role = Some("assistant".to_string());
-
-    let status = if inferred == PrimaryStatus::Error {
-        PrimaryStatus::Error
-    } else if latest_role.as_deref() == Some("assistant")
-        && !parts
-            .iter()
-            .any(|p| p.tool_status.as_deref() == Some("running"))
-    {
-        PrimaryStatus::Waiting
-    } else {
-        inferred
-    };
+    let status = resolve_status(inferred, Some("assistant"), &parts);
 
     assert_eq!(status, PrimaryStatus::Waiting);
 }
 
 #[test]
 fn test_running_status_when_parts_are_running() {
-    use ai_overview::types::PrimaryStatus;
-
     let parts = vec![PartData {
         part_type: "tool".to_string(),
         tool_name: Some("bash".to_string()),
@@ -227,27 +190,13 @@ fn test_running_status_when_parts_are_running() {
 
     // Even if last message is assistant, a running part means Running.
     let inferred = infer_status_from_parts(&parts);
-    let latest_role = Some("assistant".to_string());
-
-    let status = if inferred == PrimaryStatus::Error {
-        PrimaryStatus::Error
-    } else if latest_role.as_deref() == Some("assistant")
-        && !parts
-            .iter()
-            .any(|p| p.tool_status.as_deref() == Some("running"))
-    {
-        PrimaryStatus::Waiting
-    } else {
-        inferred
-    };
+    let status = resolve_status(inferred, Some("assistant"), &parts);
 
     assert_eq!(status, PrimaryStatus::Running);
 }
 
 #[test]
 fn test_error_status_preserved_even_with_assistant_role() {
-    use ai_overview::types::PrimaryStatus;
-
     let parts = vec![PartData {
         part_type: "error".to_string(),
         tool_name: None,
@@ -257,19 +206,7 @@ fn test_error_status_preserved_even_with_assistant_role() {
     }];
 
     let inferred = infer_status_from_parts(&parts);
-    let latest_role = Some("assistant".to_string());
-
-    let status = if inferred == PrimaryStatus::Error {
-        PrimaryStatus::Error
-    } else if latest_role.as_deref() == Some("assistant")
-        && !parts
-            .iter()
-            .any(|p| p.tool_status.as_deref() == Some("running"))
-    {
-        PrimaryStatus::Waiting
-    } else {
-        inferred
-    };
+    let status = resolve_status(inferred, Some("assistant"), &parts);
 
     assert_eq!(status, PrimaryStatus::Error);
 }

@@ -430,6 +430,77 @@ fn test_discover_without_start_time_uses_now() {
 }
 
 #[test]
+fn test_remove_exited_agents() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 200,
+        cwd: "/tmp/b".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Codex,
+        pid: 300,
+        cwd: "/tmp/c".into(),
+        started_at: None,
+    });
+    // Exit agent 100 and 300
+    state.handle_event(AgentEvent::ProcessExited {
+        pid: 100,
+        tool: AgentTool::Claude,
+    });
+    state.handle_event(AgentEvent::ProcessExited {
+        pid: 300,
+        tool: AgentTool::Codex,
+    });
+    state.selected = Some(0);
+    state.remove_exited();
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].id.pid, 200);
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
+fn test_remove_exited_no_exited_agents() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.remove_exited();
+    assert_eq!(state.agents.len(), 1); // no change
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
+fn test_remove_exited_all_exited() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::ProcessExited {
+        pid: 100,
+        tool: AgentTool::Claude,
+    });
+    state.selected = Some(0);
+    state.remove_exited();
+    assert_eq!(state.agents.len(), 0);
+    assert_eq!(state.selected, None);
+}
+
+#[test]
 fn test_remove_selected_agent() {
     let mut state = make_state();
     state.handle_event(AgentEvent::Discovered {

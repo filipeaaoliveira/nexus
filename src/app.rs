@@ -308,6 +308,17 @@ impl AppState {
         self.clamp_selection();
     }
 
+    pub fn remove_exited(&mut self) {
+        self.agents.retain(|a| a.status != PrimaryStatus::Exited);
+        if self.agents.is_empty() {
+            self.selected = None;
+        } else if let Some(idx) = self.selected {
+            if idx >= self.agents.len() {
+                self.selected = Some(self.agents.len() - 1);
+            }
+        }
+    }
+
     pub fn remove_selected(&mut self) {
         let idx = match self.selected {
             Some(i) => i,

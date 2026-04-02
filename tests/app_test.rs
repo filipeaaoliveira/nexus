@@ -398,3 +398,90 @@ fn test_filter_clamps_selected_index() {
     assert_eq!(state.visible_agents().len(), 1);
     assert_eq!(state.selected, Some(0));
 }
+
+#[test]
+fn test_discover_with_real_start_time() {
+    let mut state = make_state();
+    let past = chrono::Local::now() - chrono::Duration::hours(2);
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 42,
+        cwd: PathBuf::from("/tmp/test"),
+        started_at: Some(past),
+    });
+    // The agent's started_at should be the past time, not now
+    assert_eq!(state.agents[0].started_at, past);
+}
+
+#[test]
+fn test_discover_without_start_time_uses_now() {
+    let before = chrono::Local::now();
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 43,
+        cwd: PathBuf::from("/tmp/test2"),
+        started_at: None,
+    });
+    let after = chrono::Local::now();
+    assert!(state.agents[0].started_at >= before);
+    assert!(state.agents[0].started_at <= after);
+}
+
+#[test]
+fn test_session_info_only_applies_earlier_start_time() {
+    let mut state = make_state();
+    let now = chrono::Local::now();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 44,
+        cwd: PathBuf::from("/tmp/test3"),
+        started_at: None, // uses ~now
+    });
+
+    // SessionInfo with earlier time should update
+    let earlier = now - chrono::Duration::hours(1);
+    state.handle_event(AgentEvent::SessionInfo {
+        pid: 44,
+        tool: AgentTool::OpenCode,
+        session_id: "s1".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: Some(earlier),
+    });
+    assert_eq!(state.agents[0].started_at, earlier);
+
+    // SessionInfo with later time should NOT update
+    let later = now + chrono::Duration::hours(1);
+    state.handle_event(AgentEvent::SessionInfo {
+        pid: 44,
+        tool: AgentTool::OpenCode,
+        session_id: "s1".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: Some(later),
+    });
+    // Should still be the earlier time
+    assert_eq!(state.agents[0].started_at, earlier);
+}
+
+#[test]
+fn test_session_info_none_start_time_keeps_existing() {
+    let mut state = make_state();
+    let past = chrono::Local::now() - chrono::Duration::hours(3);
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Codex,
+        pid: 45,
+        cwd: PathBuf::from("/tmp/test4"),
+        started_at: Some(past),
+    });
+    state.handle_event(AgentEvent::SessionInfo {
+        pid: 45,
+        tool: AgentTool::Codex,
+        session_id: "s2".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: None,
+    });
+    assert_eq!(state.agents[0].started_at, past);
+}

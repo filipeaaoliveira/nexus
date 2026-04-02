@@ -1,5 +1,6 @@
 use ai_overview::detect::opencode::*;
-use ai_overview::types::{Activity, PrimaryStatus, TodoPriority, TodoStatus};
+use ai_overview::event::AgentEvent;
+use ai_overview::types::{Activity, AgentTool, PrimaryStatus, TodoPriority, TodoStatus};
 use std::path::PathBuf;
 
 /// Create a temporary SQLite DB with the `message` table for testing.
@@ -250,6 +251,50 @@ fn test_resolve_status_running_tool_overrides_turn_completed() {
 }
 
 #[test]
+fn test_retry_maps_to_working_retrying() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let state = normalize_opencode_state(
+        Some("retry"),
+        None,
+        &[PartData {
+            part_type: "retry".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        None,
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Working);
+    assert_eq!(state.reason, Some(NormalizedReason::Retrying));
+}
+
+#[test]
+fn test_completed_review_maps_to_needs_input_review() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let state = normalize_opencode_state(
+        Some("idle"),
+        None,
+        &[PartData {
+            part_type: "step-finish".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        true,
+        Some("### Issues\n#### Critical"),
+    );
+
+    assert_eq!(state.status, NormalizedStatus::NeedsInput);
+    assert_eq!(state.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
 fn test_assistant_turn_completed_no_messages() {
     let (_dir, db_path) = setup_message_db();
     let result = query_assistant_turn_completed(&db_path, "nonexistent");
@@ -397,7 +442,10 @@ fn test_infer_activity_completed_tool_overrides_older_running_tool() {
             time_created: 2000,
         },
     ];
-    assert_eq!(infer_activity_from_parts(&parts), Some(Activity::Generating));
+    assert_eq!(
+        infer_activity_from_parts(&parts),
+        Some(Activity::Generating)
+    );
 }
 
 #[test]
@@ -536,4 +584,191 @@ fn test_query_session_todos_unknown_priority_defaults_to_medium() {
 
     let todos = query_session_todos(&db_path, "sess-1").unwrap();
     assert_eq!(todos[0].priority, TodoPriority::Medium);
+}
+
+// ── Fix #2: connection-reuse variants ────────────────────────────────────────
+
+/// Helper: create a full temp DB with session, todo, and part tables.
+fn setup_full_db(dir: &std::path::Path) -> std::path::PathBuf {
+    let db_path = dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL DEFAULT 'proj',
+            parent_id TEXT,
+            slug TEXT NOT NULL DEFAULT '',
+            directory TEXT,
+            title TEXT,
+            version TEXT NOT NULL DEFAULT '1',
+            share_url TEXT,
+            summary_additions INTEGER,
+            summary_deletions INTEGER,
+            summary_files INTEGER,
+            summary_diffs TEXT,
+            revert TEXT,
+            permission TEXT,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            time_compacting INTEGER,
+            time_archived INTEGER,
+            workspace_id TEXT
+        );
+        CREATE TABLE todo (
+            session_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            PRIMARY KEY (session_id, position)
+        );
+        CREATE TABLE part (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            message_id TEXT NOT NULL DEFAULT '',
+            data TEXT NOT NULL,
+            time_created INTEGER NOT NULL
+        );",
+    )
+    .unwrap();
+    db_path
+}
+
+#[test]
+fn test_query_session_todos_conn_returns_same_as_path_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_full_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params!["sess-1", "Fix bug", "in_progress", "high", 0, 1000, 1000],
+    ).unwrap();
+
+    // via_path uses a new connection internally
+    let via_path = query_session_todos(&db_path, "sess-1").unwrap();
+    // via_conn reuses the open connection
+    let via_conn = query_session_todos_conn(&conn, "sess-1").unwrap();
+
+    assert_eq!(via_path, via_conn);
+}
+
+#[test]
+fn test_query_subagent_sessions_conn_returns_same_as_path_variant() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = setup_full_db(dir.path());
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO session (id, parent_id, title, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params!["child-1", "parent-1", "Do task (@explore subagent)", 1000, 2000],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO session (id, parent_id, title, time_created, time_updated) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params!["child-2", "parent-1", "Other task (@general subagent)", 1001, 2001],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO session (id, title, time_created, time_updated) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["unrelated", "Unrelated session", 1002, 2002],
+    )
+    .unwrap();
+
+    let via_path = query_subagent_sessions(&db_path, "parent-1").unwrap();
+    let via_conn = query_subagent_sessions_conn(&conn, "parent-1").unwrap();
+
+    assert_eq!(via_path.len(), 2);
+    assert_eq!(via_conn.len(), 2);
+    assert_eq!(via_path[0].id, via_conn[0].id);
+    assert_eq!(via_path[1].id, via_conn[1].id);
+}
+
+// ── Fix #4+#5: SubagentCompleted deduplication & HashSet ─────────────────────
+
+fn make_subagent(id: &str, title: &str, archived: bool) -> OpenCodeSession {
+    OpenCodeSession {
+        id: id.to_string(),
+        title: Some(title.to_string()),
+        directory: None,
+        parent_id: Some("parent".to_string()),
+        time_created: 1000,
+        time_updated: 2000,
+        time_archived: if archived { Some(3000) } else { None },
+        branch: None,
+    }
+}
+
+#[test]
+fn test_collect_subagent_events_new_subagent_emits_spawned() {
+    let mut state = SessionEmitState::default();
+    let sub = make_subagent("sub-1", "Do task (@explore subagent)", false);
+
+    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42);
+
+    assert_eq!(events.len(), 1, "should emit exactly one SubagentSpawned");
+    assert!(
+        matches!(&events[0], AgentEvent::SubagentSpawned { .. }),
+        "event should be SubagentSpawned"
+    );
+}
+
+#[test]
+fn test_collect_subagent_events_known_active_subagent_emits_nothing() {
+    let mut state = SessionEmitState::default();
+    let sub = make_subagent("sub-1", "Do task (@explore subagent)", false);
+
+    // First poll: spawned
+    collect_subagent_events(&[sub.clone()], &mut state, AgentTool::OpenCode, 42);
+    // Second poll: still active, should emit nothing
+    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42);
+
+    assert!(
+        events.is_empty(),
+        "known active subagent should produce no events"
+    );
+}
+
+#[test]
+fn test_collect_subagent_events_completed_emitted_only_once() {
+    let mut state = SessionEmitState::default();
+    let active = make_subagent("sub-1", "Do task (@explore subagent)", false);
+    let archived = make_subagent("sub-1", "Do task (@explore subagent)", true);
+
+    // Poll 1: spawned
+    collect_subagent_events(&[active], &mut state, AgentTool::OpenCode, 42);
+    // Poll 2: archived → SubagentCompleted
+    let events2 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    assert_eq!(events2.len(), 1, "poll 2 should emit SubagentCompleted");
+    assert!(matches!(&events2[0], AgentEvent::SubagentCompleted { .. }));
+
+    // Poll 3: still archived → NO additional SubagentCompleted
+    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42);
+    assert!(
+        events3.is_empty(),
+        "SubagentCompleted must not be emitted again on subsequent polls"
+    );
+}
+
+#[test]
+fn test_collect_subagent_events_already_archived_on_first_sight_emits_spawned_and_completed() {
+    // Edge case: we first observe a subagent that is already archived.
+    // It should emit SubagentSpawned once, then SubagentCompleted once.
+    let mut state = SessionEmitState::default();
+    let archived = make_subagent("sub-1", "Do task (@explore subagent)", true);
+
+    let events1 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    // The subagent was never seen as active: depends on desired behavior.
+    // We expect SubagentSpawned to still be emitted (it's the first time we see it),
+    // but SubagentCompleted NOT yet (the "completed" check runs on the next poll
+    // for the already-emitted set, not for newly-added ones).
+    assert_eq!(events1.len(), 1);
+    assert!(matches!(&events1[0], AgentEvent::SubagentSpawned { .. }));
+
+    // Second poll: now it is in emitted set and archived → SubagentCompleted once
+    let events2 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    assert_eq!(events2.len(), 1);
+    assert!(matches!(&events2[0], AgentEvent::SubagentCompleted { .. }));
+
+    // Third poll: no more events
+    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42);
+    assert!(events3.is_empty());
 }

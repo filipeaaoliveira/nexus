@@ -67,6 +67,7 @@ impl AppState {
                     recent_events: VecDeque::new(),
                     session_id: None,
                     alias: None,
+                    todos: Vec::new(),
                 });
                 if self.selected.is_none() {
                     self.selected = Some(0);

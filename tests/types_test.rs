@@ -1,4 +1,5 @@
 use ai_overview::types::*;
+use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
 
 #[test]
 fn test_primary_status_ordering() {
@@ -62,6 +63,7 @@ fn test_agent_elapsed_time() {
         recent_events: std::collections::VecDeque::new(),
         session_id: None,
         alias: None,
+        todos: Vec::new(),
     };
     let elapsed = agent.elapsed();
     assert!(elapsed >= chrono::Duration::minutes(4));
@@ -134,6 +136,7 @@ fn test_display_name_without_alias() {
         recent_events: std::collections::VecDeque::new(),
         session_id: None,
         alias: None,
+        todos: Vec::new(),
     };
     assert_eq!(agent.display_name(), "claude");
 }
@@ -153,6 +156,7 @@ fn test_display_name_with_alias() {
         recent_events: std::collections::VecDeque::new(),
         session_id: None,
         alias: Some("my-agent".to_string()),
+        todos: Vec::new(),
     };
     assert_eq!(agent.display_name(), "my-agent");
 }
@@ -162,4 +166,58 @@ fn test_sort_mode_cycling() {
     assert_eq!(SortMode::Urgency.next(), SortMode::Name);
     assert_eq!(SortMode::Name.next(), SortMode::Elapsed);
     assert_eq!(SortMode::Elapsed.next(), SortMode::Urgency);
+}
+
+#[test]
+fn test_todo_status_equality() {
+    assert_eq!(TodoStatus::Pending, TodoStatus::Pending);
+    assert_ne!(TodoStatus::Pending, TodoStatus::InProgress);
+    assert_ne!(TodoStatus::Completed, TodoStatus::Cancelled);
+}
+
+#[test]
+fn test_todo_priority_equality() {
+    assert_eq!(TodoPriority::High, TodoPriority::High);
+    assert_ne!(TodoPriority::High, TodoPriority::Low);
+}
+
+#[test]
+fn test_todo_item_equality() {
+    let a = TodoItem {
+        content: "Fix bug".to_string(),
+        status: TodoStatus::Pending,
+        priority: TodoPriority::High,
+    };
+    let b = TodoItem {
+        content: "Fix bug".to_string(),
+        status: TodoStatus::Pending,
+        priority: TodoPriority::High,
+    };
+    let c = TodoItem {
+        content: "Fix bug".to_string(),
+        status: TodoStatus::Completed,
+        priority: TodoPriority::High,
+    };
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+}
+
+#[test]
+fn test_todo_status_from_str() {
+    assert_eq!(TodoStatus::from_str("pending"), TodoStatus::Pending);
+    assert_eq!(TodoStatus::from_str("in_progress"), TodoStatus::InProgress);
+    assert_eq!(TodoStatus::from_str("completed"), TodoStatus::Completed);
+    assert_eq!(TodoStatus::from_str("cancelled"), TodoStatus::Cancelled);
+    assert_eq!(TodoStatus::from_str("unknown_value"), TodoStatus::Pending);
+}
+
+#[test]
+fn test_todo_priority_from_str() {
+    assert_eq!(TodoPriority::from_str("high"), TodoPriority::High);
+    assert_eq!(TodoPriority::from_str("medium"), TodoPriority::Medium);
+    assert_eq!(TodoPriority::from_str("low"), TodoPriority::Low);
+    assert_eq!(
+        TodoPriority::from_str("unknown_value"),
+        TodoPriority::Medium
+    );
 }

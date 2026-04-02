@@ -131,6 +131,53 @@ pub struct Subagent {
     pub ended_at: Option<DateTime<Local>>,
 }
 
+// ── Todos ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+impl TodoStatus {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "pending" => Self::Pending,
+            "in_progress" => Self::InProgress,
+            "completed" => Self::Completed,
+            "cancelled" => Self::Cancelled,
+            _ => Self::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoPriority {
+    High,
+    Medium,
+    Low,
+}
+
+impl TodoPriority {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "high" => Self::High,
+            "medium" => Self::Medium,
+            "low" => Self::Low,
+            _ => Self::Medium,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TodoItem {
+    pub content: String,
+    pub status: TodoStatus,
+    pub priority: TodoPriority,
+}
+
 // ── Agent ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -147,6 +194,7 @@ pub struct Agent {
     pub recent_events: VecDeque<ActivityEvent>,
     pub session_id: Option<String>,
     pub alias: Option<String>,
+    pub todos: Vec<TodoItem>,
 }
 
 impl Agent {

@@ -511,7 +511,20 @@ struct ThreadEmitState {
     last_status: Option<PrimaryStatus>,
     last_tool_call: Option<String>,
     emitted_subagent_ids: Vec<String>,
+    child_statuses: HashMap<String, PrimaryStatus>,
     session_info_sent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ChildLifecycleEvent {
+    Spawned {
+        name: String,
+        status: PrimaryStatus,
+        description: Option<String>,
+    },
+    Completed {
+        subagent_name: String,
+    },
 }
 
 fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
@@ -572,6 +585,16 @@ pub fn build_codex_snapshot(
     snapshot
 }
 
+fn load_spawn_edges_snapshot(db_path: &Path) -> Vec<SpawnEdge> {
+    match query_all_spawn_edges(db_path) {
+        Ok(edges) => edges,
+        Err(error) => {
+            debug!("failed to load codex spawn edges: {error}");
+            Vec::new()
+        }
+    }
+}
+
 fn snapshot_child_threads_by_parent(
     snapshot: &CodexSnapshot,
 ) -> HashMap<String, Vec<ObservedCodexThread>> {
@@ -615,6 +638,48 @@ fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Optio
     (name, description)
 }
 
+fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -> PrimaryStatus {
+    if let Some(ref rollout_path) = child.thread.rollout_path {
+        let rp = PathBuf::from(rollout_path);
+        if rp.exists() {
+            if let Ok(content) = std::fs::read_to_string(&rp) {
+                let inferred = codex_to_primary(infer_rollout_status(&parse_rollout(&content)));
+                if inferred == PrimaryStatus::Done {
+                    return PrimaryStatus::Done;
+                }
+            }
+        }
+    }
+
+    match edge_status {
+        Some("completed") => PrimaryStatus::Done,
+        _ => PrimaryStatus::Running,
+    }
+}
+
+fn child_transition(
+    state: &mut ThreadEmitState,
+    child: &ObservedCodexThread,
+    status: PrimaryStatus,
+) -> Option<ChildLifecycleEvent> {
+    let (name, description) = child_thread_subagent_metadata(child);
+    let previous = state.child_statuses.get(&child.thread.id).copied();
+    state.child_statuses.insert(child.thread.id.clone(), status);
+
+    match previous {
+        None => Some(ChildLifecycleEvent::Spawned {
+            name,
+            status,
+            description,
+        }),
+        Some(PrimaryStatus::Done) => None,
+        Some(_) if status == PrimaryStatus::Done => Some(ChildLifecycleEvent::Completed {
+            subagent_name: name,
+        }),
+        Some(_) => None,
+    }
+}
+
 // ── Detector Loop ─────────────────────────────────────────────────
 
 /// Run the Codex detector polling loop.
@@ -635,7 +700,7 @@ pub async fn run_codex_detector(
             let db = db_path.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let threads = query_codex_threads(&db)?;
-                let edges = query_all_spawn_edges(&db)?;
+                let edges = load_spawn_edges_snapshot(&db);
                 Ok::<_, anyhow::Error>((threads, edges))
             })
             .await?;
@@ -753,29 +818,43 @@ pub async fn run_codex_detector(
 
                         if let Some(children) = child_threads_by_parent.get(&thread.id) {
                             for child in children {
+                                let sub_status = child_thread_status(
+                                    child,
+                                    spawn_status_by_child.get(child.thread.id.as_str()).copied(),
+                                );
+                                if let Some(event) = child_transition(state, child, sub_status) {
+                                    match event {
+                                        ChildLifecycleEvent::Spawned {
+                                            name,
+                                            status,
+                                            description,
+                                        } => {
+                                            let _ = tx
+                                                .send(AgentEvent::SubagentSpawned {
+                                                    id: agent_id.clone(),
+                                                    pid,
+                                                    subagent: crate::types::Subagent {
+                                                        name,
+                                                        status,
+                                                        description,
+                                                        started_at: chrono::Local::now(),
+                                                        ended_at: None,
+                                                    },
+                                                })
+                                                .await;
+                                        }
+                                        ChildLifecycleEvent::Completed { subagent_name } => {
+                                            let _ = tx
+                                                .send(AgentEvent::SubagentCompleted {
+                                                    id: agent_id.clone(),
+                                                    pid,
+                                                    subagent_name,
+                                                })
+                                                .await;
+                                        }
+                                    }
+                                }
                                 if !state.emitted_subagent_ids.contains(&child.thread.id) {
-                                    let sub_status = match spawn_status_by_child
-                                        .get(child.thread.id.as_str())
-                                        .copied()
-                                    {
-                                        Some("completed") => PrimaryStatus::Done,
-                                        _ => PrimaryStatus::Running,
-                                    };
-                                    let (name, description) =
-                                        child_thread_subagent_metadata(child);
-                                    let _ = tx
-                                        .send(AgentEvent::SubagentSpawned {
-                                            id: agent_id.clone(),
-                                            pid,
-                                            subagent: crate::types::Subagent {
-                                                name,
-                                                status: sub_status,
-                                                description,
-                                                started_at: chrono::Local::now(),
-                                                ended_at: None,
-                                            },
-                                        })
-                                        .await;
                                     state.emitted_subagent_ids.push(child.thread.id.clone());
                                 }
                             }
@@ -795,12 +874,15 @@ pub async fn run_codex_detector(
 #[cfg(test)]
 mod tests {
     use super::{
-        codex_pid_for_thread, snapshot_child_threads_by_parent, CodexThread,
-        CodexThreadClassification, CodexSnapshot, ObservedCodexThread,
+        child_transition, codex_pid_for_thread, load_spawn_edges_snapshot,
+        snapshot_child_threads_by_parent, CodexThread, CodexThreadClassification, CodexSnapshot,
+        ObservedCodexThread,
     };
     use crate::detect::registry::AgentRegistry;
-    use crate::types::{AgentId, AgentTool};
+    use crate::types::{AgentId, AgentTool, PrimaryStatus};
+    use rusqlite::Connection;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn codex_pid_for_thread_returns_single_binding_only() {
@@ -891,5 +973,63 @@ mod tests {
 
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped["parent"][0].thread.id, "child-a");
+    }
+
+    #[test]
+    fn load_spawn_edges_snapshot_ignores_missing_table() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = std::env::temp_dir().join(format!("codex-missing-edges-{unique}.sqlite"));
+        Connection::open(&db_path).unwrap();
+
+        let edges = load_spawn_edges_snapshot(&db_path);
+
+        assert!(edges.is_empty());
+
+        std::fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn child_transition_emits_completion_for_known_done_child() {
+        let child = ObservedCodexThread {
+            thread: CodexThread {
+                id: "child-a".into(),
+                title: None,
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: None,
+                git_branch: None,
+                agent_nickname: Some("worker".into()),
+                agent_role: Some("worker".into()),
+                created_at: 2,
+                updated_at: 2,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: None,
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "child-a"),
+            pid: None,
+            classification: CodexThreadClassification::Child {
+                parent_thread_id: Some("parent".into()),
+            },
+        };
+        let mut state = super::ThreadEmitState::default();
+        state
+            .child_statuses
+            .insert("child-a".into(), PrimaryStatus::Running);
+
+        let transition = child_transition(&mut state, &child, PrimaryStatus::Done);
+
+        assert!(matches!(
+            transition,
+            Some(super::ChildLifecycleEvent::Completed { ref subagent_name })
+                if subagent_name == "worker"
+        ));
+        assert_eq!(
+            state.child_statuses.get("child-a"),
+            Some(&PrimaryStatus::Done)
+        );
     }
 }

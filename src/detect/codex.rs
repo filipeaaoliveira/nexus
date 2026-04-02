@@ -9,7 +9,10 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_epoch_secs, AgentId, AgentTool, PrimaryStatus};
+use crate::types::{
+    from_epoch_secs, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
+    PrimaryStatus,
+};
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
 
@@ -149,6 +152,7 @@ pub struct ObservedCodexSession {
     pub branch: Option<String>,
     pub started_at: Option<DateTime<Local>>,
     pub status: PrimaryStatus,
+    pub final_output: Option<String>,
     pub latest_tool_call: Option<ObservedToolCall>,
     pub subagents: Vec<ObservedCodexSubagent>,
 }
@@ -162,6 +166,7 @@ pub struct CodexEventSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RolloutThreadSummary {
     status: PrimaryStatus,
+    final_output: Option<String>,
     latest_tool_call: Option<ObservedToolCall>,
     spawned_subagents: Vec<ObservedCodexSubagent>,
 }
@@ -700,9 +705,110 @@ fn summarize_tool_arguments(arguments: &str) -> Option<String> {
     }
 }
 
+fn extract_final_output_text(events: &[RolloutEvent]) -> Option<String> {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| {
+            if event.event_type == "event_msg" {
+                return event
+                    .payload
+                    .get("last_agent_message")
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string);
+            }
+
+            if event.event_type != "response_item" {
+                return None;
+            }
+
+            let payload = &event.payload;
+            if payload.get("type").and_then(|value| value.as_str()) != Some("message") {
+                return None;
+            }
+
+            payload
+                .get("content")
+                .and_then(|value| value.as_array())
+                .and_then(|content| {
+                    let parts = content
+                        .iter()
+                        .filter(|item| {
+                            item.get("type").and_then(|value| value.as_str())
+                                == Some("output_text")
+                        })
+                        .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .collect::<Vec<_>>();
+                    (!parts.is_empty()).then(|| parts.join("\n"))
+                })
+        })
+}
+
+fn looks_like_review_output(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("### issues")
+        || lower.contains("#### critical")
+        || lower.contains("requested changes")
+        || lower.contains("review findings")
+}
+
+pub fn normalize_codex_session(
+    session: &ObservedCodexSession,
+    final_output: Option<&str>,
+) -> NormalizedState {
+    if final_output.is_some_and(looks_like_review_output) {
+        return NormalizedState::new(
+            NormalizedStatus::NeedsInput,
+            Some(NormalizedReason::Review),
+        );
+    }
+
+    if session
+        .subagents
+        .iter()
+        .any(|subagent| subagent.status == PrimaryStatus::Running)
+    {
+        return NormalizedState::new(
+            NormalizedStatus::Working,
+            Some(NormalizedReason::Subagent),
+        );
+    }
+
+    match session.status {
+        PrimaryStatus::Error => {
+            NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Error))
+        }
+        PrimaryStatus::Done => NormalizedState::new(
+            NormalizedStatus::Done,
+            Some(NormalizedReason::ReadyForNextTask),
+        ),
+        PrimaryStatus::Running | PrimaryStatus::Waiting => {
+            if session.latest_tool_call.is_some() {
+                NormalizedState::new(
+                    NormalizedStatus::Working,
+                    Some(NormalizedReason::ToolCall),
+                )
+            } else {
+                NormalizedState::new(NormalizedStatus::Working, None)
+            }
+        }
+        PrimaryStatus::Exited => NormalizedState::new(NormalizedStatus::Unknown, None),
+    }
+}
+
 fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
     let mut summary = RolloutThreadSummary {
         status: PrimaryStatus::Waiting,
+        final_output: None,
         latest_tool_call: None,
         spawned_subagents: Vec::new(),
     };
@@ -713,6 +819,7 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let events = parse_rollout(&content);
                 summary.status = codex_to_primary(infer_rollout_status(&events));
+                summary.final_output = extract_final_output_text(&events);
                 summary.latest_tool_call =
                     extract_tool_calls(&events)
                         .last()
@@ -847,6 +954,7 @@ pub fn build_codex_event_snapshot(
                 branch: observed.thread.git_branch.clone(),
                 started_at: from_epoch_secs(observed.thread.created_at),
                 status: rollout_summary.status,
+                final_output: rollout_summary.final_output,
                 latest_tool_call: rollout_summary.latest_tool_call,
                 subagents: observed_subagents_for_parent(
                     observed,
@@ -913,6 +1021,20 @@ pub fn reconcile_codex_snapshots(
                 pid: session.pid,
                 old: previous_status.unwrap_or(PrimaryStatus::Running),
                 new: session.status,
+            });
+        }
+
+        let normalized_state =
+            normalize_codex_session(session, session.final_output.as_deref());
+        let previous_normalized_state = previous_session
+            .map(|previous_session| {
+                normalize_codex_session(previous_session, previous_session.final_output.as_deref())
+            });
+        if previous_normalized_state.as_ref() != Some(&normalized_state) {
+            events.push(AgentEvent::NormalizedStateChanged {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                state: normalized_state,
             });
         }
 
@@ -1226,6 +1348,7 @@ mod tests {
                 branch: Some("main".into()),
                 started_at: crate::types::from_epoch_secs(1),
                 status: PrimaryStatus::Running,
+                final_output: None,
                 latest_tool_call: None,
                 subagents: vec![ObservedCodexSubagent {
                     thread_id: "child-a".into(),

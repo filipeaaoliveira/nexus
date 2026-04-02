@@ -1,7 +1,7 @@
 use ai_overview::detect::codex::*;
 use ai_overview::detect::registry::AgentRegistry;
 use ai_overview::event::AgentEvent;
-use ai_overview::types::{AgentId, AgentTool, PrimaryStatus};
+use ai_overview::types::{AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,6 +17,7 @@ fn observed_session(
         branch: Some("main".to_string()),
         started_at: ai_overview::types::from_epoch_secs(10),
         status,
+        final_output: None,
         latest_tool_call: None,
         subagents: Vec::new(),
     }
@@ -405,6 +406,35 @@ fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
 }
 
 #[test]
+fn test_codex_open_subagent_maps_to_working_subagent() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let session = ObservedCodexSession {
+        subagents: vec![ObservedCodexSubagent {
+            thread_id: "child-1".to_string(),
+            name: "Darwin".to_string(),
+            description: Some("child-1".to_string()),
+            status: PrimaryStatus::Running,
+        }],
+        ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+    };
+
+    let normalized = normalize_codex_session(&session, Some("waiting on subagent"));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Subagent));
+}
+
+#[test]
+fn test_codex_review_completion_maps_to_needs_input_review() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
+    let normalized = normalize_codex_session(&session, Some("### Issues\n#### Critical"));
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {
@@ -448,12 +478,19 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     ));
     assert!(matches!(
         &events[3],
+        AgentEvent::NormalizedStateChanged { id, state, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && state.status == NormalizedStatus::Working
+                && state.reason == Some(NormalizedReason::Subagent)
+    ));
+    assert!(matches!(
+        &events[4],
         AgentEvent::ToolCallStarted { id, tool_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && tool_name == "shell"
     ));
     assert!(matches!(
-        &events[4],
+        &events[5],
         AgentEvent::SubagentSpawned { id, subagent, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagent.name == "Nash"
@@ -525,9 +562,16 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
 
     let events = reconcile_codex_snapshots(Some(&previous), &current);
 
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2);
     assert!(matches!(
         &events[0],
+        AgentEvent::NormalizedStateChanged { id, state, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && state.status == NormalizedStatus::Working
+                && state.reason.is_none()
+    ));
+    assert!(matches!(
+        &events[1],
         AgentEvent::SubagentCompleted { id, subagent_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagent_name == "child-a"

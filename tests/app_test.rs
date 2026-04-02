@@ -636,3 +636,80 @@ fn test_session_info_none_start_time_keeps_existing() {
     });
     assert_eq!(state.agents[0].started_at, past);
 }
+
+#[test]
+fn test_start_rename_sets_mode() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.start_rename();
+    assert!(state.rename_mode);
+    assert_eq!(state.rename_input, "claude");
+}
+
+#[test]
+fn test_confirm_rename_sets_alias() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.start_rename();
+    state.rename_input = "my-claude".to_string();
+    state.confirm_rename();
+    assert!(!state.rename_mode);
+    assert_eq!(state.agents[0].alias, Some("my-claude".to_string()));
+    assert_eq!(state.agents[0].display_name(), "my-claude");
+}
+
+#[test]
+fn test_confirm_rename_empty_clears_alias() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.agents[0].alias = Some("old-name".to_string());
+    state.start_rename();
+    state.rename_input.clear();
+    state.confirm_rename();
+    assert_eq!(state.agents[0].alias, None);
+    assert_eq!(state.agents[0].display_name(), "claude");
+}
+
+#[test]
+fn test_cancel_rename_preserves_alias() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.selected = Some(0);
+    state.agents[0].alias = Some("keep-this".to_string());
+    state.start_rename();
+    state.rename_input = "nope".to_string();
+    state.cancel_rename();
+    assert!(!state.rename_mode);
+    assert_eq!(state.agents[0].alias, Some("keep-this".to_string()));
+}
+
+#[test]
+fn test_start_rename_no_selection() {
+    let mut state = make_state();
+    state.selected = None;
+    state.start_rename();
+    assert!(!state.rename_mode);
+}

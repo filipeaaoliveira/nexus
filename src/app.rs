@@ -17,6 +17,8 @@ pub struct AppState {
     pub filter: Option<String>,
     pub filter_mode: bool,
     pub filter_input: String,
+    pub rename_mode: bool,
+    pub rename_input: String,
     pub config: Config,
     pub should_quit: bool,
 }
@@ -32,6 +34,8 @@ impl AppState {
             filter: None,
             filter_mode: false,
             filter_input: String::new(),
+            rename_mode: false,
+            rename_input: String::new(),
             config,
             should_quit: false,
         }
@@ -274,6 +278,8 @@ impl AppState {
         self.filter_mode = false;
         self.filter = None;
         self.filter_input.clear();
+        self.rename_mode = false;
+        self.rename_input.clear();
         self.clamp_selection();
     }
 
@@ -306,6 +312,45 @@ impl AppState {
         self.filter_mode = false;
         // Keep filter active
         self.clamp_selection();
+    }
+
+    pub fn start_rename(&mut self) {
+        if self.selected.is_none() || self.agents.is_empty() {
+            return;
+        }
+        let idx = self.selected.unwrap();
+        if idx >= self.agents.len() {
+            return;
+        }
+        self.rename_mode = true;
+        self.rename_input = self.agents[idx].display_name().to_string();
+    }
+
+    pub fn rename_push_char(&mut self, c: char) {
+        self.rename_input.push(c);
+    }
+
+    pub fn rename_pop_char(&mut self) {
+        self.rename_input.pop();
+    }
+
+    pub fn confirm_rename(&mut self) {
+        if let Some(idx) = self.selected {
+            if idx < self.agents.len() {
+                if self.rename_input.is_empty() {
+                    self.agents[idx].alias = None;
+                } else {
+                    self.agents[idx].alias = Some(self.rename_input.clone());
+                }
+            }
+        }
+        self.rename_mode = false;
+        self.rename_input.clear();
+    }
+
+    pub fn cancel_rename(&mut self) {
+        self.rename_mode = false;
+        self.rename_input.clear();
     }
 
     pub fn remove_exited(&mut self) {

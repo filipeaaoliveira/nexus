@@ -17,14 +17,33 @@ pub enum Action {
     DismissOverlay,
     RemoveAgent,
     RemoveExited,
+    StartRename,
+    RenameChar(char),
+    RenameBackspace,
+    RenameConfirm,
     Tick,
 }
 
-pub fn poll_action(timeout: Duration, filter_mode: bool) -> anyhow::Result<Option<Action>> {
+pub fn poll_action(
+    timeout: Duration,
+    filter_mode: bool,
+    rename_mode: bool,
+) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
         if let Event::Key(key) = event::read()? {
             if key.kind != KeyEventKind::Press {
                 return Ok(None);
+            }
+
+            if rename_mode {
+                let action = match key.code {
+                    KeyCode::Esc => Some(Action::DismissOverlay),
+                    KeyCode::Enter => Some(Action::RenameConfirm),
+                    KeyCode::Backspace => Some(Action::RenameBackspace),
+                    KeyCode::Char(c) => Some(Action::RenameChar(c)),
+                    _ => None,
+                };
+                return Ok(action);
             }
 
             if filter_mode {
@@ -51,6 +70,7 @@ pub fn poll_action(timeout: Duration, filter_mode: bool) -> anyhow::Result<Optio
                 KeyCode::Char('?') => Some(Action::ShowHelp),
                 KeyCode::Char('d') => Some(Action::RemoveAgent),
                 KeyCode::Char('D') => Some(Action::RemoveExited),
+                KeyCode::Char('r') => Some(Action::StartRename),
                 KeyCode::Esc => Some(Action::DismissOverlay),
                 _ => None,
             };

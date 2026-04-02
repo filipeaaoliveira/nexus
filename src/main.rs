@@ -82,7 +82,7 @@ async fn run_loop(
             ai_overview::ui::render(frame, state);
         })?;
 
-        match input::poll_action(Duration::from_millis(100), state.filter_mode)? {
+        match input::poll_action(Duration::from_millis(100), state.filter_mode, state.rename_mode)? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => state.move_selection_down(),
             Some(input::Action::MoveUp) => state.move_selection_up(),
@@ -96,6 +96,10 @@ async fn run_loop(
             Some(input::Action::FilterChar(c)) => state.filter_push_char(c),
             Some(input::Action::FilterBackspace) => state.filter_pop_char(),
             Some(input::Action::FilterConfirm) => state.confirm_filter(),
+            Some(input::Action::StartRename) => state.start_rename(),
+            Some(input::Action::RenameChar(c)) => state.rename_push_char(c),
+            Some(input::Action::RenameBackspace) => state.rename_pop_char(),
+            Some(input::Action::RenameConfirm) => state.confirm_rename(),
             Some(input::Action::Tick) | None => {}
         }
     }

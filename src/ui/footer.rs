@@ -8,6 +8,20 @@ use crate::app::AppState;
 use super::theme;
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+    if state.rename_mode {
+        let line = Line::from(vec![
+            Span::styled(" rename: ", theme::bar_style().fg(theme::STATUS_WAITING)),
+            Span::styled(
+                &state.rename_input,
+                theme::bar_style().fg(theme::FG_DEFAULT),
+            ),
+            Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
+        ]);
+        let footer = Paragraph::new(line).style(theme::bar_style());
+        frame.render_widget(footer, area);
+        return;
+    }
+
     if state.filter_mode {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
@@ -39,6 +53,8 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::styled("/", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled("D", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" remove", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  r", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" rename", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  ?", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" help", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),

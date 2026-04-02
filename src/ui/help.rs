@@ -35,6 +35,7 @@ pub fn render(frame: &mut Frame) {
         keybind_line("s", "Cycle sort mode"),
         keybind_line("d", "Remove selected agent"),
         keybind_line("D", "Remove all exited agents"),
+        keybind_line("r", "Rename selected agent"),
         Line::from(""),
         keybind_line("?", "Toggle help"),
         keybind_line("Esc", "Dismiss overlay / clear filter"),

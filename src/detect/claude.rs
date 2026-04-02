@@ -10,7 +10,8 @@ use tracing::warn;
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::{
-    from_rfc3339, Activity, AgentId, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus,
+    from_rfc3339, Activity, AgentId, AgentTool, NormalizedReason, NormalizedState,
+    NormalizedStatus, PrimaryStatus, TodoItem, TodoPriority, TodoStatus,
 };
 
 /// Seconds since last transcript write before we consider the agent to be
@@ -23,6 +24,10 @@ const CLAUDE_IDLE_SECS: u64 = 10;
 #[derive(Debug, Clone)]
 pub enum TranscriptEntry {
     User {
+        timestamp: String,
+        content: String,
+    },
+    Assistant {
         timestamp: String,
         content: String,
     },
@@ -102,6 +107,10 @@ pub fn parse_transcript(content: &str) -> Vec<TranscriptEntry> {
                     .to_string();
                 entries.push(TranscriptEntry::User { timestamp, content });
             }
+            "assistant" => {
+                let content = extract_transcript_text(&obj).unwrap_or_default();
+                entries.push(TranscriptEntry::Assistant { timestamp, content });
+            }
             "tool_use" => {
                 let tool_name = obj
                     .get("tool_name")
@@ -131,12 +140,227 @@ pub fn parse_transcript(content: &str) -> Vec<TranscriptEntry> {
                 });
             }
             _ => {
-                // Ignore unknown entry types (progress, assistant, etc.)
+                // Ignore unknown entry types (progress, metadata, etc.)
             }
         }
     }
 
     entries
+}
+
+fn extract_text_fragments(value: &Value, fragments: &mut Vec<String>) {
+    match value {
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                fragments.push(trimmed.to_string());
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                extract_text_fragments(item, fragments);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(text) = map.get("text").and_then(Value::as_str) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    fragments.push(trimmed.to_string());
+                }
+            }
+            if let Some(content) = map.get("content") {
+                extract_text_fragments(content, fragments);
+            }
+            if let Some(parts) = map.get("parts") {
+                extract_text_fragments(parts, fragments);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn extract_transcript_text(obj: &Value) -> Option<String> {
+    let mut fragments = Vec::new();
+
+    if let Some(content) = obj.get("content") {
+        extract_text_fragments(content, &mut fragments);
+    } else if let Some(message) = obj.get("message") {
+        if let Some(content) = message.get("content") {
+            extract_text_fragments(content, &mut fragments);
+        } else if let Some(text) = message.get("text") {
+            extract_text_fragments(text, &mut fragments);
+        }
+    } else if let Some(text) = obj.get("text") {
+        extract_text_fragments(text, &mut fragments);
+    }
+
+    if fragments.is_empty() {
+        None
+    } else {
+        Some(fragments.join("\n"))
+    }
+}
+
+fn last_non_assistant_entry(entries: &[TranscriptEntry]) -> Option<&TranscriptEntry> {
+    entries
+        .iter()
+        .rev()
+        .find(|entry| !matches!(entry, TranscriptEntry::Assistant { .. }))
+}
+
+fn contains_review_section_marker(text: &str, marker: &str) -> bool {
+    text.lines().map(str::trim_start).any(|line| {
+        let line =
+            line.trim_start_matches(|ch: char| matches!(ch, '#' | '>' | '-' | '*' | ' ' | '\t'));
+        let lower = line.to_ascii_lowercase();
+
+        lower == marker
+            || lower.starts_with(&format!("{marker}:"))
+            || lower.starts_with(&format!("{marker} -"))
+            || lower.starts_with(&format!("{marker} "))
+    })
+}
+
+fn looks_like_review_output(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if [
+        "### issues",
+        "#### critical",
+        "merge-readiness assessment",
+        "review assessment",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return true;
+    }
+
+    [
+        "review findings",
+        "audit findings",
+        "findings",
+        "review report",
+        "report",
+        "requested changes",
+    ]
+    .iter()
+    .any(|marker| contains_review_section_marker(trimmed, marker))
+}
+
+fn looks_like_user_choice_frame(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "would you like me to",
+        "do you want me to",
+        "should i",
+        "can i",
+        "let me know if you'd like",
+        "let me know if you want",
+        "choose one",
+        "pick one",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+fn looks_like_terminal_failure_output(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let failure_markers = [
+        "cannot continue",
+        "can't continue",
+        "unable to continue",
+        "unrecoverable error",
+        "fatal error",
+        "failed permanently",
+        "blocking error",
+        "stopping here",
+        "i'm blocked",
+        "i am blocked",
+        "could not complete",
+        "can't complete",
+        "cannot complete",
+    ];
+
+    failure_markers.iter().any(|marker| lower.contains(marker)) && !looks_like_user_choice_frame(trimmed)
+}
+
+fn looks_like_done_output(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    [
+        "ready for the next task",
+        "ready for next task",
+        "ready for the next steps",
+        "ready for next steps",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> NormalizedState {
+    let mut saw_meaningful_entry = false;
+
+    for entry in entries.iter().rev() {
+        match entry {
+            TranscriptEntry::ToolUse { .. } => {
+                return NormalizedState::new(
+                    NormalizedStatus::Working,
+                    Some(NormalizedReason::ToolCall),
+                );
+            }
+            TranscriptEntry::Assistant { content, .. } => {
+                let trimmed = content.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                saw_meaningful_entry = true;
+
+                if looks_like_review_output(trimmed) {
+                    return NormalizedState::new(
+                        NormalizedStatus::NeedsInput,
+                        Some(NormalizedReason::Review),
+                    );
+                }
+
+                if looks_like_terminal_failure_output(trimmed) {
+                    return NormalizedState::new(
+                        NormalizedStatus::Blocked,
+                        Some(NormalizedReason::Error),
+                    );
+                }
+
+                if looks_like_done_output(trimmed) {
+                    return NormalizedState::new(
+                        NormalizedStatus::Done,
+                        Some(NormalizedReason::ReadyForNextTask),
+                    );
+                }
+            }
+            TranscriptEntry::ToolResult { .. } | TranscriptEntry::User { .. } => {
+                saw_meaningful_entry = true;
+            }
+        }
+    }
+
+    if saw_meaningful_entry && !is_stale {
+        return NormalizedState::new(NormalizedStatus::Working, None);
+    }
+
+    NormalizedState::new(NormalizedStatus::Unknown, None)
 }
 
 // ── infer_status_from_transcript ──────────────────────────────────
@@ -148,11 +372,11 @@ pub fn parse_transcript(content: &str) -> Vec<TranscriptEntry> {
 /// - User (last) → Running (agent is processing user input)
 /// - Empty → Unknown
 pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStatus {
-    match entries.last() {
+    match last_non_assistant_entry(entries) {
         Some(TranscriptEntry::ToolUse { .. }) => InferredStatus::ToolCall,
         Some(TranscriptEntry::ToolResult { .. }) => InferredStatus::Running,
         Some(TranscriptEntry::User { .. }) => InferredStatus::Running,
-        None => InferredStatus::Unknown,
+        Some(TranscriptEntry::Assistant { .. }) | None => InferredStatus::Unknown,
     }
 }
 
@@ -165,7 +389,7 @@ pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStat
 /// - User (last) → Activity::Generating   (agent is responding to user input)
 /// - Empty → None
 pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Activity> {
-    match entries.last() {
+    match last_non_assistant_entry(entries) {
         Some(TranscriptEntry::ToolUse { .. }) => Some(Activity::ToolCall),
         Some(TranscriptEntry::ToolResult { .. }) => Some(Activity::Thinking),
         Some(TranscriptEntry::User { content, .. }) => {
@@ -177,7 +401,7 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
                 Some(Activity::Generating)
             }
         }
-        None => None,
+        Some(TranscriptEntry::Assistant { .. }) | None => None,
     }
 }
 
@@ -363,6 +587,7 @@ pub fn find_transcript_for_pid(transcripts_dir: &Path, session_prefix: &str) -> 
 #[derive(Debug, Clone, Default)]
 struct SessionEmitState {
     last_status: Option<PrimaryStatus>,
+    last_normalized_state: Option<NormalizedState>,
     last_tool_call: Option<String>,
     emitted_subagent_tools: Vec<String>,
     session_info_sent: bool,
@@ -370,6 +595,7 @@ struct SessionEmitState {
     last_mtime: Option<std::time::SystemTime>,
     pid: Option<u32>,
     last_todos: Vec<TodoItem>,
+    last_entries: Vec<TranscriptEntry>,
 }
 
 // ── run_claude_detector ───────────────────────────────────────────
@@ -388,22 +614,49 @@ pub async fn run_claude_detector(
     let transcripts_dir = claude_data_dir.join("transcripts");
     let projects_dir = claude_data_dir.join("projects");
 
-    // Track file sizes to detect new content
-    let mut file_sizes: HashMap<PathBuf, u64> = HashMap::new();
+    // Combined per-file state: size and mtime tracked together to avoid two
+    // separate HashMap lookups/inserts for every transcript file each poll.
+    #[derive(Clone, Copy)]
+    struct TranscriptFileState {
+        size: u64,
+        mtime: std::time::SystemTime,
+    }
+    impl Default for TranscriptFileState {
+        fn default() -> Self {
+            Self {
+                size: 0,
+                mtime: std::time::SystemTime::UNIX_EPOCH,
+            }
+        }
+    }
+    let mut file_state: HashMap<PathBuf, TranscriptFileState> = HashMap::new();
     // Track emit state per session (keyed by session_id or transcript path)
     let mut session_states: HashMap<String, SessionEmitState> = HashMap::new();
-    // Track last known mtime for all transcript files (for stale-file Waiting detection)
-    let mut file_mtimes: HashMap<PathBuf, std::time::SystemTime> = HashMap::new();
+
+    // Phase-1 cache: project session files keyed by file path → (mtime, parsed info).
+    // The file is only re-read when its mtime advances.
+    let mut project_file_cache: HashMap<PathBuf, (std::time::SystemTime, ProjectSessionInfo)> =
+        HashMap::new();
 
     loop {
-        // Phase 1: Scan project session files to build CWD→session_id map
+        // Phase 1: Scan project session files to build CWD→session_id map.
+        // Re-reads a file only when its mtime has changed since the last poll.
         let mut cwd_to_session: HashMap<PathBuf, ProjectSessionInfo> = HashMap::new();
 
         if projects_dir.exists() {
             let pdir = projects_dir.clone();
+            // Snapshot only the mtimes we already know; move the snapshot (not
+            // the cache) into spawn_blocking so we can compare without cloning
+            // the full ProjectSessionInfo values.
+            let known_mtimes: HashMap<PathBuf, std::time::SystemTime> = project_file_cache
+                .iter()
+                .map(|(p, (m, _))| (p.clone(), *m))
+                .collect();
+
             let project_scan = tokio::task::spawn_blocking(move || {
-                let mut results = Vec::new();
-                // Projects dir contains subdirs per project, each with session JSONL files
+                let mut changed: Vec<(PathBuf, std::time::SystemTime, String)> = Vec::new();
+                let mut unchanged: Vec<PathBuf> = Vec::new();
+
                 if let Ok(project_dirs) = std::fs::read_dir(&pdir) {
                     for project_entry in project_dirs.flatten() {
                         let project_path = project_entry.path();
@@ -420,23 +673,49 @@ pub async fn run_claude_detector(
                                 if !name.ends_with(".jsonl") {
                                     continue;
                                 }
-                                if let Ok(content) = std::fs::read_to_string(&file_path) {
-                                    let info = parse_project_session(&content);
-                                    if info.cwd.is_some() {
-                                        results.push(info);
-                                    }
+                                let mtime = file_entry
+                                    .metadata()
+                                    .ok()
+                                    .and_then(|m| m.modified().ok())
+                                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+                                if known_mtimes.get(&file_path).copied() == Some(mtime) {
+                                    // Mtime unchanged — use cached value.
+                                    unchanged.push(file_path);
+                                } else if let Ok(content) =
+                                    std::fs::read_to_string(&file_path)
+                                {
+                                    changed.push((file_path, mtime, content));
                                 }
                             }
                         }
                     }
                 }
-                results
+                (changed, unchanged)
             })
             .await?;
 
-            for info in project_scan {
+            let (changed, unchanged) = project_scan;
+
+            // Update the cache for changed files.
+            for (path, mtime, content) in changed {
+                let info = parse_project_session(&content);
+                if info.cwd.is_some() {
+                    project_file_cache.insert(path, (mtime, info));
+                }
+            }
+            // Populate cwd_to_session from cache (both changed and unchanged).
+            for path in &unchanged {
+                if let Some((_, info)) = project_file_cache.get(path) {
+                    if let Some(ref cwd) = info.cwd {
+                        cwd_to_session.insert(cwd.clone(), info.clone());
+                    }
+                }
+            }
+            // Also include the newly-read changed entries.
+            for (_, info) in project_file_cache.values() {
                 if let Some(ref cwd) = info.cwd {
-                    cwd_to_session.insert(cwd.clone(), info);
+                    cwd_to_session.entry(cwd.clone()).or_insert_with(|| info.clone());
                 }
             }
         }
@@ -444,11 +723,12 @@ pub async fn run_claude_detector(
         // Phase 2: Scan transcripts and emit enrichment events
         if transcripts_dir.exists() {
             let dir = transcripts_dir.clone();
-            let sizes = file_sizes.clone();
+            // Move the combined file-state map into spawn_blocking; this is an
+            // O(1) pointer move, not a clone.
+            let prev_state = std::mem::take(&mut file_state);
             let scan_result = tokio::task::spawn_blocking(move || {
-                let mut new_sizes = sizes;
-                let mut results: Vec<(PathBuf, u64, Vec<TranscriptEntry>)> = Vec::new();
-                let mut mtime_only: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+                let mut new_state = prev_state;
+                let mut results: Vec<(PathBuf, Vec<TranscriptEntry>)> = Vec::new();
 
                 if let Ok(read_dir) = std::fs::read_dir(&dir) {
                     for entry in read_dir.flatten() {
@@ -468,38 +748,34 @@ pub async fn run_claude_detector(
                         };
 
                         let current_size = metadata.len();
-                        let prev_size = new_sizes.get(&file_path).copied().unwrap_or(0);
-
                         let mtime = metadata
                             .modified()
                             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
+                        let entry_state = new_state.entry(file_path.clone()).or_default();
+                        let prev_size = entry_state.size;
+
+                        // Always update the mtime (needed for staleness detection).
+                        entry_state.mtime = mtime;
+
                         if current_size > prev_size {
                             if let Ok(content) = std::fs::read_to_string(&file_path) {
                                 let entries = parse_transcript(&content);
-                                results.push((file_path.clone(), current_size, entries));
+                                results.push((file_path.clone(), entries));
                             }
-                            new_sizes.insert(file_path.clone(), current_size);
+                            entry_state.size = current_size;
                         }
-
-                        mtime_only.push((file_path, mtime));
                     }
                 }
 
-                (new_sizes, results, mtime_only)
+                (new_state, results)
             })
             .await?;
 
-            let (new_sizes, results, mtime_updates) = scan_result;
-            file_sizes = new_sizes;
+            let (new_state, results) = scan_result;
+            file_state = new_state;
 
-            // Update the mtime map
-            for (path, mtime) in mtime_updates {
-                file_mtimes.insert(path, mtime);
-            }
-
-            for (file_path, _current_size, entries) in &results {
-                // Try to find a matching CWD for this transcript via project sessions.
+            for (file_path, entries) in &results {
                 // Transcript filenames may contain a session ID prefix that matches
                 // a project session. For simplicity, we try matching all known CWDs
                 // against the registry.
@@ -584,7 +860,7 @@ pub async fn run_claude_detector(
 
                 let new_entries = &entries[state.entry_count..];
                 state.entry_count = entries.len();
-                state.last_mtime = file_mtimes.get(file_path).copied();
+                state.last_mtime = file_state.get(file_path).map(|s| s.mtime);
 
                 // Infer status from transcript
                 let inferred = infer_status_from_transcript(entries);
@@ -601,6 +877,18 @@ pub async fn run_claude_detector(
                         })
                         .await;
                     state.last_status = Some(primary);
+                }
+
+                let normalized_state = normalize_claude_state(entries, false);
+                if state.last_normalized_state.as_ref() != Some(&normalized_state) {
+                    let _ = tx
+                        .send(AgentEvent::NormalizedStateChanged {
+                            id: AgentId::new(AgentTool::Claude, pid),
+                            pid: Some(pid),
+                            state: normalized_state.clone(),
+                        })
+                        .await;
+                    state.last_normalized_state = Some(normalized_state);
                 }
 
                 // Emit tool call events from new entries
@@ -692,6 +980,8 @@ pub async fn run_claude_detector(
                         .await;
                     state.last_todos = todos;
                 }
+
+                state.last_entries = entries.clone();
             }
 
             // Staleness check: if any Running session's transcript file hasn't been
@@ -701,8 +991,8 @@ pub async fn run_claude_detector(
                     continue;
                 }
                 let path = PathBuf::from(session_key.as_str());
-                let mtime = match file_mtimes.get(&path) {
-                    Some(m) => *m,
+                let mtime = match file_state.get(&path).map(|s| s.mtime) {
+                    Some(m) => m,
                     None => continue,
                 };
                 if !is_stale(mtime, CLAUDE_IDLE_SECS) {
@@ -728,6 +1018,19 @@ pub async fn run_claude_detector(
                         activity: None, // clear activity when Waiting
                     })
                     .await;
+
+                let normalized_state = normalize_claude_state(&state.last_entries, true);
+                if state.last_normalized_state.as_ref() != Some(&normalized_state) {
+                    let _ = tx
+                        .send(AgentEvent::NormalizedStateChanged {
+                            id: AgentId::new(AgentTool::Claude, pid),
+                            pid: Some(pid),
+                            state: normalized_state.clone(),
+                        })
+                        .await;
+                    state.last_normalized_state = Some(normalized_state);
+                }
+
                 state.last_status = Some(PrimaryStatus::Waiting);
             }
         }

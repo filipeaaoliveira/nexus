@@ -1,5 +1,5 @@
 use ai_overview::detect::claude::*;
-use ai_overview::types::{Activity, PrimaryStatus, TodoPriority, TodoStatus};
+use ai_overview::types::{Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus};
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -92,6 +92,68 @@ fn test_infer_status_from_empty() {
     let events = parse_transcript("");
     let status = infer_status_from_transcript(&events);
     assert_eq!(status, InferredStatus::Unknown);
+}
+
+#[test]
+fn test_normalize_claude_review_text_maps_to_needs_input_review() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Findings:\n- The implementation is solid overall.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
+fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
+    let entries = vec![TranscriptEntry::User {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Do something".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_active_tool_use_maps_to_working_tool_call() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Please inspect the route".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            tool_name: "read".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ToolCall));
+}
+
+#[test]
+fn test_normalize_claude_completed_work_maps_to_done_ready_for_next_task() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "The changes are complete and ready for the next task.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(
+        normalized.reason,
+        Some(NormalizedReason::ReadyForNextTask)
+    );
 }
 
 #[test]

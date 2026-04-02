@@ -773,6 +773,10 @@ pub fn normalize_codex_session(
     session: &ObservedCodexSession,
     final_output: Option<&str>,
 ) -> NormalizedState {
+    let has_meaningful_final_output = final_output
+        .map(str::trim)
+        .is_some_and(|output| !output.is_empty());
+
     if session.status == PrimaryStatus::Done && final_output.is_some_and(looks_like_review_output) {
         return NormalizedState::new(
             NormalizedStatus::NeedsInput,
@@ -795,11 +799,12 @@ pub fn normalize_codex_session(
         PrimaryStatus::Error => {
             NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Error))
         }
-        PrimaryStatus::Done => NormalizedState::new(
+        PrimaryStatus::Done if has_meaningful_final_output => NormalizedState::new(
             NormalizedStatus::Done,
             Some(NormalizedReason::ReadyForNextTask),
         ),
-        PrimaryStatus::Running | PrimaryStatus::Waiting => {
+        PrimaryStatus::Done => NormalizedState::new(NormalizedStatus::Unknown, None),
+        PrimaryStatus::Running => {
             if session.latest_tool_call.is_some() {
                 NormalizedState::new(
                     NormalizedStatus::Working,
@@ -807,6 +812,16 @@ pub fn normalize_codex_session(
                 )
             } else {
                 NormalizedState::new(NormalizedStatus::Working, None)
+            }
+        }
+        PrimaryStatus::Waiting => {
+            if session.latest_tool_call.is_some() {
+                NormalizedState::new(
+                    NormalizedStatus::Working,
+                    Some(NormalizedReason::ToolCall),
+                )
+            } else {
+                NormalizedState::new(NormalizedStatus::Unknown, None)
             }
         }
         PrimaryStatus::Exited => NormalizedState::new(NormalizedStatus::Unknown, None),

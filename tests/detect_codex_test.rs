@@ -455,6 +455,26 @@ fn test_codex_in_progress_review_like_output_stays_working() {
 }
 
 #[test]
+fn test_codex_done_without_final_output_maps_to_unknown() {
+    use ai_overview::types::NormalizedStatus;
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
+    let normalized = normalize_codex_session(&session, None);
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_codex_waiting_without_rollout_evidence_maps_to_unknown() {
+    use ai_overview::types::NormalizedStatus;
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Waiting);
+    let normalized = normalize_codex_session(&session, None);
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {

@@ -264,6 +264,35 @@ pub fn query_latest_message_role(
     Ok(role)
 }
 
+/// Returns `true` if the latest assistant message in the session has a
+/// `time.completed` timestamp set (meaning OpenCode's `cleanup()` ran and
+/// the turn is finished). Returns `false` if the timestamp is NULL or if
+/// there are no assistant messages.
+pub fn query_assistant_turn_completed(
+    db_path: &Path,
+    session_id: &str,
+) -> anyhow::Result<bool> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT json_extract(data, '$.time.completed') \
+         FROM message \
+         WHERE session_id = ?1 AND json_extract(data, '$.role') = 'assistant' \
+         ORDER BY time_created DESC LIMIT 1",
+    )?;
+
+    let completed: Option<Option<i64>> = stmt
+        .query_row(rusqlite::params![session_id], |row| {
+            row.get::<_, Option<i64>>(0)
+        })
+        .optional()?;
+
+    Ok(matches!(completed, Some(Some(_))))
+}
+
 /// State tracked per session to avoid emitting duplicate events.
 #[derive(Debug, Clone, Default)]
 struct SessionEmitState {
@@ -290,38 +319,37 @@ pub fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
     PrimaryStatus::Running
 }
 
-/// Resolve the final status from the inferred status, the latest message role,
-/// parts, and session freshness.
+/// Resolve the final status from the inferred status, recent parts,
+/// and whether the assistant turn has completed.
 ///
 /// - If `inferred` is `Error`, return `Error`.
-/// - If the session is still fresh (`!session_stale`), the agent is actively
-///   working regardless of message role or tool status → return `Running`.
-/// - If the session IS stale AND `latest_role` is `"assistant"` AND no parts
-///   have an active tool status (`"running"` or `"pending"`), the agent is
-///   waiting for user input → return `Waiting`.
+/// - If any tool part is `"running"` or `"pending"`, the agent is actively
+///   working → return `Running`.
+/// - If `assistant_turn_completed` is `true` (OpenCode wrote `time.completed`
+///   on the latest assistant message), the turn is finished → return `Waiting`.
 /// - Otherwise return `inferred`.
 ///
-/// `session_stale` should be `true` when `session.time_updated` hasn't changed
-/// for longer than the staleness threshold (e.g., 10 seconds).
+/// `assistant_turn_completed` should be derived from checking whether
+/// `json_extract(message.data, '$.time.completed')` is non-NULL on the
+/// latest assistant message in the session.
 pub fn resolve_status(
     inferred: PrimaryStatus,
-    latest_role: Option<&str>,
     parts: &[PartData],
-    session_stale: bool,
+    assistant_turn_completed: bool,
 ) -> PrimaryStatus {
     if inferred == PrimaryStatus::Error {
         return PrimaryStatus::Error;
     }
-    // If the session was recently updated, the agent is actively working.
-    if !session_stale {
-        return inferred;
-    }
-    // Session is stale — check if the assistant finished and no tools are active.
-    if latest_role == Some("assistant")
-        && !parts
-            .iter()
-            .any(|p| matches!(p.tool_status.as_deref(), Some("running" | "pending")))
+    // If any tool part is still pending or running, the agent is actively working.
+    if parts
+        .iter()
+        .any(|p| matches!(p.tool_status.as_deref(), Some("running" | "pending")))
     {
+        return PrimaryStatus::Running;
+    }
+    // If OpenCode has written time.completed on the assistant message,
+    // the turn is finished and the agent is waiting for user input.
+    if assistant_turn_completed {
         return PrimaryStatus::Waiting;
     }
     inferred
@@ -425,22 +453,25 @@ pub async fn run_opencode_detector(
                                 .filter_map(|(json, tc)| parse_part_data(&json, tc))
                                 .collect();
 
-                            // Query latest message role
+                            // Query whether the latest assistant message's turn is completed
                             let mut stmt2 = conn.prepare(
-                                "SELECT json_extract(data, '$.role') FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 1",
+                                "SELECT json_extract(data, '$.time.completed') \
+                                 FROM message \
+                                 WHERE session_id = ?1 AND json_extract(data, '$.role') = 'assistant' \
+                                 ORDER BY time_created DESC LIMIT 1",
                             )?;
-                            let role: Option<String> = stmt2
+                            let completed: Option<Option<i64>> = stmt2
                                 .query_row(rusqlite::params![&session_id], |row| {
-                                    row.get::<_, Option<String>>(0)
+                                    row.get::<_, Option<i64>>(0)
                                 })
-                                .optional()?
-                                .flatten();
+                                .optional()?;
+                            let assistant_turn_completed = matches!(completed, Some(Some(_)));
 
-                            Ok::<_, anyhow::Error>((parts, role))
+                            Ok::<_, anyhow::Error>((parts, assistant_turn_completed))
                         })
                         .await;
 
-                        if let Ok(Ok((parts, latest_role))) = db_result {
+                        if let Ok(Ok((parts, assistant_turn_completed))) = db_result {
                             // Check if there's new activity by comparing the most
                             // recent part's time_created against what we saw last poll.
                             let newest_time = parts.first().map(|p| p.time_created).unwrap_or(0);
@@ -450,18 +481,11 @@ pub async fn run_opencode_detector(
                             }
 
                             // Determine final status using resolve_status.
-                            // A session is "stale" if it hasn't been updated in
-                            // the last 10 seconds — meaning the agent likely
-                            // finished its turn and is waiting for user input.
-                            let now_ms = chrono::Utc::now().timestamp_millis();
-                            let session_stale =
-                                (now_ms - session.time_updated) > 10_000;
                             let inferred = infer_status_from_parts(&parts);
                             let status = resolve_status(
                                 inferred,
-                                latest_role.as_deref(),
                                 &parts,
-                                session_stale,
+                                assistant_turn_completed,
                             );
 
                             // Emit status change if different from last known

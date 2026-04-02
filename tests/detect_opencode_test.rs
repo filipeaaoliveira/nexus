@@ -173,8 +173,8 @@ fn test_waiting_status_when_assistant_done_no_running_parts() {
     ];
 
     let inferred = infer_status_from_parts(&parts);
-    // session_stale = true → eligible for Waiting
-    let status = resolve_status(inferred, Some("assistant"), &parts, true);
+    // assistant_turn_completed = true → Waiting
+    let status = resolve_status(inferred, &parts, true);
 
     assert_eq!(status, PrimaryStatus::Waiting);
 }
@@ -192,8 +192,8 @@ fn test_running_status_when_session_is_fresh() {
     }];
 
     let inferred = infer_status_from_parts(&parts);
-    // session_stale = false → NOT eligible for Waiting
-    let status = resolve_status(inferred, Some("assistant"), &parts, false);
+    // assistant_turn_completed = false → still Running
+    let status = resolve_status(inferred, &parts, false);
 
     assert_eq!(status, PrimaryStatus::Running);
 }
@@ -210,7 +210,7 @@ fn test_running_status_when_parts_are_running() {
 
     // Even if stale + last message is assistant, a running part means Running.
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts, true);
+    let status = resolve_status(inferred, &parts, true);
 
     assert_eq!(status, PrimaryStatus::Running);
 }
@@ -227,7 +227,7 @@ fn test_running_status_when_parts_are_pending() {
     }];
 
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts, true);
+    let status = resolve_status(inferred, &parts, true);
 
     assert_eq!(status, PrimaryStatus::Running);
 }
@@ -243,7 +243,60 @@ fn test_error_status_preserved_even_with_assistant_role() {
     }];
 
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts, true);
+    let status = resolve_status(inferred, &parts, true);
 
     assert_eq!(status, PrimaryStatus::Error);
+}
+
+#[test]
+fn test_assistant_turn_completed_no_messages() {
+    let (_dir, db_path) = setup_message_db();
+    let result = query_assistant_turn_completed(&db_path, "nonexistent");
+    assert!(result.is_ok());
+    assert!(!result.unwrap());
+}
+
+#[test]
+fn test_assistant_turn_completed_null_timestamp() {
+    let (_dir, db_path) = setup_message_db();
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            "msg1",
+            "sess1",
+            r#"{"role":"assistant","time":{"created":1000}}"#,
+            1000
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let result = query_assistant_turn_completed(&db_path, "sess1");
+    assert!(result.is_ok());
+    assert!(
+        !result.unwrap(),
+        "Should be false when time.completed is absent"
+    );
+}
+
+#[test]
+fn test_assistant_turn_completed_with_timestamp() {
+    let (_dir, db_path) = setup_message_db();
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            "msg1",
+            "sess1",
+            r#"{"role":"assistant","time":{"created":1000,"completed":2000}}"#,
+            1000
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let result = query_assistant_turn_completed(&db_path, "sess1");
+    assert!(result.is_ok());
+    assert!(result.unwrap(), "Should be true when time.completed is set");
 }

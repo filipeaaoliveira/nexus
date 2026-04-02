@@ -341,9 +341,10 @@ pub fn resolve_status(
 }
 
 /// Infer an Activity from recent parts.
-fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
+pub fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
     if let Some(latest) = parts.first() {
         match latest.part_type.as_str() {
+            "compaction" => return Some(Activity::Compacting),
             "tool" | "tool-invocation" => {
                 if latest.tool_status.as_deref() == Some("running") {
                     return Some(Activity::ToolCall);

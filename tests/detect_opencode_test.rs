@@ -1,5 +1,5 @@
 use ai_overview::detect::opencode::*;
-use ai_overview::types::PrimaryStatus;
+use ai_overview::types::{Activity, PrimaryStatus};
 use std::path::PathBuf;
 
 /// Create a temporary SQLite DB with the `message` table for testing.
@@ -242,4 +242,30 @@ fn test_assistant_turn_completed_with_timestamp() {
     let result = query_assistant_turn_completed(&db_path, "sess1");
     assert!(result.is_ok());
     assert!(result.unwrap(), "Should be true when time.completed is set");
+}
+
+#[test]
+fn test_compaction_part_detected() {
+    let parts = vec![PartData {
+        part_type: "compaction".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 1000,
+    }];
+    let activity = infer_activity_from_parts(&parts);
+    assert_eq!(activity, Some(Activity::Compacting));
+}
+
+#[test]
+fn test_non_compaction_part_not_affected() {
+    let parts = vec![PartData {
+        part_type: "text".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 1000,
+    }];
+    let activity = infer_activity_from_parts(&parts);
+    assert_eq!(activity, Some(Activity::Generating));
 }

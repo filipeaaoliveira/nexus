@@ -300,7 +300,8 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_multiple_top_level_threads_in
 }
 
 #[test]
-fn test_build_codex_snapshot_binds_pid_for_unique_top_level_thread_without_rollout() {
+fn test_build_codex_snapshot_does_not_bind_pid_for_stale_unique_top_level_thread_without_rollout()
+{
     let registry = AgentRegistry::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
 
@@ -323,13 +324,14 @@ fn test_build_codex_snapshot_binds_pid_for_unique_top_level_thread_without_rollo
     let snapshot = build_codex_snapshot(&threads, &[], &registry);
 
     assert_eq!(snapshot.top_level_threads.len(), 1);
-    assert_eq!(snapshot.top_level_threads[0].pid, Some(44));
+    assert_eq!(snapshot.top_level_threads[0].pid, None);
 }
 
 #[test]
 fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
     let registry = AgentRegistry::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
+    let now = chrono::Local::now().timestamp();
 
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -354,8 +356,8 @@ fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
         git_branch: Some("main".into()),
         agent_nickname: None,
         agent_role: None,
-        created_at: 10,
-        updated_at: 30,
+        created_at: now - 5,
+        updated_at: now,
         archived: 0,
         tokens_used: None,
         rollout_path: Some(rollout_path.to_string_lossy().to_string()),
@@ -367,6 +369,39 @@ fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
     assert_eq!(snapshot.top_level_threads[0].pid, Some(44));
 
     std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
+    let now = chrono::Local::now().timestamp();
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: now - 10,
+                updated_at: now,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: None,
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: None,
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+
+    assert_eq!(event_snapshot.sessions.len(), 1);
+    assert_eq!(event_snapshot.sessions[0].status, PrimaryStatus::Waiting);
 }
 
 #[test]

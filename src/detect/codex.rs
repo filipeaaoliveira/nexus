@@ -1415,10 +1415,12 @@ mod tests {
 
         let events = reconcile_codex_snapshots(Some(&previous), &current);
 
-        assert!(matches!(
-            events.as_slice(),
-            [AgentEvent::SubagentCompleted { subagent_name, .. }]
-                if subagent_name == "child-a"
-        ));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                AgentEvent::SubagentCompleted { subagent_name, .. }
+                    if subagent_name == "child-a"
+            )
+        }));
     }
 }

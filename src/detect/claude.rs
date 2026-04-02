@@ -235,7 +235,6 @@ fn looks_like_review_output(text: &str) -> bool {
         "review assessment",
         "review findings",
         "audit findings",
-        "requested changes",
     ]
     .iter()
     .any(|marker| lower.contains(marker))

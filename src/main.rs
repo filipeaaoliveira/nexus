@@ -17,7 +17,10 @@ async fn main() -> anyhow::Result<()> {
     // Logs go to /tmp/ai-overview.log when enabled.
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
-    let log_file = std::fs::File::create("/tmp/ai-overview.log")?;
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/ai-overview.log")?;
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(log_file)
@@ -34,9 +37,9 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     let config = Config::from_cli(&cli);
-    let mut state = AppState::new(config.clone());
 
     let mut rx = detect::spawn_detectors(&config);
+    let mut state = AppState::new(config);
 
     let mut terminal = ratatui::init();
     terminal.clear()?;

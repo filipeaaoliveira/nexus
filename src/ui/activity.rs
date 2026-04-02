@@ -4,12 +4,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::app::AppState;
 use crate::types::{self, ActivityEventKind};
 
-use super::theme;
+use super::{theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::NONE)
         .title(Span::styled(
@@ -18,13 +17,10 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let visible = state.visible_agents();
-    let agent = state.selected.and_then(|i| visible.get(i).copied());
-
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let Some(agent) = agent else {
+    let Some(agent) = render_data.selected_agent else {
         return;
     };
 

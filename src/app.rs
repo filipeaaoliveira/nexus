@@ -604,6 +604,8 @@ impl AppState {
         let count = self.visible_agents().len();
         if count == 0 {
             self.selected = None;
+        } else if self.selected.is_none() {
+            self.selected = Some(0);
         } else if let Some(idx) = self.selected {
             if idx >= count {
                 self.selected = Some(count - 1);

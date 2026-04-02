@@ -307,6 +307,22 @@ fn test_normalize_claude_completed_work_maps_to_done_ready_for_next_task() {
 }
 
 #[test]
+fn test_normalize_claude_requested_changes_completion_stays_done() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Implemented the requested changes and ready for the next task.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(
+        normalized.reason,
+        Some(NormalizedReason::ReadyForNextTask)
+    );
+}
+
+#[test]
 fn test_normalize_claude_newer_user_overrides_older_assistant_review() {
     let entries = vec![
         TranscriptEntry::Assistant {

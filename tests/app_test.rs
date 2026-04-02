@@ -617,6 +617,24 @@ fn test_normalized_state_changed_before_discovered_is_preserved() {
 }
 
 #[test]
+fn test_session_info_before_discovered_selects_first_visible_agent() {
+    let mut state = make_state();
+    assert_eq!(state.selected, None);
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::new(AgentTool::Claude, 42),
+        pid: Some(42),
+        session_id: "session-a".to_string(),
+        branch: Some("feature/early".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
+
+    assert_eq!(state.visible_agents().len(), 1);
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
 fn test_remove_exited_agents() {
     let mut state = make_state();
     state.handle_event(discovered(

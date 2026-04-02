@@ -5,18 +5,17 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::PrimaryStatus;
 
-use super::theme;
+use super::{theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
-    let total = state.agents.len();
-    let running = state.count_by_status(PrimaryStatus::Running);
-    let waiting = state.count_by_status(PrimaryStatus::Waiting);
-    let error = state.count_by_status(PrimaryStatus::Error);
-    let done = state.count_by_status(PrimaryStatus::Done);
-    let exited = state.count_by_status(PrimaryStatus::Exited);
-    let subagent_count: usize = state.agents.iter().map(|a| a.subagents.len()).sum();
+pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>, area: Rect) {
+    let total = render_data.header.total;
+    let running = render_data.header.running;
+    let waiting = render_data.header.waiting;
+    let error = render_data.header.error;
+    let done = render_data.header.done;
+    let exited = render_data.header.exited;
+    let subagent_count = render_data.header.subagent_count;
 
     let spans = vec![
         Span::styled(" ai-overview ", theme::bar_style().fg(theme::FG_DEFAULT)),

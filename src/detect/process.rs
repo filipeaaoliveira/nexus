@@ -147,6 +147,40 @@ pub fn parse_lsof_cwd(output: &str) -> Option<PathBuf> {
     None
 }
 
+/// Parse multi-PID lsof -Fn output into a map of PID → cwd path.
+///
+/// Each process section starts with a `p<PID>` line. Within each section,
+/// `fcwd` marks the current-working-directory file descriptor and the
+/// following `n<path>` line is the path.
+pub fn parse_lsof_cwds_multi(output: &str) -> std::collections::HashMap<u32, PathBuf> {
+    let mut map = std::collections::HashMap::new();
+    let mut current_pid: Option<u32> = None;
+    let mut found_cwd = false;
+
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix('p') {
+            if let Ok(pid) = rest.parse::<u32>() {
+                current_pid = Some(pid);
+                found_cwd = false;
+                continue;
+            }
+        }
+        if line == "fcwd" {
+            found_cwd = true;
+            continue;
+        }
+        if found_cwd {
+            if let (Some(pid), Some(path)) = (current_pid, line.strip_prefix('n')) {
+                if path != "/" {
+                    map.insert(pid, PathBuf::from(path));
+                }
+            }
+            found_cwd = false; // consume at most one `n` line per cwd fd
+        }
+    }
+    map
+}
+
 pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
     // NOTE: On macOS, `lsof -p <pid> -Fn -d cwd` ignores the -p filter and
     // dumps every process's cwd. We must omit `-d cwd` and parse the file
@@ -163,6 +197,41 @@ pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
     parse_lsof_cwd(&stdout)
 }
 
+/// Resolve CWDs for a batch of PIDs using a single `lsof` invocation.
+///
+/// Returns a map of PID → PathBuf for every PID whose cwd could be resolved.
+/// PIDs whose cwd cannot be determined are absent from the map.
+pub async fn batch_get_cwds(pids: &[u32]) -> std::collections::HashMap<u32, PathBuf> {
+    if pids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    // Build comma-separated PID list: "1234,5678,..."
+    let pid_arg = pids
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let output = match Command::new("lsof")
+        .args(["-p", &pid_arg, "-Fn"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            debug!("lsof batch call failed: {e}");
+            return std::collections::HashMap::new();
+        }
+    };
+
+    if !output.status.success() && output.stdout.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_lsof_cwds_multi(&stdout)
+}
+
 pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     let output = match Command::new("ps")
         .args(["-eo", "pid,lstart,command"])
@@ -177,15 +246,22 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
     let procs = parse_ps_output(&stdout);
-    let mut results = Vec::new();
-    for proc in procs {
-        if let Some(cwd) = get_process_cwd(proc.pid).await {
-            results.push((proc, cwd));
-        } else {
-            debug!("Could not get CWD for pid {}", proc.pid);
-        }
-    }
-    results
+
+    // Resolve CWDs for all discovered processes in a single lsof call.
+    let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+    let mut cwd_map = batch_get_cwds(&pids).await;
+
+    procs
+        .into_iter()
+        .filter_map(|proc| {
+            if let Some(cwd) = cwd_map.remove(&proc.pid) {
+                Some((proc, cwd))
+            } else {
+                debug!("Could not get CWD for pid {}", proc.pid);
+                None
+            }
+        })
+        .collect()
 }
 
 pub async fn run_process_scanner(

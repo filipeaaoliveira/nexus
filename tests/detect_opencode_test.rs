@@ -94,67 +94,10 @@ fn test_extract_subagent_type() {
     assert_eq!(extract_subagent_type("Normal title"), None);
 }
 
-// ── query_latest_message_role tests ───────────────────────────────
-
-#[test]
-fn test_query_latest_message_role_nonexistent_session() {
-    let (_dir, db_path) = setup_message_db();
-
-    let result = query_latest_message_role(&db_path, "nonexistent-session");
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), None);
-}
-
-#[test]
-fn test_query_latest_message_role_returns_assistant() {
-    let (_dir, db_path) = setup_message_db();
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-
-    // Insert a user message then an assistant message
-    conn.execute(
-        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params!["msg1", "sess1", r#"{"role":"user"}"#, 1000,],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params!["msg2", "sess1", r#"{"role":"assistant"}"#, 2000,],
-    )
-    .unwrap();
-    drop(conn);
-
-    let result = query_latest_message_role(&db_path, "sess1");
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Some("assistant".to_string()));
-}
-
-#[test]
-fn test_query_latest_message_role_returns_user() {
-    let (_dir, db_path) = setup_message_db();
-    let conn = rusqlite::Connection::open(&db_path).unwrap();
-
-    // Insert assistant then user (user is latest)
-    conn.execute(
-        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params!["msg1", "sess1", r#"{"role":"assistant"}"#, 1000,],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params!["msg2", "sess1", r#"{"role":"user"}"#, 2000,],
-    )
-    .unwrap();
-    drop(conn);
-
-    let result = query_latest_message_role(&db_path, "sess1");
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Some("user".to_string()));
-}
-
 #[test]
 fn test_waiting_status_when_assistant_done_no_running_parts() {
-    // When the session is stale, the last message is from the assistant,
-    // and no parts are running or pending, the status should be Waiting.
+    // When the assistant turn is completed and no parts are running or pending,
+    // the status should be Waiting.
     let parts = vec![
         PartData {
             part_type: "tool".to_string(),
@@ -208,7 +151,7 @@ fn test_running_status_when_parts_are_running() {
         time_created: 2000,
     }];
 
-    // Even if stale + last message is assistant, a running part means Running.
+    // Even if assistant_turn_completed is true, a running part means Running.
     let inferred = infer_status_from_parts(&parts);
     let status = resolve_status(inferred, &parts, true);
 

@@ -239,44 +239,14 @@ pub fn query_subagent_sessions(
     Ok(sessions)
 }
 
-/// Query the role of the latest message in a session.
+/// Check whether the latest assistant message's turn is completed.
 ///
-/// Returns `Some("assistant")` or `Some("user")` for the most recent message,
-/// or `None` if no messages exist for the given session.
-pub fn query_latest_message_role(
-    db_path: &Path,
-    session_id: &str,
-) -> anyhow::Result<Option<String>> {
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-
-    let mut stmt = conn.prepare(
-        "SELECT json_extract(data, '$.role') FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 1",
-    )?;
-
-    let role = stmt
-        .query_row(rusqlite::params![session_id], |row| row.get::<_, Option<String>>(0))
-        .optional()?
-        .flatten();
-
-    Ok(role)
-}
-
-/// Returns `true` if the latest assistant message in the session has a
-/// `time.completed` timestamp set (meaning OpenCode's `cleanup()` ran and
-/// the turn is finished). Returns `false` if the timestamp is NULL or if
-/// there are no assistant messages.
-pub fn query_assistant_turn_completed(
-    db_path: &Path,
+/// Returns `true` if `time.completed` is set on the latest assistant message,
+/// indicating OpenCode's `cleanup()` has finished the turn.
+pub fn check_assistant_turn_completed(
+    conn: &rusqlite::Connection,
     session_id: &str,
 ) -> anyhow::Result<bool> {
-    let conn = rusqlite::Connection::open_with_flags(
-        db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-
     let mut stmt = conn.prepare(
         "SELECT json_extract(data, '$.time.completed') \
          FROM message \
@@ -291,6 +261,21 @@ pub fn query_assistant_turn_completed(
         .optional()?;
 
     Ok(matches!(completed, Some(Some(_))))
+}
+
+/// Returns `true` if the latest assistant message in the session has a
+/// `time.completed` timestamp set (meaning OpenCode's `cleanup()` ran and
+/// the turn is finished). Returns `false` if the timestamp is NULL or if
+/// there are no assistant messages.
+pub fn query_assistant_turn_completed(
+    db_path: &Path,
+    session_id: &str,
+) -> anyhow::Result<bool> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    check_assistant_turn_completed(&conn, session_id)
 }
 
 /// State tracked per session to avoid emitting duplicate events.
@@ -431,7 +416,7 @@ pub async fn run_opencode_detector(
                             state.session_info_sent = true;
                         }
 
-                        // Query recent parts and latest message role in a single blocking call
+                        // Query recent parts and assistant turn completion in a single blocking call
                         let session_id = session.id.clone();
                         let db2 = db_path.clone();
                         let db_result = tokio::task::spawn_blocking(move || {
@@ -454,18 +439,7 @@ pub async fn run_opencode_detector(
                                 .collect();
 
                             // Query whether the latest assistant message's turn is completed
-                            let mut stmt2 = conn.prepare(
-                                "SELECT json_extract(data, '$.time.completed') \
-                                 FROM message \
-                                 WHERE session_id = ?1 AND json_extract(data, '$.role') = 'assistant' \
-                                 ORDER BY time_created DESC LIMIT 1",
-                            )?;
-                            let completed: Option<Option<i64>> = stmt2
-                                .query_row(rusqlite::params![&session_id], |row| {
-                                    row.get::<_, Option<i64>>(0)
-                                })
-                                .optional()?;
-                            let assistant_turn_completed = matches!(completed, Some(Some(_)));
+                            let assistant_turn_completed = check_assistant_turn_completed(&conn, &session_id)?;
 
                             Ok::<_, anyhow::Error>((parts, assistant_turn_completed))
                         })

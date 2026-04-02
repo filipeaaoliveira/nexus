@@ -481,6 +481,28 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
 }
 
 #[test]
+fn test_reconcile_codex_snapshots_retires_missing_session() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![observed_session(
+            "session-a",
+            Some(41),
+            PrimaryStatus::Running,
+        )],
+    };
+    let current = CodexEventSnapshot { sessions: vec![] };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        AgentEvent::ProcessExited { id, pid }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && pid == &Some(41)
+    ));
+}
+
+#[test]
 fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

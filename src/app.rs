@@ -56,6 +56,7 @@ impl AppState {
                             let agent = &mut self.agents[agent_idx];
                             agent.cwd = cwd;
                             agent.pid = pid.or(agent.pid);
+                            agent.status = PrimaryStatus::Running;
                             if let Some(real_start) = real_start {
                                 if real_start < agent.started_at {
                                     agent.started_at = real_start;
@@ -280,6 +281,9 @@ impl AppState {
                                 is_worktree,
                                 started_at,
                             );
+                            if id.tool() == AgentTool::Codex {
+                                agent.status = PrimaryStatus::Running;
+                            }
                             agent.pid
                         };
                         self.remove_redundant_codex_process_agents(absorbed_pid);
@@ -297,6 +301,7 @@ impl AppState {
                                 is_worktree,
                                 started_at,
                             );
+                            agent.status = PrimaryStatus::Running;
                             self.remove_redundant_codex_process_agents(Some(pid));
                             return;
                         }

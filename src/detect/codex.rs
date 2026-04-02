@@ -847,6 +847,11 @@ pub fn reconcile_codex_snapshots(
         .flat_map(|snapshot| snapshot.sessions.iter())
         .filter_map(|session| session.agent_id.session_id().map(|id| (id, session)))
         .collect();
+    let current_session_ids = current
+        .sessions
+        .iter()
+        .filter_map(|session| session.agent_id.session_id())
+        .collect::<std::collections::HashSet<_>>();
     let mut events = Vec::new();
 
     for session in &current.sessions {
@@ -961,6 +966,15 @@ pub fn reconcile_codex_snapshots(
                 }
                 _ => {}
             }
+        }
+    }
+
+    for (session_id, previous_session) in previous_sessions {
+        if !current_session_ids.contains(session_id) {
+            events.push(AgentEvent::ProcessExited {
+                id: previous_session.agent_id.clone(),
+                pid: previous_session.pid,
+            });
         }
     }
 

@@ -369,10 +369,10 @@ impl AppState {
 
     pub fn visible_agents(&self) -> Vec<&Agent> {
         let mut agents: Vec<&Agent> = self.agents.iter().collect();
-
         agents.retain(|agent| {
             !(agent.id.tool() == AgentTool::Codex && agent.id.is_session() && agent.pid.is_none())
         });
+
         // Apply filter
         if let Some(ref filter) = self.filter {
             let f = filter.to_lowercase();
@@ -405,7 +405,29 @@ impl AppState {
     }
 
     pub fn count_by_status(&self, status: PrimaryStatus) -> usize {
-        self.agents.iter().filter(|a| a.status == status).count()
+        self.agents
+            .iter()
+            .filter(|agent| {
+                !(agent.id.tool() == AgentTool::Codex
+                    && agent.id.is_session()
+                    && agent.pid.is_none())
+            })
+            .filter(|agent| agent.status == status)
+            .count()
+    }
+
+    fn status_add(&mut self, status: PrimaryStatus) {
+        *self.status_counts.entry(status).or_insert(0) += 1;
+    }
+
+    fn status_remove(&mut self, status: PrimaryStatus) {
+        let count = self.status_counts.entry(status).or_insert(0);
+        *count = count.saturating_sub(1);
+    }
+
+    fn status_transition(&mut self, old: PrimaryStatus, new: PrimaryStatus) {
+        self.status_remove(old);
+        self.status_add(new);
     }
 
     pub fn move_selection_down(&mut self) {

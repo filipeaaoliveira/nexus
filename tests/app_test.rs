@@ -233,6 +233,14 @@ fn test_count_by_status() {
         PrimaryStatus::Running,
         PrimaryStatus::Waiting,
     ));
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "codex-hidden"),
+        pid: None,
+        session_id: "codex-hidden".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
     assert_eq!(state.count_by_status(PrimaryStatus::Waiting), 1);
     assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
 }
@@ -956,6 +964,33 @@ fn test_codex_session_with_pid_is_visible() {
         started_at: None,
     });
     assert_eq!(state.visible_agents().len(), 1);
+}
+
+#[test]
+fn test_normalized_state_changed_updates_agent_normalized_state() {
+    let mut state = make_state();
+    let id = AgentId::new(AgentTool::Claude, 42);
+
+    state.handle_event(discovered(
+        AgentTool::Claude,
+        42,
+        PathBuf::from("/tmp/normalized"),
+        None,
+    ));
+    state.handle_event(AgentEvent::NormalizedStateChanged {
+        id,
+        pid: Some(42),
+        state: NormalizedState::new(
+            NormalizedStatus::NeedsInput,
+            Some(NormalizedReason::Review),
+        ),
+    });
+
+    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(
+        state.agents[0].normalized.reason,
+        Some(NormalizedReason::Review)
+    );
 }
 
 #[test]

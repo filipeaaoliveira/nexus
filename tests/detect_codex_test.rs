@@ -445,6 +445,16 @@ fn test_codex_assessment_completion_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_codex_in_progress_review_like_output_stays_working() {
+    use ai_overview::types::NormalizedStatus;
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Running);
+    let normalized = normalize_codex_session(&session, Some("Review findings in progress"));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {

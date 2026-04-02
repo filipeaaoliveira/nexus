@@ -760,10 +760,10 @@ fn looks_like_review_output(text: &str) -> bool {
         "#### critical",
         "requested changes",
         "review findings",
-        "review",
-        "findings",
         "merge-readiness",
-        "assessment",
+        "merge-readiness assessment",
+        "review assessment",
+        "audit findings",
     ]
     .iter()
     .any(|marker| lower.contains(marker))
@@ -773,7 +773,7 @@ pub fn normalize_codex_session(
     session: &ObservedCodexSession,
     final_output: Option<&str>,
 ) -> NormalizedState {
-    if final_output.is_some_and(looks_like_review_output) {
+    if session.status == PrimaryStatus::Done && final_output.is_some_and(looks_like_review_output) {
         return NormalizedState::new(
             NormalizedStatus::NeedsInput,
             Some(NormalizedReason::Review),

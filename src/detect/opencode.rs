@@ -23,6 +23,13 @@ pub struct MessageData {
     pub provider_id: Option<String>,
 }
 
+/// Parsed assistant message data from OpenCode's SQLite `message.data` JSON.
+#[derive(Debug, Clone)]
+pub struct AssistantMessageData {
+    pub text: Option<String>,
+    pub error: Option<String>,
+}
+
 /// Parsed part data from OpenCode's SQLite `part.data` JSON.
 #[derive(Debug, Clone)]
 pub struct PartData {
@@ -340,22 +347,36 @@ fn extract_text_fragments(value: &Value, fragments: &mut Vec<String>) {
             if let Some(parts) = map.get("parts") {
                 extract_text_fragments(parts, fragments);
             }
+            if let Some(message) = map.get("message") {
+                extract_text_fragments(message, fragments);
+            }
+            if let Some(error) = map.get("error") {
+                extract_text_fragments(error, fragments);
+            }
         }
         _ => {}
     }
 }
 
-fn extract_assistant_message_text(json: &str) -> Option<String> {
+fn extract_assistant_message_data(json: &str) -> Option<AssistantMessageData> {
     let value: Value = serde_json::from_str(json).ok()?;
-    let mut fragments = Vec::new();
+    let mut text_fragments = Vec::new();
+    let mut error_fragments = Vec::new();
 
     if let Some(content) = value.get("content") {
-        extract_text_fragments(content, &mut fragments);
+        extract_text_fragments(content, &mut text_fragments);
     } else if let Some(text) = value.get("text") {
-        extract_text_fragments(text, &mut fragments);
+        extract_text_fragments(text, &mut text_fragments);
     }
 
-    (!fragments.is_empty()).then(|| fragments.join("\n"))
+    if let Some(error) = value.get("error") {
+        extract_text_fragments(error, &mut error_fragments);
+    }
+
+    Some(AssistantMessageData {
+        text: (!text_fragments.is_empty()).then(|| text_fragments.join("\n")),
+        error: (!error_fragments.is_empty()).then(|| error_fragments.join("\n")),
+    })
 }
 
 /// Query the latest assistant message text for a session.
@@ -363,6 +384,15 @@ pub fn query_latest_assistant_message_text_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> anyhow::Result<Option<String>> {
+    Ok(query_latest_assistant_message_data_conn(conn, session_id)?
+        .and_then(|data| data.text))
+}
+
+/// Query the latest assistant message data for a session.
+pub fn query_latest_assistant_message_data_conn(
+    conn: &rusqlite::Connection,
+    session_id: &str,
+) -> anyhow::Result<Option<AssistantMessageData>> {
     let mut stmt = conn.prepare(
         "SELECT data
          FROM message
@@ -375,7 +405,7 @@ pub fn query_latest_assistant_message_text_conn(
         .query_row(rusqlite::params![session_id], |row| row.get(0))
         .optional()?;
 
-    Ok(raw.as_deref().and_then(extract_assistant_message_text))
+    Ok(raw.as_deref().and_then(extract_assistant_message_data))
 }
 
 fn contains_review_section_marker(text: &str, marker: &str) -> bool {
@@ -421,6 +451,7 @@ pub fn normalize_opencode_state(
     parts: &[PartData],
     assistant_turn_completed: bool,
     latest_assistant_message: Option<&str>,
+    latest_assistant_error: Option<&str>,
 ) -> NormalizedState {
     if session_state == Some("retry")
         || parts
@@ -445,6 +476,13 @@ pub fn normalize_opencode_state(
 
     if matches!(session_state, Some("busy" | "working" | "running")) {
         return NormalizedState::new(NormalizedStatus::Working, None);
+    }
+
+    if latest_assistant_error.is_some_and(|error| !error.trim().is_empty()) {
+        return NormalizedState::new(
+            NormalizedStatus::Blocked,
+            Some(NormalizedReason::Error),
+        );
     }
 
     if latest_assistant_message.is_some_and(looks_like_review_output) {
@@ -728,7 +766,7 @@ pub async fn run_opencode_detector(
                 u32,             // pid
                 Vec<PartData>,   // recent parts
                 bool,            // assistant_turn_completed
-                Option<String>,  // latest assistant message text
+                Option<AssistantMessageData>, // latest assistant message data
                 Vec<TodoItem>,   // todos
                 Vec<OpenCodeSession>, // subagent sessions
             );
@@ -783,8 +821,8 @@ pub async fn run_opencode_detector(
 
                     let assistant_turn_completed =
                         check_assistant_turn_completed(&conn, &session.id)?;
-                    let latest_assistant_message =
-                        query_latest_assistant_message_text_conn(&conn, &session.id)?;
+                    let latest_assistant_message_data =
+                        query_latest_assistant_message_data_conn(&conn, &session.id)?;
                     let todos = query_session_todos_conn(&conn, &session.id)?;
                     let subs = query_subagent_sessions_conn(&conn, &session.id)?;
 
@@ -793,7 +831,7 @@ pub async fn run_opencode_detector(
                         pid,
                         parts,
                         assistant_turn_completed,
-                        latest_assistant_message,
+                        latest_assistant_message_data,
                         todos,
                         subs,
                     ));
@@ -809,7 +847,7 @@ pub async fn run_opencode_detector(
                         pid,
                         parts,
                         assistant_turn_completed,
-                        latest_assistant_message,
+                        latest_assistant_message_data,
                         todos,
                         subs,
                     ) in
@@ -853,7 +891,12 @@ pub async fn run_opencode_detector(
                             latest_tool_name,
                             &parts,
                             assistant_turn_completed,
-                            latest_assistant_message.as_deref(),
+                            latest_assistant_message_data
+                                .as_ref()
+                                .and_then(|message| message.text.as_deref()),
+                            latest_assistant_message_data
+                                .as_ref()
+                                .and_then(|message| message.error.as_deref()),
                         );
 
                         if state.last_status != Some(status) {

@@ -266,10 +266,119 @@ fn test_retry_maps_to_working_retrying() {
         }],
         false,
         None,
+        Some("fatal error: cannot continue"),
     );
 
     assert_eq!(state.status, NormalizedStatus::Working);
     assert_eq!(state.reason, Some(NormalizedReason::Retrying));
+}
+
+#[test]
+fn test_latest_assistant_message_data_extracts_error() {
+    let (_dir, db_path) = setup_message_db();
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            "msg_old",
+            "sess1",
+            r#"{"role":"assistant","content":[{"type":"text","text":"Working on it"}],"time":{"created":1000}}"#,
+            1000
+        ],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            "msg_new",
+            "sess1",
+            r#"{"role":"assistant","error":{"message":"Fatal error: cannot continue."},"time":{"created":2000}}"#,
+            2000
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    let message = query_latest_assistant_message_data_conn(&conn, "sess1")
+        .unwrap()
+        .expect("latest assistant message should be present");
+
+    assert_eq!(message.text, None);
+    assert_eq!(
+        message.error,
+        Some("Fatal error: cannot continue.".to_string())
+    );
+}
+
+#[test]
+fn test_assistant_error_maps_to_blocked_error_without_retry_or_working_signal() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let state = normalize_opencode_state(
+        Some("idle"),
+        None,
+        &[],
+        false,
+        None,
+        Some("Fatal error: cannot continue."),
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Blocked);
+    assert_eq!(state.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
+fn test_assistant_error_does_not_override_retry_or_working_signal() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let retry_state = normalize_opencode_state(
+        Some("retry"),
+        None,
+        &[PartData {
+            part_type: "retry".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        None,
+        Some("Fatal error: cannot continue."),
+    );
+
+    assert_eq!(retry_state.status, NormalizedStatus::Working);
+    assert_eq!(retry_state.reason, Some(NormalizedReason::Retrying));
+
+    let tool_state = normalize_opencode_state(
+        Some("idle"),
+        Some("bash"),
+        &[PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("running".to_string()),
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        None,
+        Some("Fatal error: cannot continue."),
+    );
+
+    assert_eq!(tool_state.status, NormalizedStatus::Working);
+    assert_eq!(tool_state.reason, Some(NormalizedReason::ToolCall));
+
+    let busy_state = normalize_opencode_state(
+        Some("busy"),
+        None,
+        &[],
+        false,
+        None,
+        Some("Fatal error: cannot continue."),
+    );
+
+    assert_eq!(busy_state.status, NormalizedStatus::Working);
+    assert_eq!(busy_state.reason, None);
 }
 
 #[test]
@@ -288,6 +397,7 @@ fn test_completed_review_maps_to_needs_input_review() {
         }],
         true,
         Some("### Issues\n#### Critical"),
+        None,
     );
 
     assert_eq!(state.status, NormalizedStatus::NeedsInput);
@@ -310,6 +420,7 @@ fn test_incomplete_review_maps_to_needs_input_review() {
         }],
         false,
         Some("### Issues\n#### Critical"),
+        None,
     );
 
     assert_eq!(state.status, NormalizedStatus::NeedsInput);
@@ -332,6 +443,7 @@ fn test_busy_review_like_text_stays_working() {
         }],
         false,
         Some("### Issues\n#### Critical"),
+        None,
     );
 
     assert_eq!(state.status, NormalizedStatus::Working);
@@ -357,6 +469,7 @@ fn test_completed_turn_without_assistant_text_maps_to_done_ready_for_next_task()
         }],
         true,
         None,
+        None,
     );
 
     assert_eq!(state.status, NormalizedStatus::Done);
@@ -378,6 +491,7 @@ fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() 
             time_created: 1000,
         }],
         false,
+        None,
         None,
     );
 

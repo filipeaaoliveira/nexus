@@ -40,6 +40,9 @@ impl AgentRegistry {
     }
 
     /// Find a PID by tool and CWD. Used by enrichment detectors.
+    ///
+    /// For Codex, this may return `None` when multiple processes share the
+    /// same CWD and the binding would be ambiguous.
     pub fn find_pid(&self, tool: AgentTool, cwd: &Path) -> Option<u32> {
         let map = self.inner.read().unwrap();
         let pids = map.get(&(tool, cwd.to_path_buf()))?;

@@ -459,6 +459,13 @@ struct ThreadEmitState {
     session_info_sent: bool,
 }
 
+fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
+    match registry.find_pids(AgentTool::Codex, cwd).as_slice() {
+        [pid] => Some(*pid),
+        _ => None,
+    }
+}
+
 // ── Detector Loop ─────────────────────────────────────────────────
 
 /// Run the Codex detector polling loop.
@@ -487,11 +494,7 @@ pub async fn run_codex_detector(
                             None => continue,
                         };
                         let cwd = PathBuf::from(cwd_str);
-
-                        let pid = match registry.find_pid(AgentTool::Codex, &cwd) {
-                            Some(p) => p,
-                            None => continue, // no matching process discovered yet
-                        };
+                        let pid = codex_pid_for_thread(&registry, &cwd);
                         let agent_id = AgentId::session(AgentTool::Codex, thread.id.clone());
 
                         let state = thread_states.entry(thread.id.clone()).or_default();
@@ -502,7 +505,7 @@ pub async fn run_codex_detector(
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     id: agent_id.clone(),
-                                    pid: Some(pid),
+                                    pid,
                                     session_id: thread.id.clone(),
                                     branch: thread.git_branch.clone(),
                                     is_worktree: false,
@@ -531,7 +534,7 @@ pub async fn run_codex_detector(
                                         let _ = tx
                                             .send(AgentEvent::StatusChanged {
                                                 id: agent_id.clone(),
-                                                pid: Some(pid),
+                                                pid,
                                                 old,
                                                 new: inferred,
                                             })
@@ -553,7 +556,7 @@ pub async fn run_codex_detector(
                                             let _ = tx
                                                 .send(AgentEvent::ToolCallStarted {
                                                     id: agent_id.clone(),
-                                                    pid: Some(pid),
+                                                    pid,
                                                     tool_name: latest.name.clone(),
                                                     args_summary: args,
                                                 })
@@ -569,7 +572,7 @@ pub async fn run_codex_detector(
                                             let _ = tx
                                                 .send(AgentEvent::SubagentSpawned {
                                                     id: agent_id.clone(),
-                                                    pid: Some(pid),
+                                                    pid,
                                                     subagent: crate::types::Subagent {
                                                         name: spawn.nickname.clone(),
                                                         status: PrimaryStatus::Running,
@@ -605,7 +608,7 @@ pub async fn run_codex_detector(
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
                                             id: agent_id.clone(),
-                                            pid: Some(pid),
+                                            pid,
                                             subagent: crate::types::Subagent {
                                                 name: edge.child_thread_id.clone(),
                                                 status: sub_status,
@@ -630,5 +633,27 @@ pub async fn run_codex_detector(
         }
 
         tokio::time::sleep(poll_interval).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::codex_pid_for_thread;
+    use crate::detect::registry::AgentRegistry;
+    use crate::types::AgentTool;
+    use std::path::PathBuf;
+
+    #[test]
+    fn codex_pid_for_thread_returns_single_binding_only() {
+        let registry = AgentRegistry::new();
+        let cwd = PathBuf::from("/tmp/project");
+
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), None);
+
+        registry.register(AgentTool::Codex, cwd.clone(), 101);
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), Some(101));
+
+        registry.register(AgentTool::Codex, cwd.clone(), 202);
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), None);
     }
 }

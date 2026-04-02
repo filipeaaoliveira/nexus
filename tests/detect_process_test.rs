@@ -1,5 +1,6 @@
-use ai_overview::detect::process::parse_ps_output;
+use ai_overview::detect::process::{parse_lsof_cwd, parse_ps_output};
 use ai_overview::types::AgentTool;
+use std::path::PathBuf;
 
 #[test]
 fn test_parse_ps_output_finds_agents() {
@@ -78,4 +79,55 @@ fn test_matches_codex_with_args() {
     assert_eq!(procs.len(), 1);
     assert_eq!(procs[0].pid, 55555);
     assert_eq!(procs[0].tool, AgentTool::Codex);
+}
+
+#[test]
+fn test_parse_lsof_cwd_extracts_correct_path() {
+    // Real lsof -p <pid> -Fn output (without -d cwd)
+    let output = "p53985\n\
+                  fcwd\n\
+                  n/Users/filipe/Documents/lab/ai-overview\n\
+                  ftxt\n\
+                  n/opt/homebrew/Cellar/opencode/1.3.9/bin/opencode\n\
+                  ftxt\n\
+                  n/usr/lib/dyld\n";
+    assert_eq!(
+        parse_lsof_cwd(output),
+        Some(PathBuf::from("/Users/filipe/Documents/lab/ai-overview"))
+    );
+}
+
+#[test]
+fn test_parse_lsof_cwd_skips_root() {
+    // If cwd is "/", return None
+    let output = "p100\nfcwd\nn/\nftxt\nn/usr/bin/foo\n";
+    assert_eq!(parse_lsof_cwd(output), None);
+}
+
+#[test]
+fn test_parse_lsof_cwd_no_cwd_entry() {
+    // No fcwd line at all
+    let output = "p200\nftxt\nn/usr/bin/foo\n";
+    assert_eq!(parse_lsof_cwd(output), None);
+}
+
+#[test]
+fn test_parse_lsof_cwd_ignores_other_fd_paths() {
+    // Should NOT return paths from ftxt or other fd types — only the one after fcwd
+    let output = "p300\n\
+                  ftxt\n\
+                  n/Users/someone/Library/Containers/com.apple.KerberosMenuExtra/Data\n\
+                  fcwd\n\
+                  n/Users/filipe/projects/myapp\n\
+                  ftxt\n\
+                  n/opt/homebrew/bin/node\n";
+    assert_eq!(
+        parse_lsof_cwd(output),
+        Some(PathBuf::from("/Users/filipe/projects/myapp"))
+    );
+}
+
+#[test]
+fn test_parse_lsof_cwd_empty_output() {
+    assert_eq!(parse_lsof_cwd(""), None);
 }

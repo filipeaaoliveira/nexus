@@ -59,9 +59,34 @@ fn detect_tool_from_command(cmd: &str) -> Option<AgentTool> {
     None
 }
 
+/// Parse lsof -Fn output to extract the cwd path.
+/// Looks for the `fcwd` file-descriptor type marker, then reads the next
+/// `n`-prefixed line as the path.
+pub fn parse_lsof_cwd(output: &str) -> Option<PathBuf> {
+    let mut found_cwd = false;
+    for line in output.lines() {
+        if line == "fcwd" {
+            found_cwd = true;
+            continue;
+        }
+        if found_cwd {
+            if let Some(path) = line.strip_prefix('n') {
+                if path != "/" {
+                    return Some(PathBuf::from(path));
+                }
+            }
+            break; // cwd entry processed, stop
+        }
+    }
+    None
+}
+
 pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
+    // NOTE: On macOS, `lsof -p <pid> -Fn -d cwd` ignores the -p filter and
+    // dumps every process's cwd. We must omit `-d cwd` and parse the file
+    // descriptor type markers ourselves.
     let output = Command::new("lsof")
-        .args(["-p", &pid.to_string(), "-Fn", "-d", "cwd"])
+        .args(["-p", &pid.to_string(), "-Fn"])
         .output()
         .await
         .ok()?;
@@ -69,14 +94,7 @@ pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
         return None;
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if let Some(path) = line.strip_prefix('n') {
-            if path != "/" {
-                return Some(PathBuf::from(path));
-            }
-        }
-    }
-    None
+    parse_lsof_cwd(&stdout)
 }
 
 pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {

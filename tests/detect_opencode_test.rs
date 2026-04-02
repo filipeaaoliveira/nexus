@@ -153,8 +153,8 @@ fn test_query_latest_message_role_returns_user() {
 
 #[test]
 fn test_waiting_status_when_assistant_done_no_running_parts() {
-    // When the last message is from the assistant and no parts are running,
-    // the status should be Waiting (not Running).
+    // When the session is stale, the last message is from the assistant,
+    // and no parts are running or pending, the status should be Waiting.
     let parts = vec![
         PartData {
             part_type: "tool".to_string(),
@@ -173,9 +173,29 @@ fn test_waiting_status_when_assistant_done_no_running_parts() {
     ];
 
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts);
+    // session_stale = true → eligible for Waiting
+    let status = resolve_status(inferred, Some("assistant"), &parts, true);
 
     assert_eq!(status, PrimaryStatus::Waiting);
+}
+
+#[test]
+fn test_running_status_when_session_is_fresh() {
+    // Even if last message is assistant and no running parts, a fresh session
+    // means the agent is still actively working → Running, not Waiting.
+    let parts = vec![PartData {
+        part_type: "tool".to_string(),
+        tool_name: Some("bash".to_string()),
+        tool_status: Some("completed".to_string()),
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+
+    let inferred = infer_status_from_parts(&parts);
+    // session_stale = false → NOT eligible for Waiting
+    let status = resolve_status(inferred, Some("assistant"), &parts, false);
+
+    assert_eq!(status, PrimaryStatus::Running);
 }
 
 #[test]
@@ -188,9 +208,26 @@ fn test_running_status_when_parts_are_running() {
         time_created: 2000,
     }];
 
-    // Even if last message is assistant, a running part means Running.
+    // Even if stale + last message is assistant, a running part means Running.
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts);
+    let status = resolve_status(inferred, Some("assistant"), &parts, true);
+
+    assert_eq!(status, PrimaryStatus::Running);
+}
+
+#[test]
+fn test_running_status_when_parts_are_pending() {
+    // A pending tool call also means the agent is working, not waiting.
+    let parts = vec![PartData {
+        part_type: "tool".to_string(),
+        tool_name: Some("write".to_string()),
+        tool_status: Some("pending".to_string()),
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+
+    let inferred = infer_status_from_parts(&parts);
+    let status = resolve_status(inferred, Some("assistant"), &parts, true);
 
     assert_eq!(status, PrimaryStatus::Running);
 }
@@ -206,7 +243,7 @@ fn test_error_status_preserved_even_with_assistant_role() {
     }];
 
     let inferred = infer_status_from_parts(&parts);
-    let status = resolve_status(inferred, Some("assistant"), &parts);
+    let status = resolve_status(inferred, Some("assistant"), &parts, true);
 
     assert_eq!(status, PrimaryStatus::Error);
 }

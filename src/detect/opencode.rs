@@ -291,24 +291,36 @@ pub fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
 }
 
 /// Resolve the final status from the inferred status, the latest message role,
-/// and the parts.
+/// parts, and session freshness.
 ///
 /// - If `inferred` is `Error`, return `Error`.
-/// - If `latest_role` is `"assistant"` and no parts have `tool_status == "running"`,
-///   the agent is waiting for user input → return `Waiting`.
+/// - If the session is still fresh (`!session_stale`), the agent is actively
+///   working regardless of message role or tool status → return `Running`.
+/// - If the session IS stale AND `latest_role` is `"assistant"` AND no parts
+///   have an active tool status (`"running"` or `"pending"`), the agent is
+///   waiting for user input → return `Waiting`.
 /// - Otherwise return `inferred`.
+///
+/// `session_stale` should be `true` when `session.time_updated` hasn't changed
+/// for longer than the staleness threshold (e.g., 10 seconds).
 pub fn resolve_status(
     inferred: PrimaryStatus,
     latest_role: Option<&str>,
     parts: &[PartData],
+    session_stale: bool,
 ) -> PrimaryStatus {
     if inferred == PrimaryStatus::Error {
         return PrimaryStatus::Error;
     }
+    // If the session was recently updated, the agent is actively working.
+    if !session_stale {
+        return inferred;
+    }
+    // Session is stale — check if the assistant finished and no tools are active.
     if latest_role == Some("assistant")
         && !parts
             .iter()
-            .any(|p| p.tool_status.as_deref() == Some("running"))
+            .any(|p| matches!(p.tool_status.as_deref(), Some("running" | "pending")))
     {
         return PrimaryStatus::Waiting;
     }
@@ -438,11 +450,18 @@ pub async fn run_opencode_detector(
                             }
 
                             // Determine final status using resolve_status.
+                            // A session is "stale" if it hasn't been updated in
+                            // the last 10 seconds — meaning the agent likely
+                            // finished its turn and is waiting for user input.
+                            let now_ms = chrono::Utc::now().timestamp_millis();
+                            let session_stale =
+                                (now_ms - session.time_updated) > 10_000;
                             let inferred = infer_status_from_parts(&parts);
                             let status = resolve_status(
                                 inferred,
                                 latest_role.as_deref(),
                                 &parts,
+                                session_stale,
                             );
 
                             // Emit status change if different from last known

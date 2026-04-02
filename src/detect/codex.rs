@@ -502,6 +502,9 @@ pub async fn run_codex_detector(
 
                         // Emit SessionInfo once per thread
                         if !state.session_info_sent {
+                            let session_started =
+                                chrono::DateTime::from_timestamp(thread.created_at, 0)
+                                    .map(|dt| dt.with_timezone(&chrono::Local));
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     pid,
@@ -509,6 +512,7 @@ pub async fn run_codex_detector(
                                     session_id: thread.id.clone(),
                                     branch: thread.git_branch.clone(),
                                     is_worktree: false,
+                                    started_at: session_started,
                                 })
                                 .await;
                             state.session_info_sent = true;

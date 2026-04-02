@@ -52,6 +52,7 @@ pub struct ProjectSessionInfo {
     pub cwd: Option<PathBuf>,
     pub model: Option<String>,
     pub has_internal_initiator: bool,
+    pub started_at: Option<String>,
 }
 
 // ── parse_transcript ──────────────────────────────────────────────
@@ -157,6 +158,7 @@ pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStat
 /// internal initiator markers (subagent sessions).
 pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
     let mut info = ProjectSessionInfo::default();
+    let mut first_timestamp_set = false;
 
     for line in content.lines() {
         let line = line.trim();
@@ -168,6 +170,14 @@ pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
             Ok(v) => v,
             Err(_) => continue,
         };
+
+        // Capture the timestamp of the first entry as session start time
+        if !first_timestamp_set {
+            if let Some(ts) = obj.get("timestamp").and_then(|v| v.as_str()) {
+                info.started_at = Some(ts.to_string());
+                first_timestamp_set = true;
+            }
+        }
 
         // Extract sessionId from any entry that has it
         if info.session_id.is_none() {
@@ -434,6 +444,11 @@ pub async fn run_claude_detector(
                 // Emit SessionInfo once
                 if !state.session_info_sent {
                     if let Some(session_info) = matched_session {
+                        let session_started = session_info
+                            .started_at
+                            .as_deref()
+                            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                            .map(|dt| dt.with_timezone(&chrono::Local));
                         let _ = tx
                             .send(AgentEvent::SessionInfo {
                                 pid,
@@ -444,6 +459,7 @@ pub async fn run_claude_detector(
                                     .unwrap_or_default(),
                                 branch: session_info.branch.clone(),
                                 is_worktree: false,
+                                started_at: session_started,
                             })
                             .await;
                     }
@@ -478,9 +494,9 @@ pub async fn run_claude_detector(
                 for entry in new_entries {
                     match entry {
                         TranscriptEntry::ToolUse {
+                            timestamp: ref entry_timestamp,
                             tool_name,
                             tool_input,
-                            ..
                         } => {
                             // Check for subagent spawn (Task tool with subagent_type)
                             if tool_name == "task" {
@@ -502,7 +518,11 @@ pub async fn run_claude_detector(
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
                                                     description,
-                                                    started_at: chrono::Local::now(),
+                                                    started_at: chrono::DateTime::parse_from_rfc3339(
+                                                        entry_timestamp,
+                                                    )
+                                                    .map(|dt| dt.with_timezone(&chrono::Local))
+                                                    .unwrap_or_else(|_| chrono::Local::now()),
                                                     ended_at: None,
                                                 },
                                             })

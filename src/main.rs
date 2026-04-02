@@ -55,7 +55,13 @@ async fn run_loop(
     loop {
         // Drain all pending events
         while let Ok(event) = rx.try_recv() {
-            if let AgentEvent::Discovered { tool, pid, ref cwd } = event {
+            if let AgentEvent::Discovered {
+                tool,
+                pid,
+                ref cwd,
+                ..
+            } = event
+            {
                 let cwd_clone = cwd.clone();
                 state.handle_event(event);
                 let (branch, is_wt) = worktree::lookup_branch_info(&cwd_clone).await;
@@ -65,6 +71,7 @@ async fn run_loop(
                     session_id: String::new(),
                     branch,
                     is_worktree: is_wt,
+                    started_at: None,
                 });
                 continue;
             }

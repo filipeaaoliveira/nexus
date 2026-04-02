@@ -142,6 +142,7 @@ pub async fn run_process_scanner(
                         tool: proc.tool,
                         pid: proc.pid,
                         cwd: cwd.clone(),
+                        started_at: None,
                     })
                     .await;
             }

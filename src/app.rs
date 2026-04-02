@@ -39,7 +39,12 @@ impl AppState {
 
     pub fn handle_event(&mut self, event: AgentEvent) {
         match event {
-            AgentEvent::Discovered { tool, pid, cwd } => {
+            AgentEvent::Discovered {
+                tool,
+                pid,
+                cwd,
+                started_at: real_start,
+            } => {
                 let id = AgentId::new(tool, pid);
                 if self.agents.iter().any(|a| a.id == id) {
                     return;
@@ -52,7 +57,7 @@ impl AppState {
                     cwd,
                     branch: None,
                     is_worktree: false,
-                    started_at: now,
+                    started_at: real_start.unwrap_or(now),
                     last_activity: now,
                     subagents: Vec::new(),
                     recent_events: VecDeque::new(),
@@ -177,6 +182,7 @@ impl AppState {
                 session_id,
                 branch,
                 is_worktree,
+                started_at,
             } => {
                 if let Some(agent) = self.find_agent_mut(pid, tool) {
                     agent.session_id = Some(session_id);
@@ -184,6 +190,12 @@ impl AppState {
                         agent.branch = branch;
                     }
                     agent.is_worktree = is_worktree;
+                    // Apply real start time if available and earlier than current
+                    if let Some(real_start) = started_at {
+                        if real_start < agent.started_at {
+                            agent.started_at = real_start;
+                        }
+                    }
                     agent.last_activity = Local::now();
                 }
             }

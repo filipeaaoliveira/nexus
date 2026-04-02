@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use chrono::{DateTime, Local};
+
 use crate::types::{Activity, AgentTool, PrimaryStatus, Subagent};
 
 #[derive(Debug, Clone)]
@@ -8,6 +10,7 @@ pub enum AgentEvent {
         tool: AgentTool,
         pid: u32,
         cwd: PathBuf,
+        started_at: Option<DateTime<Local>>,
     },
     StatusChanged {
         pid: u32,
@@ -51,5 +54,6 @@ pub enum AgentEvent {
         session_id: String,
         branch: Option<String>,
         is_worktree: bool,
+        started_at: Option<DateTime<Local>>,
     },
 }

@@ -25,6 +25,7 @@ fn test_discover_agent() {
         tool: AgentTool::Claude,
         pid: 1234,
         cwd: PathBuf::from("/tmp/project"),
+        started_at: None,
     });
     assert_eq!(state.agents.len(), 1);
     assert_eq!(state.agents[0].id.pid, 1234);
@@ -40,11 +41,13 @@ fn test_discover_duplicate_ignored() {
         tool: AgentTool::Claude,
         pid: 1234,
         cwd: PathBuf::from("/tmp/project"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::Discovered {
         tool: AgentTool::Claude,
         pid: 1234,
         cwd: PathBuf::from("/tmp/project"),
+        started_at: None,
     });
     assert_eq!(state.agents.len(), 1);
 }
@@ -56,6 +59,7 @@ fn test_status_change() {
         tool: AgentTool::OpenCode,
         pid: 5678,
         cwd: PathBuf::from("/tmp/oc"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::StatusChanged {
         pid: 5678,
@@ -73,6 +77,7 @@ fn test_process_exited() {
         tool: AgentTool::Codex,
         pid: 9999,
         cwd: PathBuf::from("/tmp/cx"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::ProcessExited {
         pid: 9999,
@@ -88,6 +93,7 @@ fn test_subagent_spawned_and_completed() {
         tool: AgentTool::OpenCode,
         pid: 1000,
         cwd: PathBuf::from("/tmp"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::SubagentSpawned {
         pid: 1000,
@@ -119,6 +125,7 @@ fn test_move_selection() {
             tool: AgentTool::Claude,
             pid,
             cwd: PathBuf::from(format!("/tmp/{pid}")),
+            started_at: None,
         });
     }
     assert_eq!(state.selected, Some(0));
@@ -143,11 +150,13 @@ fn test_count_by_status() {
         tool: AgentTool::Claude,
         pid: 1,
         cwd: PathBuf::from("/a"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::Discovered {
         tool: AgentTool::OpenCode,
         pid: 2,
         cwd: PathBuf::from("/b"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::StatusChanged {
         pid: 1,
@@ -194,6 +203,7 @@ fn test_visible_agents_sort_by_urgency() {
             tool,
             pid,
             cwd: PathBuf::from(format!("/tmp/{pid}")),
+            started_at: None,
         });
     }
     // Make agent 3 Waiting, agent 1 Done
@@ -229,6 +239,7 @@ fn test_visible_agents_sort_by_name() {
             tool,
             pid,
             cwd: PathBuf::from(format!("/tmp/{pid}")),
+            started_at: None,
         });
     }
     let visible = state.visible_agents();
@@ -250,6 +261,7 @@ fn test_visible_agents_filter() {
             tool,
             pid,
             cwd: PathBuf::from(format!("/tmp/{pid}")),
+            started_at: None,
         });
     }
     // Filter for "claude"
@@ -276,16 +288,19 @@ fn test_filter_by_tool_name() {
         tool: AgentTool::Claude,
         pid: 1,
         cwd: PathBuf::from("/a"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::Discovered {
         tool: AgentTool::OpenCode,
         pid: 2,
         cwd: PathBuf::from("/b"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::Discovered {
         tool: AgentTool::Codex,
         pid: 3,
         cwd: PathBuf::from("/c"),
+        started_at: None,
     });
 
     state.filter = Some("claude".to_string());
@@ -301,6 +316,7 @@ fn test_filter_by_branch() {
         tool: AgentTool::Claude,
         pid: 1,
         cwd: PathBuf::from("/a"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::SessionInfo {
         pid: 1,
@@ -308,11 +324,13 @@ fn test_filter_by_branch() {
         session_id: "s1".to_string(),
         branch: Some("feat/auth".to_string()),
         is_worktree: false,
+        started_at: None,
     });
     state.handle_event(AgentEvent::Discovered {
         tool: AgentTool::OpenCode,
         pid: 2,
         cwd: PathBuf::from("/b"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::SessionInfo {
         pid: 2,
@@ -320,6 +338,7 @@ fn test_filter_by_branch() {
         session_id: "s2".to_string(),
         branch: Some("main".to_string()),
         is_worktree: false,
+        started_at: None,
     });
 
     state.filter = Some("auth".to_string());
@@ -335,6 +354,7 @@ fn test_filter_by_status() {
         tool: AgentTool::Claude,
         pid: 1,
         cwd: PathBuf::from("/a"),
+        started_at: None,
     });
     state.handle_event(AgentEvent::StatusChanged {
         pid: 1,
@@ -346,6 +366,7 @@ fn test_filter_by_status() {
         tool: AgentTool::OpenCode,
         pid: 2,
         cwd: PathBuf::from("/b"),
+        started_at: None,
     });
 
     state.filter = Some("waiting".to_string());
@@ -363,6 +384,7 @@ fn test_filter_clamps_selected_index() {
             tool: AgentTool::Claude,
             pid,
             cwd: PathBuf::from(format!("/tmp/{pid}")),
+            started_at: None,
         });
     }
     // Select the last agent (index 3)

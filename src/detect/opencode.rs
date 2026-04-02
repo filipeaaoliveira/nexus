@@ -404,6 +404,9 @@ pub async fn run_opencode_detector(
 
                         // Emit SessionInfo once per session
                         if !state.session_info_sent {
+                            let session_started =
+                                chrono::DateTime::from_timestamp_millis(session.time_created)
+                                    .map(|dt| dt.with_timezone(&chrono::Local));
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     pid,
@@ -411,6 +414,7 @@ pub async fn run_opencode_detector(
                                     session_id: session.id.clone(),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
+                                    started_at: session_started,
                                 })
                                 .await;
                             state.session_info_sent = true;
@@ -565,7 +569,11 @@ pub async fn run_opencode_detector(
                                                     PrimaryStatus::Running
                                                 },
                                                 description: sub.title.clone(),
-                                                started_at: chrono::Local::now(),
+                                                started_at: chrono::DateTime::from_timestamp_millis(
+                                                    sub.time_created,
+                                                )
+                                                .map(|dt| dt.with_timezone(&chrono::Local))
+                                                .unwrap_or_else(chrono::Local::now),
                                                 ended_at: None,
                                             },
                                         })

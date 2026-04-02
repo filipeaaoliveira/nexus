@@ -79,6 +79,7 @@ impl AppState {
                                 let agent = &mut self.agents[agent_idx];
                                 agent.cwd = cwd.clone();
                                 agent.pid = Some(pid);
+                                agent.status = PrimaryStatus::Running;
                                 if let Some(real_start) = real_start {
                                     if real_start < agent.started_at {
                                         agent.started_at = real_start;
@@ -92,6 +93,7 @@ impl AppState {
                             let agent = &mut self.agents[agent_idx];
                             agent.cwd = cwd;
                             agent.pid = Some(pid);
+                            agent.status = PrimaryStatus::Running;
                             if let Some(real_start) = real_start {
                                 if real_start < agent.started_at {
                                     agent.started_at = real_start;

@@ -591,7 +591,11 @@ impl AppState {
         is_worktree: bool,
         started_at: Option<chrono::DateTime<chrono::Local>>,
     ) {
-        agent.pid = pid.or(agent.pid);
+        if agent.id.tool() == AgentTool::Codex && agent.id.is_session() {
+            agent.pid = pid;
+        } else {
+            agent.pid = pid.or(agent.pid);
+        }
         agent.session_id = Some(session_id);
         if branch.is_some() {
             agent.branch = branch;

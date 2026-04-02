@@ -515,6 +515,42 @@ fn test_reconcile_codex_snapshots_does_not_retire_missing_unbound_session() {
 }
 
 #[test]
+fn test_build_codex_event_snapshot_keeps_top_level_session_when_cwd_missing() {
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: None,
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: 10,
+                updated_at: 20,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: None,
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: None,
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+
+    assert_eq!(event_snapshot.sessions.len(), 1);
+    assert_eq!(
+        event_snapshot.sessions[0].agent_id,
+        AgentId::session(AgentTool::Codex, "parent")
+    );
+    assert_eq!(event_snapshot.sessions[0].cwd, PathBuf::new());
+}
+
+#[test]
 fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)

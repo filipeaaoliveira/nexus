@@ -812,11 +812,16 @@ pub fn build_codex_event_snapshot(
     let mut sessions = snapshot
         .top_level_threads
         .iter()
-        .filter_map(|observed| {
-            let cwd = PathBuf::from(observed.thread.cwd.as_deref()?);
+        .map(|observed| {
+            let cwd = observed
+                .thread
+                .cwd
+                .as_deref()
+                .map(PathBuf::from)
+                .unwrap_or_default();
             let rollout_summary = rollout_summary_for_thread(&observed.thread);
 
-            Some(ObservedCodexSession {
+            ObservedCodexSession {
                 agent_id: observed.agent_id.clone(),
                 pid: observed.pid,
                 cwd,
@@ -830,7 +835,7 @@ pub fn build_codex_event_snapshot(
                     &spawn_status_by_child,
                     rollout_summary.spawned_subagents,
                 ),
-            })
+            }
         })
         .collect::<Vec<_>>();
     sessions.sort_by(|a, b| a.agent_id.session_id().cmp(&b.agent_id.session_id()));

@@ -898,6 +898,34 @@ fn test_codex_session_info_revives_exited_session_row() {
 }
 
 #[test]
+fn test_codex_session_info_can_unbind_pid() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    assert_eq!(state.agents[0].pid, Some(44));
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: None,
+        session_id: "session-a".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: None,
+    });
+
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_session());
+    assert_eq!(state.agents[0].pid, None);
+}
+
+#[test]
 fn test_codex_session_discovery_revives_exited_session_row() {
     let mut state = make_state();
 

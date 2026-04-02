@@ -253,6 +253,53 @@ fn test_build_codex_snapshot_keeps_same_cwd_top_level_threads_distinct() {
 }
 
 #[test]
+fn test_build_codex_snapshot_does_not_bind_pid_for_multiple_top_level_threads_in_same_cwd() {
+    let registry = AgentRegistry::new();
+    registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
+
+    let threads = vec![
+        CodexThread {
+            id: "thread-a".into(),
+            title: Some("A".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 10,
+            updated_at: 30,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "thread-b".into(),
+            title: Some("B".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 11,
+            updated_at: 31,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &[], &registry);
+
+    assert_eq!(snapshot.top_level_threads.len(), 2);
+    assert!(snapshot
+        .top_level_threads
+        .iter()
+        .all(|thread| thread.pid.is_none()));
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {
@@ -262,7 +309,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
             }),
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "Nash".to_string(),
+                name: "child-a".to_string(),
                 description: Some("worker".to_string()),
                 status: PrimaryStatus::Running,
             }],
@@ -304,7 +351,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
         &events[4],
         AgentEvent::SubagentSpawned { id, subagent, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
-                && subagent.name == "Nash"
+                && subagent.name == "child-a"
                 && subagent.status == PrimaryStatus::Running
     ));
 }
@@ -352,7 +399,7 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
         sessions: vec![ObservedCodexSession {
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "Nash".to_string(),
+                name: "child-a".to_string(),
                 description: Some("worker".to_string()),
                 status: PrimaryStatus::Running,
             }],
@@ -363,7 +410,7 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
         sessions: vec![ObservedCodexSession {
             subagents: vec![ObservedCodexSubagent {
                 thread_id: "child-a".to_string(),
-                name: "Nash".to_string(),
+                name: "child-a".to_string(),
                 description: Some("worker".to_string()),
                 status: PrimaryStatus::Done,
             }],
@@ -378,7 +425,58 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
         &events[0],
         AgentEvent::SubagentCompleted { id, subagent_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
-                && subagent_name == "Nash"
+                && subagent_name == "child-a"
+    ));
+}
+
+#[test]
+fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_id() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            subagents: vec![
+                ObservedCodexSubagent {
+                    thread_id: "child-a".to_string(),
+                    name: "child-a".to_string(),
+                    description: Some("Nash".to_string()),
+                    status: PrimaryStatus::Running,
+                },
+                ObservedCodexSubagent {
+                    thread_id: "child-b".to_string(),
+                    name: "child-b".to_string(),
+                    description: Some("Nash".to_string()),
+                    status: PrimaryStatus::Running,
+                },
+            ],
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            subagents: vec![
+                ObservedCodexSubagent {
+                    thread_id: "child-a".to_string(),
+                    name: "child-a".to_string(),
+                    description: Some("Nash".to_string()),
+                    status: PrimaryStatus::Running,
+                },
+                ObservedCodexSubagent {
+                    thread_id: "child-b".to_string(),
+                    name: "child-b".to_string(),
+                    description: Some("Nash".to_string()),
+                    status: PrimaryStatus::Done,
+                },
+            ],
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert_eq!(events.len(), 1);
+    assert!(matches!(
+        &events[0],
+        AgentEvent::SubagentCompleted { subagent_name, .. }
+            if subagent_name == "child-b"
     ));
 }
 
@@ -430,7 +528,10 @@ fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
         event_snapshot.sessions[0].subagents[0].thread_id,
         "child-rollout"
     );
-    assert_eq!(event_snapshot.sessions[0].subagents[0].name, "Parfit");
+    assert_eq!(
+        event_snapshot.sessions[0].subagents[0].name,
+        "child-rollout"
+    );
     assert_eq!(
         event_snapshot.sessions[0].subagents[0]
             .description

@@ -555,6 +555,33 @@ fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
     }
 }
 
+fn classify_codex_thread(
+    thread: &CodexThread,
+    edge_parent_by_child: &HashMap<&str, &str>,
+) -> CodexThreadClassification {
+    let source_info = thread
+        .source
+        .as_deref()
+        .map(parse_source_field)
+        .unwrap_or(SourceInfo {
+            is_subagent: false,
+            parent_thread_id: None,
+            agent_nickname: None,
+            agent_role: None,
+        });
+    let parent_thread_id = source_info.parent_thread_id.or_else(|| {
+        edge_parent_by_child
+            .get(thread.id.as_str())
+            .map(|id| (*id).to_string())
+    });
+
+    if source_info.is_subagent || parent_thread_id.is_some() {
+        CodexThreadClassification::Child { parent_thread_id }
+    } else {
+        CodexThreadClassification::TopLevel
+    }
+}
+
 pub fn build_codex_snapshot(
     threads: &[CodexThread],
     spawn_edges: &[SpawnEdge],
@@ -569,39 +596,42 @@ pub fn build_codex_snapshot(
             )
         })
         .collect();
+    let classified_threads = threads
+        .iter()
+        .map(|thread| {
+            (
+                thread.clone(),
+                classify_codex_thread(thread, &edge_parent_by_child),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut top_level_thread_count_by_cwd: HashMap<String, usize> = HashMap::new();
+    for (thread, classification) in &classified_threads {
+        if matches!(classification, CodexThreadClassification::TopLevel) {
+            if let Some(cwd) = thread.cwd.as_deref() {
+                *top_level_thread_count_by_cwd
+                    .entry(cwd.to_string())
+                    .or_default() += 1;
+            }
+        }
+    }
+
     let mut snapshot = CodexSnapshot::default();
 
-    for thread in threads {
-        let source_info = thread
-            .source
-            .as_deref()
-            .map(parse_source_field)
-            .unwrap_or(SourceInfo {
-                is_subagent: false,
-                parent_thread_id: None,
-                agent_nickname: None,
-                agent_role: None,
-            });
-        let parent_thread_id = source_info.parent_thread_id.or_else(|| {
-            edge_parent_by_child
-                .get(thread.id.as_str())
-                .map(|id| (*id).to_string())
-        });
-        let classification = if source_info.is_subagent || parent_thread_id.is_some() {
-            CodexThreadClassification::Child { parent_thread_id }
-        } else {
-            CodexThreadClassification::TopLevel
+    for (thread, classification) in classified_threads {
+        let pid = match &classification {
+            CodexThreadClassification::TopLevel => thread.cwd.as_deref().and_then(|cwd| {
+                (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
+                    .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
+                    .flatten()
+            }),
+            CodexThreadClassification::Child { .. } => None,
         };
-        let pid = thread
-            .cwd
-            .as_deref()
-            .map(Path::new)
-            .and_then(|cwd| codex_pid_for_thread(registry, cwd));
         let observed = ObservedCodexThread {
-            thread: thread.clone(),
             agent_id: AgentId::session(AgentTool::Codex, thread.id.clone()),
             pid,
             classification: classification.clone(),
+            thread,
         };
 
         match classification {
@@ -676,8 +706,8 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
                 summary.spawned_subagents = extract_subagent_spawns(&events)
                     .into_iter()
                     .map(|spawn| ObservedCodexSubagent {
+                        name: spawn.thread_id.clone(),
                         thread_id: spawn.thread_id,
-                        name: spawn.nickname,
                         description: Some(spawn.role),
                         status: PrimaryStatus::Running,
                     })
@@ -701,15 +731,15 @@ fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Optio
             agent_nickname: None,
             agent_role: None,
         });
-    let name = child
+    let description = child
         .thread
-        .agent_nickname
+        .agent_role
         .clone()
-        .or(source_info.agent_nickname)
-        .unwrap_or_else(|| child.thread.id.clone());
-    let description = child.thread.agent_role.clone().or(source_info.agent_role);
+        .or(source_info.agent_role)
+        .or(child.thread.agent_nickname.clone())
+        .or(source_info.agent_nickname);
 
-    (name, description)
+    (child.thread.id.clone(), description)
 }
 
 fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -> PrimaryStatus {
@@ -1159,7 +1189,7 @@ mod tests {
         assert_eq!(event_snapshot.sessions.len(), 1);
         assert_eq!(event_snapshot.sessions[0].subagents.len(), 1);
         assert_eq!(event_snapshot.sessions[0].subagents[0].thread_id, "child-a");
-        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "worker");
+        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "child-a");
     }
 
     #[test]
@@ -1175,7 +1205,7 @@ mod tests {
                 latest_tool_call: None,
                 subagents: vec![ObservedCodexSubagent {
                     thread_id: "child-a".into(),
-                    name: "worker".into(),
+                    name: "child-a".into(),
                     description: Some("worker".into()),
                     status: PrimaryStatus::Running,
                 }],
@@ -1196,7 +1226,7 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [AgentEvent::SubagentCompleted { subagent_name, .. }]
-                if subagent_name == "worker"
+                if subagent_name == "child-a"
         ));
     }
 }

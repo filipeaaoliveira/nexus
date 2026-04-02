@@ -56,22 +56,23 @@ impl AppState {
                 let session_id = id.session_id().map(str::to_string);
                 if id.tool() == AgentTool::Codex {
                     if let Some(pid) = pid {
-                        let matching_session_agents = self
-                            .agents
-                            .iter()
-                            .filter(|a| {
-                                a.id.tool() == id.tool()
-                                    && a.id.is_session()
-                                    && a.pid == Some(pid)
-                                    && (a.cwd.as_os_str().is_empty() || a.cwd == cwd)
-                            })
-                            .count();
-                        if matching_session_agents > 1 {
+                        let matching_agent_indices =
+                            self.find_session_agent_indices_by_pid(id.tool(), pid, &cwd);
+                        if matching_agent_indices.len() > 1 {
+                            for agent_idx in matching_agent_indices {
+                                let agent = &mut self.agents[agent_idx];
+                                agent.cwd = cwd.clone();
+                                agent.pid = Some(pid);
+                                if let Some(real_start) = real_start {
+                                    if real_start < agent.started_at {
+                                        agent.started_at = real_start;
+                                    }
+                                }
+                                agent.last_activity = now;
+                            }
                             return;
                         }
-                        if let Some(agent_idx) =
-                            self.find_unique_session_agent_index_by_pid(id.tool(), pid, &cwd)
-                        {
+                        if let Some(agent_idx) = matching_agent_indices.into_iter().next() {
                             let agent = &mut self.agents[agent_idx];
                             agent.cwd = cwd;
                             agent.pid = Some(pid);
@@ -472,14 +473,13 @@ impl AppState {
             .find(|a| a.id.tool() == tool && a.pid == Some(pid) && a.id.is_process())
     }
 
-    fn find_unique_session_agent_index_by_pid(
+    fn find_session_agent_indices_by_pid(
         &self,
         tool: AgentTool,
         pid: u32,
         cwd: &PathBuf,
-    ) -> Option<usize> {
-        let mut matches = self
-            .agents
+    ) -> Vec<usize> {
+        self.agents
             .iter()
             .enumerate()
             .filter(|(_, a)| {
@@ -487,13 +487,9 @@ impl AppState {
                     && a.id.is_session()
                     && a.pid == Some(pid)
                     && (a.cwd.as_os_str().is_empty() || a.cwd == *cwd)
-            });
-        let (idx, _) = matches.next()?;
-        if matches.next().is_none() {
-            Some(idx)
-        } else {
-            None
-        }
+            })
+            .map(|(idx, _)| idx)
+            .collect()
     }
 
     fn find_agent_mut_by_pid(&mut self, tool: AgentTool, pid: u32) -> Option<&mut Agent> {

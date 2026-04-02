@@ -794,7 +794,11 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
         .filter(|a| a.id.is_session())
         .collect();
     assert_eq!(session_agents.len(), 2);
-    assert!(session_agents.iter().all(|a| a.cwd.as_os_str().is_empty()));
+    assert!(
+        session_agents
+            .iter()
+            .all(|a| a.cwd == PathBuf::from("/tmp/ambiguous"))
+    );
     assert!(
         state
             .agents

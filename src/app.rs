@@ -48,11 +48,26 @@ impl AppState {
                 cwd,
                 started_at: real_start,
             } => {
-                if self.agents.iter().any(|a| a.id == id) {
-                    return;
-                }
                 let now = Local::now();
                 let pid = pid.or_else(|| id.pid());
+                if let Some(agent_idx) = self.agents.iter().position(|a| a.id == id) {
+                    if id.tool() == AgentTool::Codex && id.is_session() {
+                        let absorbed_pid = {
+                            let agent = &mut self.agents[agent_idx];
+                            agent.cwd = cwd;
+                            agent.pid = pid.or(agent.pid);
+                            if let Some(real_start) = real_start {
+                                if real_start < agent.started_at {
+                                    agent.started_at = real_start;
+                                }
+                            }
+                            agent.last_activity = now;
+                            agent.pid
+                        };
+                        self.remove_redundant_codex_process_agents(absorbed_pid);
+                    }
+                    return;
+                }
                 let session_id = id.session_id().map(str::to_string);
                 if id.tool() == AgentTool::Codex {
                     if let Some(pid) = pid {
@@ -256,7 +271,18 @@ impl AppState {
                 let pid = pid.or_else(|| id.pid());
                 if id.is_session() {
                     if let Some(agent) = self.find_agent_mut_by_id(&id) {
-                        Self::apply_session_info(agent, pid, session_id, branch, is_worktree, started_at);
+                        let absorbed_pid = {
+                            Self::apply_session_info(
+                                agent,
+                                pid,
+                                session_id,
+                                branch,
+                                is_worktree,
+                                started_at,
+                            );
+                            agent.pid
+                        };
+                        self.remove_redundant_codex_process_agents(absorbed_pid);
                         return;
                     }
 
@@ -271,6 +297,7 @@ impl AppState {
                                 is_worktree,
                                 started_at,
                             );
+                            self.remove_redundant_codex_process_agents(Some(pid));
                             return;
                         }
                     }
@@ -295,11 +322,19 @@ impl AppState {
                     if self.selected.is_none() {
                         self.selected = Some(0);
                     }
+                    self.remove_redundant_codex_process_agents(pid);
                     return;
                 }
 
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
-                    Self::apply_session_info(agent, pid, session_id, branch, is_worktree, started_at);
+                    Self::apply_session_info(
+                        agent,
+                        pid,
+                        session_id,
+                        branch,
+                        is_worktree,
+                        started_at,
+                    );
                 }
             }
 
@@ -521,6 +556,23 @@ impl AppState {
         self.agents
             .iter_mut()
             .find(|a| a.id.tool() == tool && a.pid == Some(pid))
+    }
+
+    fn remove_redundant_codex_process_agents(&mut self, pid: Option<u32>) {
+        let Some(pid) = pid else {
+            return;
+        };
+
+        let len_before = self.agents.len();
+        self.agents.retain(|agent| {
+            !(agent.id.tool() == AgentTool::Codex
+                && agent.id.is_process()
+                && agent.pid == Some(pid))
+        });
+
+        if self.agents.len() != len_before {
+            self.clamp_selection();
+        }
     }
 
     fn apply_session_info(

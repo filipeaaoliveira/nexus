@@ -788,23 +788,15 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
     ));
 
     assert_eq!(state.agents.len(), 2);
-    let session_agents: Vec<_> = state
+    let session_agents: Vec<_> = state.agents.iter().filter(|a| a.id.is_session()).collect();
+    assert_eq!(session_agents.len(), 2);
+    assert!(session_agents
+        .iter()
+        .all(|a| a.cwd == PathBuf::from("/tmp/ambiguous")));
+    assert!(state
         .agents
         .iter()
-        .filter(|a| a.id.is_session())
-        .collect();
-    assert_eq!(session_agents.len(), 2);
-    assert!(
-        session_agents
-            .iter()
-            .all(|a| a.cwd == PathBuf::from("/tmp/ambiguous"))
-    );
-    assert!(
-        state
-            .agents
-            .iter()
-            .all(|a| a.id.is_session() && a.pid == Some(44))
-    );
+        .all(|a| a.id.is_session() && a.pid == Some(44)));
 }
 
 #[test]
@@ -831,12 +823,47 @@ fn test_codex_process_exit_retires_all_session_rows_sharing_pid() {
     state.handle_event(process_exited(AgentTool::Codex, 44));
 
     assert_eq!(state.agents.len(), 2);
-    assert!(
-        state
-            .agents
-            .iter()
-            .all(|a| a.status == PrimaryStatus::Exited && a.pid == Some(44))
-    );
+    assert!(state
+        .agents
+        .iter()
+        .all(|a| a.status == PrimaryStatus::Exited && a.pid == Some(44)));
+}
+
+#[test]
+fn test_codex_session_info_absorbs_stale_process_row_after_ambiguous_pid_resolves() {
+    let mut state = make_state();
+
+    state.handle_event(AgentEvent::Discovered {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: None,
+        cwd: PathBuf::from("/tmp/ambiguous"),
+        started_at: None,
+    });
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        77,
+        PathBuf::from("/tmp/ambiguous"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 2);
+    assert_eq!(state.agents.iter().filter(|a| a.id.is_session()).count(), 1);
+    assert_eq!(state.agents.iter().filter(|a| a.id.is_process()).count(), 1);
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        77,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_session());
+    assert_eq!(state.agents[0].pid, Some(77));
+    assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/ambiguous"));
+    assert_eq!(state.agents[0].session_id, Some("session-a".to_string()));
 }
 
 #[test]

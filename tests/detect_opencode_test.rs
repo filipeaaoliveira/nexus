@@ -295,6 +295,28 @@ fn test_completed_review_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_incomplete_review_maps_to_needs_input_review() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let state = normalize_opencode_state(
+        Some("busy"),
+        None,
+        &[PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        Some("### Issues\n#### Critical"),
+    );
+
+    assert_eq!(state.status, NormalizedStatus::NeedsInput);
+    assert_eq!(state.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
 fn test_completed_turn_without_assistant_text_maps_to_done_ready_for_next_task() {
     use ai_overview::types::{NormalizedReason, NormalizedStatus};
 

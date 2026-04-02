@@ -422,7 +422,7 @@ pub fn normalize_opencode_state(
     assistant_turn_completed: bool,
     latest_assistant_message: Option<&str>,
 ) -> NormalizedState {
-    if assistant_turn_completed && latest_assistant_message.is_some_and(looks_like_review_output) {
+    if latest_assistant_message.is_some_and(looks_like_review_output) {
         return NormalizedState::new(
             NormalizedStatus::NeedsInput,
             Some(NormalizedReason::Review),

@@ -157,6 +157,13 @@ pub struct CodexEventSnapshot {
     pub sessions: Vec<ObservedCodexSession>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RolloutThreadSummary {
+    status: PrimaryStatus,
+    latest_tool_call: Option<ObservedToolCall>,
+    spawned_subagents: Vec<ObservedCodexSubagent>,
+}
+
 // ── JSONL Parsing ─────────────────────────────────────────────────
 
 /// Parse a Codex rollout JSONL string into a list of events.
@@ -646,28 +653,40 @@ fn summarize_tool_arguments(arguments: &str) -> Option<String> {
     }
 }
 
-fn rollout_state_for_thread(thread: &CodexThread) -> (PrimaryStatus, Option<ObservedToolCall>) {
-    let mut status = PrimaryStatus::Running;
-    let mut latest_tool_call = None;
+fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
+    let mut summary = RolloutThreadSummary {
+        status: PrimaryStatus::Running,
+        latest_tool_call: None,
+        spawned_subagents: Vec::new(),
+    };
 
     if let Some(ref rollout_path) = thread.rollout_path {
         let path = PathBuf::from(rollout_path);
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let events = parse_rollout(&content);
-                status = codex_to_primary(infer_rollout_status(&events));
-                latest_tool_call =
+                summary.status = codex_to_primary(infer_rollout_status(&events));
+                summary.latest_tool_call =
                     extract_tool_calls(&events)
                         .last()
                         .map(|tool| ObservedToolCall {
                             name: tool.name.clone(),
                             args_summary: summarize_tool_arguments(&tool.arguments),
                         });
+                summary.spawned_subagents = extract_subagent_spawns(&events)
+                    .into_iter()
+                    .map(|spawn| ObservedCodexSubagent {
+                        thread_id: spawn.thread_id,
+                        name: spawn.nickname,
+                        description: Some(spawn.role),
+                        status: PrimaryStatus::Running,
+                    })
+                    .collect();
             }
         }
     }
 
-    (status, latest_tool_call)
+    summary
 }
 
 fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Option<String>) {
@@ -716,26 +735,37 @@ fn observed_subagents_for_parent(
     parent: &ObservedCodexThread,
     child_threads_by_parent: &HashMap<String, Vec<ObservedCodexThread>>,
     spawn_status_by_child: &HashMap<&str, &str>,
+    rollout_subagents: Vec<ObservedCodexSubagent>,
 ) -> Vec<ObservedCodexSubagent> {
-    let mut subagents = child_threads_by_parent
-        .get(&parent.thread.id)
-        .into_iter()
-        .flatten()
-        .map(|child| {
-            let (name, description) = child_thread_subagent_metadata(child);
-            let status = child_thread_status(
-                child,
-                spawn_status_by_child.get(child.thread.id.as_str()).copied(),
-            );
+    let mut subagents_by_thread_id: HashMap<String, ObservedCodexSubagent> =
+        child_threads_by_parent
+            .get(&parent.thread.id)
+            .into_iter()
+            .flatten()
+            .map(|child| {
+                let (name, description) = child_thread_subagent_metadata(child);
+                let status = child_thread_status(
+                    child,
+                    spawn_status_by_child.get(child.thread.id.as_str()).copied(),
+                );
 
-            ObservedCodexSubagent {
-                thread_id: child.thread.id.clone(),
-                name,
-                description,
-                status,
-            }
-        })
-        .collect::<Vec<_>>();
+                ObservedCodexSubagent {
+                    thread_id: child.thread.id.clone(),
+                    name,
+                    description,
+                    status,
+                }
+            })
+            .map(|subagent| (subagent.thread_id.clone(), subagent))
+            .collect();
+
+    for subagent in rollout_subagents {
+        subagents_by_thread_id
+            .entry(subagent.thread_id.clone())
+            .or_insert(subagent);
+    }
+
+    let mut subagents = subagents_by_thread_id.into_values().collect::<Vec<_>>();
     subagents.sort_by(|a, b| a.thread_id.cmp(&b.thread_id));
     subagents
 }
@@ -754,7 +784,7 @@ pub fn build_codex_event_snapshot(
         .iter()
         .filter_map(|observed| {
             let cwd = PathBuf::from(observed.thread.cwd.as_deref()?);
-            let (status, latest_tool_call) = rollout_state_for_thread(&observed.thread);
+            let rollout_summary = rollout_summary_for_thread(&observed.thread);
 
             Some(ObservedCodexSession {
                 agent_id: observed.agent_id.clone(),
@@ -762,12 +792,13 @@ pub fn build_codex_event_snapshot(
                 cwd,
                 branch: observed.thread.git_branch.clone(),
                 started_at: from_epoch_secs(observed.thread.created_at),
-                status,
-                latest_tool_call,
+                status: rollout_summary.status,
+                latest_tool_call: rollout_summary.latest_tool_call,
                 subagents: observed_subagents_for_parent(
                     observed,
                     &child_threads_by_parent,
                     &spawn_status_by_child,
+                    rollout_summary.spawned_subagents,
                 ),
             })
         })
@@ -924,17 +955,17 @@ pub async fn run_codex_detector(
     loop {
         if db_path.exists() {
             let db = db_path.clone();
+            let registry = registry.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let threads = query_codex_threads(&db)?;
                 let edges = load_spawn_edges_snapshot(&db);
-                Ok::<_, anyhow::Error>((threads, edges))
+                let snapshot = build_codex_snapshot(&threads, &edges, &registry);
+                Ok::<_, anyhow::Error>(build_codex_event_snapshot(&snapshot, &edges))
             })
             .await?;
 
             match result {
-                Ok((threads, spawn_edges)) => {
-                    let snapshot = build_codex_snapshot(&threads, &spawn_edges, &registry);
-                    let current_snapshot = build_codex_event_snapshot(&snapshot, &spawn_edges);
+                Ok(current_snapshot) => {
                     let events =
                         reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);
 

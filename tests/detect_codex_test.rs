@@ -3,6 +3,7 @@ use ai_overview::detect::registry::AgentRegistry;
 use ai_overview::event::AgentEvent;
 use ai_overview::types::{AgentId, AgentTool, PrimaryStatus};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn observed_session(
     session_id: &str,
@@ -379,4 +380,63 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagent_name == "Nash"
     ));
+}
+
+#[test]
+fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let rollout_path = std::env::temp_dir().join(format!("codex-rollout-only-{unique}.jsonl"));
+    std::fs::write(
+        &rollout_path,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:20.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"collab_agent_spawn_end\",\"call_id\":\"call_1\",\"sender_thread_id\":\"parent\",\"new_thread_id\":\"child-rollout\",\"new_agent_nickname\":\"Parfit\",\"new_agent_role\":\"worker\",\"prompt\":\"Implement the validation logic\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: 10,
+                updated_at: 20,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(rollout_path.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: Some(41),
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+
+    assert_eq!(event_snapshot.sessions.len(), 1);
+    assert_eq!(event_snapshot.sessions[0].subagents.len(), 1);
+    assert_eq!(
+        event_snapshot.sessions[0].subagents[0].thread_id,
+        "child-rollout"
+    );
+    assert_eq!(event_snapshot.sessions[0].subagents[0].name, "Parfit");
+    assert_eq!(
+        event_snapshot.sessions[0].subagents[0]
+            .description
+            .as_deref(),
+        Some("worker")
+    );
+
+    std::fs::remove_file(rollout_path).unwrap();
 }

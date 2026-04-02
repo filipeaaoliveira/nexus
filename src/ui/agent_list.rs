@@ -49,7 +49,7 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
             theme::status_dot_style(agent.status),
         ),
         Span::styled(
-            format!("{} ", agent.id.tool.as_str()),
+            format!("{} ", agent.display_name()),
             Style::default().fg(theme::FG_DEFAULT),
         ),
         {

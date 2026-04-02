@@ -732,7 +732,8 @@ pub async fn run_opencode_detector(
                 Vec<TodoItem>,   // todos
                 Vec<OpenCodeSession>, // subagent sessions
             );
-            let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<SessionData>> {
+            type PollData = (HashSet<String>, Vec<SessionData>);
+            let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<PollData> {
                 let conn = rusqlite::Connection::open_with_flags(
                     &db2,
                     rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -740,6 +741,11 @@ pub async fn run_opencode_detector(
                 )?;
 
                 let sessions = query_opencode_sessions_conn(&conn)?;
+                let active_session_ids: HashSet<String> = sessions
+                    .iter()
+                    .filter(|session| session.parent_id.is_none())
+                    .map(|session| session.id.clone())
+                    .collect();
                 let mut results: Vec<SessionData> = Vec::new();
 
                 for session in sessions {
@@ -792,19 +798,12 @@ pub async fn run_opencode_detector(
                         subs,
                     ));
                 }
-                Ok(results)
+                Ok((active_session_ids, results))
             })
             .await;
 
             match poll_result {
-                Ok(Ok(session_data)) => {
-                    // Build the set of active session IDs (owning, not borrowed from
-                    // session_data) so we can consume session_data in the loop below.
-                    let active_session_ids: HashSet<String> = session_data
-                        .iter()
-                        .map(|(s, ..)| s.id.clone())
-                        .collect();
-
+                Ok(Ok((active_session_ids, session_data))) => {
                     for (
                         session,
                         pid,
@@ -948,7 +947,7 @@ pub async fn run_opencode_detector(
                         }
                     }
 
-                    let _ = active_session_ids;
+                    session_states.retain(|id, _| active_session_ids.contains(id.as_str()));
                 }
                 Ok(Err(e)) => {
                     debug!("Failed to query OpenCode DB: {e}");

@@ -113,6 +113,20 @@ fn test_detect_internal_initiator_subagent() {
     assert!(info.has_internal_initiator);
 }
 
+/// Ensures that processing a transcript ending with tool_result does NOT
+/// emit a ToolCallCompleted event (which would cause activity=Idle).
+/// We verify this by checking that the last entry type after a tool_result
+/// maps to Thinking, not to something that would produce ToolCallCompleted.
+#[test]
+fn test_tool_result_does_not_imply_idle_activity() {
+    let content = include_str!("fixtures/claude_transcript_tool_result_last.jsonl");
+    let entries = parse_transcript(content);
+    // The activity inferred should be Thinking, never Idle
+    let activity = infer_activity_from_last_entry(&entries);
+    assert_ne!(activity, Some(ai_overview::types::Activity::Idle));
+    assert_eq!(activity, Some(ai_overview::types::Activity::Thinking));
+}
+
 #[test]
 fn test_inferred_to_primary_mapping() {
     assert_eq!(

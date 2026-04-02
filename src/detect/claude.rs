@@ -565,14 +565,10 @@ pub async fn run_claude_detector(
                                 state.last_tool_call = Some(tool_name.clone());
                             }
                         }
-                        TranscriptEntry::ToolResult { tool_name, .. } => {
-                            let _ = tx
-                                .send(AgentEvent::ToolCallCompleted {
-                                    pid,
-                                    tool: AgentTool::Claude,
-                                    tool_name: tool_name.clone(),
-                                })
-                                .await;
+                        TranscriptEntry::ToolResult { .. } => {
+                            // ToolResult means the agent received the result and is about to think.
+                            // Do NOT emit ToolCallCompleted here — that would set activity=Idle.
+                            // Activity will be updated via ActivityChanged in Task 3.
                         }
                         _ => {}
                     }

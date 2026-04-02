@@ -87,7 +87,6 @@ async fn run_loop(
             Some(input::Action::MoveDown) => state.move_selection_down(),
             Some(input::Action::MoveUp) => state.move_selection_up(),
             Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
-            Some(input::Action::ToggleGroupByWorktree) => state.toggle_group_by_worktree(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
             Some(input::Action::RemoveAgent) => state.remove_selected(),
             Some(input::Action::RemoveExited) => state.remove_exited(),

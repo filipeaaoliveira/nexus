@@ -42,8 +42,6 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::styled(" navigate", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" filter", theme::bar_style().fg(theme::FG_DIMMED)),
-        Span::styled("  g", theme::bar_style().fg(theme::FG_DEFAULT)),
-        Span::styled(" group", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  s", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(
             format!(" sort:{sort_label}"),

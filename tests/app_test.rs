@@ -14,7 +14,6 @@ fn test_initial_state_is_empty() {
     assert!(state.agents.is_empty());
     assert_eq!(state.selected, None);
     assert_eq!(state.sort_mode, SortMode::Name);
-    assert!(!state.group_by_worktree);
     assert!(!state.show_help);
 }
 

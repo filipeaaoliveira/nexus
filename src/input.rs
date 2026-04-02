@@ -7,7 +7,6 @@ pub enum Action {
     Quit,
     MoveUp,
     MoveDown,
-    ToggleGroupByWorktree,
     CycleSortMode,
     StartFilter,
     FilterChar(char),
@@ -64,7 +63,6 @@ pub fn poll_action(
                 }
                 KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
                 KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
-                KeyCode::Char('g') => Some(Action::ToggleGroupByWorktree),
                 KeyCode::Char('s') => Some(Action::CycleSortMode),
                 KeyCode::Char('/') => Some(Action::StartFilter),
                 KeyCode::Char('?') => Some(Action::ShowHelp),

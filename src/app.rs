@@ -12,7 +12,6 @@ pub struct AppState {
     pub agents: Vec<Agent>,
     pub selected: Option<usize>,
     pub sort_mode: SortMode,
-    pub group_by_worktree: bool,
     pub show_help: bool,
     pub filter: Option<String>,
     pub filter_mode: bool,
@@ -29,7 +28,6 @@ impl AppState {
             agents: Vec::new(),
             selected: None,
             sort_mode: SortMode::Name,
-            group_by_worktree: false,
             show_help: false,
             filter: None,
             filter_mode: false,
@@ -270,10 +268,6 @@ impl AppState {
 
     pub fn cycle_sort_mode(&mut self) {
         self.sort_mode = self.sort_mode.next();
-    }
-
-    pub fn toggle_group_by_worktree(&mut self) {
-        self.group_by_worktree = !self.group_by_worktree;
     }
 
     pub fn toggle_help(&mut self) {

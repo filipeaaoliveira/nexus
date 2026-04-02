@@ -31,7 +31,6 @@ pub fn render(frame: &mut Frame) {
         keybind_line("k / ↑", "Move selection up"),
         Line::from(""),
         keybind_line("/", "Start filter"),
-        keybind_line("g", "Toggle group by worktree"),
         keybind_line("s", "Cycle sort mode"),
         keybind_line("d", "Remove selected agent"),
         keybind_line("D", "Remove all exited agents"),

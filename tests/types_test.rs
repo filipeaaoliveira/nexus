@@ -27,6 +27,33 @@ fn test_normalized_status_precedence_order() {
 }
 
 #[test]
+fn test_normalized_state_without_reason() {
+    use ai_overview::types::{NormalizedStatus, NormalizedState};
+
+    let state = NormalizedState::new(NormalizedStatus::Working, None);
+
+    assert_eq!(state.status, NormalizedStatus::Working);
+    assert_eq!(state.reason, None);
+}
+
+#[test]
+fn test_normalized_state_with_reason() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus, NormalizedState};
+
+    let state = NormalizedState::new(
+        NormalizedStatus::Done,
+        Some(NormalizedReason::ReadyForNextTask),
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Done);
+    assert_eq!(state.reason, Some(NormalizedReason::ReadyForNextTask));
+    assert_eq!(
+        state.reason.as_ref().map(|reason| reason.as_str()),
+        Some("ready for next task")
+    );
+}
+
+#[test]
 fn test_primary_status_ordering() {
     let mut statuses = vec![
         PrimaryStatus::Done,

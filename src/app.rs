@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
 use chrono::Local;
@@ -21,6 +22,9 @@ pub struct AppState {
     pub rename_input: String,
     pub config: Config,
     pub should_quit: bool,
+    /// Cached count per PrimaryStatus, updated incrementally in handle_event.
+    /// Use count_by_status() to read — do not access directly.
+    status_counts: HashMap<PrimaryStatus, usize>,
 }
 
 impl AppState {
@@ -37,10 +41,12 @@ impl AppState {
             rename_input: String::new(),
             config,
             should_quit: false,
+            status_counts: HashMap::new(),
         }
     }
 
     pub fn handle_event(&mut self, event: AgentEvent) {
+        let now = Local::now();
         match event {
             AgentEvent::Discovered {
                 id,
@@ -48,25 +54,25 @@ impl AppState {
                 cwd,
                 started_at: real_start,
             } => {
-                let now = Local::now();
                 let pid = pid.or_else(|| id.pid());
                 if let Some(agent_idx) = self.agents.iter().position(|a| a.id == id) {
-                    if id.tool() == AgentTool::Codex && id.is_session() {
-                        let absorbed_pid = {
-                            let agent = &mut self.agents[agent_idx];
-                            agent.cwd = cwd;
-                            agent.pid = pid.or(agent.pid);
-                            agent.status = PrimaryStatus::Running;
-                            if let Some(real_start) = real_start {
-                                if real_start < agent.started_at {
-                                    agent.started_at = real_start;
-                                }
+                    let absorbed_pid = {
+                        let agent = &mut self.agents[agent_idx];
+                        agent.cwd = cwd;
+                        agent.pid = pid.or(agent.pid);
+                        agent.status = PrimaryStatus::Running;
+                        if let Some(real_start) = real_start {
+                            if real_start < agent.started_at {
+                                agent.started_at = real_start;
                             }
-                            agent.last_activity = now;
-                            agent.pid
-                        };
+                        }
+                        agent.last_activity = now;
+                        agent.pid
+                    };
+                    if id.tool() == AgentTool::Codex && id.is_session() {
                         self.remove_redundant_codex_process_agents(absorbed_pid);
                     }
+                    self.clamp_selection();
                     return;
                 }
                 let session_id = id.session_id().map(str::to_string);
@@ -121,21 +127,25 @@ impl AppState {
                     alias: None,
                     todos: Vec::new(),
                 });
+                self.status_add(PrimaryStatus::Running);
                 if self.selected.is_none() {
                     self.selected = Some(0);
                 }
+                self.clamp_selection();
             }
 
             AgentEvent::StatusChanged { id, pid, old, new } => {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
                     agent.status = new;
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                     push_event(
                         &mut agent.recent_events,
                         ActivityEventKind::StatusChanged,
                         format!("{} → {}", old.as_str(), new.as_str()),
+                        now,
                     );
+                    self.status_transition(old, new);
                 }
             }
 
@@ -143,7 +153,7 @@ impl AppState {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
                     agent.activity = activity;
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                 }
             }
 
@@ -151,8 +161,12 @@ impl AppState {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
                     agent.normalized = state;
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
+                } else {
+                    let agent = self.insert_placeholder_agent(id, pid, now);
+                    agent.normalized = state;
                 }
+                self.clamp_selection();
             }
 
             AgentEvent::SubagentSpawned { id, pid, subagent } => {
@@ -160,11 +174,12 @@ impl AppState {
                     agent.pid = pid.or(agent.pid);
                     let desc = format!("spawned: {}", subagent.name);
                     agent.subagents.push(subagent);
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                     push_event(
                         &mut agent.recent_events,
                         ActivityEventKind::SubagentSpawned,
                         desc,
+                        now,
                     );
                 }
             }
@@ -186,13 +201,14 @@ impl AppState {
                     };
                     if let Some(sub) = matching_subagent {
                         sub.status = PrimaryStatus::Done;
-                        sub.ended_at = Some(Local::now());
+                        sub.ended_at = Some(now);
                     }
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                     push_event(
                         &mut agent.recent_events,
                         ActivityEventKind::SubagentCompleted,
                         format!("completed: {}", subagent_name),
+                        now,
                     );
                 }
             }
@@ -206,12 +222,17 @@ impl AppState {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
                     agent.activity = Some(Activity::ToolCall);
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                     let desc = match args_summary {
                         Some(args) => format!("{} ({})", tool_name, args),
                         None => tool_name,
                     };
-                    push_event(&mut agent.recent_events, ActivityEventKind::ToolCall, desc);
+                    push_event(
+                        &mut agent.recent_events,
+                        ActivityEventKind::ToolCall,
+                        desc,
+                        now,
+                    );
                 }
             }
 
@@ -225,21 +246,24 @@ impl AppState {
                     if agent.activity == Some(Activity::ToolCall) {
                         agent.activity = Some(Activity::Idle);
                     }
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                 }
             }
 
             AgentEvent::ProcessExited { id, pid } => {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
+                    let old = agent.status;
                     agent.status = PrimaryStatus::Exited;
                     agent.activity = None;
-                    agent.last_activity = Local::now();
+                    agent.last_activity = now;
                     push_event(
                         &mut agent.recent_events,
                         ActivityEventKind::StatusChanged,
                         "Process exited".to_string(),
+                        now,
                     );
+                    self.status_transition(old, PrimaryStatus::Exited);
                 } else if let Some(pid) = pid {
                     if id.tool() == AgentTool::Codex {
                         let matching_indices: Vec<usize> = self
@@ -253,28 +277,34 @@ impl AppState {
                         if !matching_indices.is_empty() {
                             for agent_idx in matching_indices {
                                 let agent = &mut self.agents[agent_idx];
+                                let old = agent.status;
                                 agent.status = PrimaryStatus::Exited;
                                 agent.activity = None;
-                                agent.last_activity = Local::now();
+                                agent.last_activity = now;
                                 push_event(
                                     &mut agent.recent_events,
                                     ActivityEventKind::StatusChanged,
                                     "Process exited".to_string(),
+                                    now,
                                 );
+                                self.status_transition(old, PrimaryStatus::Exited);
                             }
                             return;
                         }
                     }
 
                     if let Some(agent) = self.find_agent_mut_by_pid(id.tool(), pid) {
+                        let old = agent.status;
                         agent.status = PrimaryStatus::Exited;
                         agent.activity = None;
-                        agent.last_activity = Local::now();
+                        agent.last_activity = now;
                         push_event(
                             &mut agent.recent_events,
                             ActivityEventKind::StatusChanged,
                             "Process exited".to_string(),
+                            now,
                         );
+                        self.status_transition(old, PrimaryStatus::Exited);
                     }
                 }
             }
@@ -298,10 +328,12 @@ impl AppState {
                                 branch,
                                 is_worktree,
                                 started_at,
+                                now,
                             );
                             agent.pid
                         };
                         self.remove_redundant_codex_process_agents(absorbed_pid);
+                        self.clamp_selection();
                         return;
                     }
 
@@ -315,34 +347,26 @@ impl AppState {
                                 branch,
                                 is_worktree,
                                 started_at,
+                                now,
                             );
                             self.remove_redundant_codex_process_agents(Some(pid));
+                            self.clamp_selection();
                             return;
                         }
                     }
 
-                    let now = Local::now();
-                    self.agents.push(Agent {
-                        id,
+                    let agent = self.insert_placeholder_agent(id, pid, now);
+                    Self::apply_session_info(
+                        agent,
                         pid,
-                        status: PrimaryStatus::Running,
-                        activity: None,
-                        cwd: PathBuf::new(),
+                        session_id,
                         branch,
                         is_worktree,
-                        started_at: started_at.unwrap_or(now),
-                        last_activity: now,
-                        subagents: Vec::new(),
-                        normalized: NormalizedState::new(NormalizedStatus::Working, None),
-                        recent_events: VecDeque::new(),
-                        session_id: Some(session_id),
-                        alias: None,
-                        todos: Vec::new(),
-                    });
-                    if self.selected.is_none() {
-                        self.selected = Some(0);
-                    }
+                        started_at,
+                        now,
+                    );
                     self.remove_redundant_codex_process_agents(pid);
+                    self.clamp_selection();
                     return;
                 }
 
@@ -354,8 +378,21 @@ impl AppState {
                         branch,
                         is_worktree,
                         started_at,
+                        now,
+                    );
+                } else {
+                    let agent = self.insert_placeholder_agent(id, pid, now);
+                    Self::apply_session_info(
+                        agent,
+                        pid,
+                        session_id,
+                        branch,
+                        is_worktree,
+                        started_at,
+                        now,
                     );
                 }
+                self.clamp_selection();
             }
 
             AgentEvent::TodosUpdated { id, pid, todos } => {
@@ -379,6 +416,12 @@ impl AppState {
             agents.retain(|a| {
                 a.display_name().to_lowercase().contains(&f)
                     || a.status.as_str().to_lowercase().contains(&f)
+                    || a.normalized.status.as_str().to_lowercase().contains(&f)
+                    || a.normalized
+                        .reason
+                        .as_ref()
+                        .map(|reason| reason.as_str().to_lowercase().contains(&f))
+                        .unwrap_or(false)
                     || a.cwd.to_string_lossy().to_lowercase().contains(&f)
                     || a.branch
                         .as_deref()
@@ -389,7 +432,7 @@ impl AppState {
 
         // Apply sort
         match self.sort_mode {
-            SortMode::Urgency => agents.sort_by_key(|a| a.status),
+            SortMode::Urgency => agents.sort_by_key(|a| (Reverse(a.normalized.status), a.status)),
             SortMode::Name => agents.sort_by(|a, b| {
                 a.display_name()
                     .cmp(b.display_name())
@@ -572,6 +615,37 @@ impl AppState {
         self.agents.iter_mut().find(|a| a.id == *id)
     }
 
+    fn insert_placeholder_agent(
+        &mut self,
+        id: AgentId,
+        pid: Option<u32>,
+        now: chrono::DateTime<chrono::Local>,
+    ) -> &mut Agent {
+        if let Some(agent_idx) = self.agents.iter().position(|agent| agent.id == id) {
+            return &mut self.agents[agent_idx];
+        }
+
+        let session_id = id.session_id().map(str::to_string);
+        self.agents.push(Agent {
+            id,
+            pid,
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(NormalizedStatus::Working, None),
+            activity: None,
+            cwd: PathBuf::new(),
+            branch: None,
+            is_worktree: false,
+            started_at: now,
+            last_activity: now,
+            subagents: Vec::new(),
+            recent_events: VecDeque::new(),
+            session_id,
+            alias: None,
+            todos: Vec::new(),
+        });
+        self.agents.last_mut().expect("placeholder agent was just inserted")
+    }
+
     fn find_process_agent_mut(&mut self, tool: AgentTool, pid: u32) -> Option<&mut Agent> {
         self.agents
             .iter_mut()
@@ -628,6 +702,7 @@ impl AppState {
         branch: Option<String>,
         is_worktree: bool,
         started_at: Option<chrono::DateTime<chrono::Local>>,
+        now: chrono::DateTime<chrono::Local>,
     ) {
         if agent.id.tool() == AgentTool::Codex && agent.id.is_session() {
             agent.pid = pid;
@@ -644,13 +719,18 @@ impl AppState {
                 agent.started_at = real_start;
             }
         }
-        agent.last_activity = Local::now();
+        agent.last_activity = now;
     }
 }
 
-fn push_event(events: &mut VecDeque<ActivityEvent>, kind: ActivityEventKind, description: String) {
+fn push_event(
+    events: &mut VecDeque<ActivityEvent>,
+    kind: ActivityEventKind,
+    description: String,
+    now: chrono::DateTime<Local>,
+) {
     events.push_back(ActivityEvent {
-        timestamp: Local::now(),
+        timestamp: now,
         kind,
         description,
     });

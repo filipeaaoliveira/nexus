@@ -55,6 +55,18 @@ fn status_changed(tool: AgentTool, pid: u32, old: PrimaryStatus, new: PrimarySta
     }
 }
 
+fn normalized_state_changed(
+    tool: AgentTool,
+    pid: u32,
+    state: NormalizedState,
+) -> AgentEvent {
+    AgentEvent::NormalizedStateChanged {
+        id: AgentId::new(tool, pid),
+        pid: Some(pid),
+        state,
+    }
+}
+
 fn process_exited(tool: AgentTool, pid: u32) -> AgentEvent {
     AgentEvent::ProcessExited {
         id: AgentId::new(tool, pid),
@@ -305,6 +317,40 @@ fn test_visible_agents_sort_by_urgency() {
 }
 
 #[test]
+fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
+    let mut state = make_state();
+    state.sort_mode = SortMode::Urgency;
+
+    for (pid, normalized) in [
+        (
+            1,
+            NormalizedState::new(NormalizedStatus::Done, Some(NormalizedReason::ReadyForNextTask)),
+        ),
+        (
+            2,
+            NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::ToolCall)),
+        ),
+        (
+            3,
+            NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
+        ),
+    ] {
+        state.handle_event(discovered(
+            AgentTool::Claude,
+            pid,
+            PathBuf::from(format!("/tmp/{pid}")),
+            None,
+        ));
+        state.handle_event(normalized_state_changed(AgentTool::Claude, pid, normalized));
+    }
+
+    let visible = state.visible_agents();
+    assert_eq!(visible[0].pid.unwrap(), 3);
+    assert_eq!(visible[1].pid.unwrap(), 2);
+    assert_eq!(visible[2].pid.unwrap(), 1);
+}
+
+#[test]
 fn test_visible_agents_sort_by_name() {
     let mut state = make_state();
     state.sort_mode = SortMode::Name;
@@ -434,6 +480,27 @@ fn test_filter_by_status() {
 }
 
 #[test]
+fn test_filter_matches_normalized_status_and_reason() {
+    let mut state = make_state();
+    state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
+    state.handle_event(normalized_state_changed(
+        AgentTool::Claude,
+        1,
+        NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
+    ));
+
+    state.filter = Some("needs input".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].pid.unwrap(), 1);
+
+    state.filter = Some("review".to_string());
+    let visible = state.visible_agents();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].pid.unwrap(), 1);
+}
+
+#[test]
 fn test_filter_clamps_selected_index() {
     let mut state = make_state();
     // Add 4 agents
@@ -484,6 +551,69 @@ fn test_discover_without_start_time_uses_now() {
     let after = chrono::Local::now();
     assert!(state.agents[0].started_at >= before);
     assert!(state.agents[0].started_at <= after);
+}
+
+#[test]
+fn test_session_info_before_discovered_is_preserved() {
+    let mut state = make_state();
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::new(AgentTool::Claude, 42),
+        pid: Some(42),
+        session_id: "session-a".to_string(),
+        branch: Some("feature/early".to_string()),
+        is_worktree: true,
+        started_at: None,
+    });
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].session_id, Some("session-a".to_string()));
+    assert_eq!(state.agents[0].branch, Some("feature/early".to_string()));
+
+    state.handle_event(discovered(
+        AgentTool::Claude,
+        42,
+        PathBuf::from("/tmp/project"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/project"));
+    assert_eq!(state.agents[0].session_id, Some("session-a".to_string()));
+    assert_eq!(state.agents[0].branch, Some("feature/early".to_string()));
+}
+
+#[test]
+fn test_normalized_state_changed_before_discovered_is_preserved() {
+    let mut state = make_state();
+
+    state.handle_event(normalized_state_changed(
+        AgentTool::Claude,
+        77,
+        NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Approval)),
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::Blocked);
+    assert_eq!(
+        state.agents[0].normalized.reason,
+        Some(NormalizedReason::Approval)
+    );
+
+    state.handle_event(discovered(
+        AgentTool::Claude,
+        77,
+        PathBuf::from("/tmp/blocked"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/blocked"));
+    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::Blocked);
+    assert_eq!(
+        state.agents[0].normalized.reason,
+        Some(NormalizedReason::Approval)
+    );
 }
 
 #[test]
@@ -939,6 +1069,38 @@ fn test_codex_session_info_can_unbind_pid() {
 }
 
 #[test]
+fn test_codex_session_pid_loss_clamps_selection() {
+    let mut state = make_state();
+    state.handle_event(discovered(
+        AgentTool::Claude,
+        10,
+        PathBuf::from("/tmp/claude"),
+        None,
+    ));
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "codex-a"),
+        pid: Some(20),
+        session_id: "codex-a".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
+    state.selected = Some(1);
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "codex-a"),
+        pid: None,
+        session_id: "codex-a".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
+
+    assert_eq!(state.visible_agents().len(), 1);
+    assert_eq!(state.selected, Some(0));
+}
+
+#[test]
 fn test_codex_session_without_pid_is_not_visible() {
     let mut state = make_state();
     state.handle_event(AgentEvent::SessionInfo {
@@ -1383,4 +1545,82 @@ fn test_todos_updated_ignores_unknown_pid() {
         }],
     ));
     assert!(state.agents[0].todos.is_empty());
+}
+
+// ── Fix #12: status count cache ───────────────────────────────────────────────
+
+#[test]
+fn test_count_by_status_zero_initially() {
+    let state = make_state();
+    assert_eq!(state.count_by_status(PrimaryStatus::Running), 0);
+    assert_eq!(state.count_by_status(PrimaryStatus::Waiting), 0);
+    assert_eq!(state.count_by_status(PrimaryStatus::Exited), 0);
+    assert_eq!(state.count_by_status(PrimaryStatus::Done), 0);
+}
+
+#[test]
+fn test_count_by_status_increments_on_discovered() {
+    let mut state = make_state();
+    state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
+    assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
+
+    state.handle_event(discovered(AgentTool::Claude, 2, "/tmp/b", None));
+    assert_eq!(state.count_by_status(PrimaryStatus::Running), 2);
+}
+
+#[test]
+fn test_count_by_status_updates_on_status_changed() {
+    let mut state = make_state();
+    state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
+    state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
+
+    state.handle_event(status_changed(
+        AgentTool::OpenCode,
+        1,
+        PrimaryStatus::Running,
+        PrimaryStatus::Waiting,
+    ));
+
+    assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
+    assert_eq!(state.count_by_status(PrimaryStatus::Waiting), 1);
+}
+
+#[test]
+fn test_count_by_status_updates_on_process_exited() {
+    let mut state = make_state();
+    state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
+    state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
+    state.handle_event(process_exited(AgentTool::OpenCode, 1));
+
+    assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
+    assert_eq!(state.count_by_status(PrimaryStatus::Exited), 1);
+}
+
+#[test]
+fn test_count_by_status_consistent_with_agents_vec() {
+    let mut state = make_state();
+    state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
+    state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
+    state.handle_event(discovered(AgentTool::Claude, 3, "/tmp/c", None));
+    state.handle_event(status_changed(
+        AgentTool::OpenCode,
+        1,
+        PrimaryStatus::Running,
+        PrimaryStatus::Waiting,
+    ));
+    state.handle_event(process_exited(AgentTool::OpenCode, 2));
+
+    for status in [
+        PrimaryStatus::Running,
+        PrimaryStatus::Waiting,
+        PrimaryStatus::Exited,
+        PrimaryStatus::Done,
+    ] {
+        let expected = state.agents.iter().filter(|a| a.status == status).count();
+        assert_eq!(
+            state.count_by_status(status),
+            expected,
+            "count_by_status({status:?}) mismatch"
+        );
+    }
 }

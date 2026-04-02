@@ -8,7 +8,7 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{AgentTool, PrimaryStatus};
+use crate::types::{from_epoch_secs, AgentTool, PrimaryStatus};
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -503,8 +503,7 @@ pub async fn run_codex_detector(
                         // Emit SessionInfo once per thread
                         if !state.session_info_sent {
                             let session_started =
-                                chrono::DateTime::from_timestamp(thread.created_at, 0)
-                                    .map(|dt| dt.with_timezone(&chrono::Local));
+                                from_epoch_secs(thread.created_at);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     pid,

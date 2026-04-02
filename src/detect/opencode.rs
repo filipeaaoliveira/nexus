@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{Activity, AgentTool, PrimaryStatus};
+use crate::types::{from_epoch_millis, Activity, AgentTool, PrimaryStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[derive(Debug, Clone)]
@@ -405,8 +405,7 @@ pub async fn run_opencode_detector(
                         // Emit SessionInfo once per session
                         if !state.session_info_sent {
                             let session_started =
-                                chrono::DateTime::from_timestamp_millis(session.time_created)
-                                    .map(|dt| dt.with_timezone(&chrono::Local));
+                                from_epoch_millis(session.time_created);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     pid,
@@ -569,10 +568,9 @@ pub async fn run_opencode_detector(
                                                     PrimaryStatus::Running
                                                 },
                                                 description: sub.title.clone(),
-                                                started_at: chrono::DateTime::from_timestamp_millis(
+                                                started_at: from_epoch_millis(
                                                     sub.time_created,
                                                 )
-                                                .map(|dt| dt.with_timezone(&chrono::Local))
                                                 .unwrap_or_else(chrono::Local::now),
                                                 ended_at: None,
                                             },

@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{AgentTool, PrimaryStatus};
+use crate::types::{from_rfc3339, AgentTool, PrimaryStatus};
 
 // ── TranscriptEntry ───────────────────────────────────────────────
 
@@ -158,7 +158,6 @@ pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStat
 /// internal initiator markers (subagent sessions).
 pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
     let mut info = ProjectSessionInfo::default();
-    let mut first_timestamp_set = false;
 
     for line in content.lines() {
         let line = line.trim();
@@ -172,10 +171,9 @@ pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
         };
 
         // Capture the timestamp of the first entry as session start time
-        if !first_timestamp_set {
+        if info.started_at.is_none() {
             if let Some(ts) = obj.get("timestamp").and_then(|v| v.as_str()) {
                 info.started_at = Some(ts.to_string());
-                first_timestamp_set = true;
             }
         }
 
@@ -447,8 +445,7 @@ pub async fn run_claude_detector(
                         let session_started = session_info
                             .started_at
                             .as_deref()
-                            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-                            .map(|dt| dt.with_timezone(&chrono::Local));
+                            .and_then(from_rfc3339);
                         let _ = tx
                             .send(AgentEvent::SessionInfo {
                                 pid,
@@ -518,11 +515,10 @@ pub async fn run_claude_detector(
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
                                                     description,
-                                                    started_at: chrono::DateTime::parse_from_rfc3339(
+                                                    started_at: from_rfc3339(
                                                         entry_timestamp,
                                                     )
-                                                    .map(|dt| dt.with_timezone(&chrono::Local))
-                                                    .unwrap_or_else(|_| chrono::Local::now()),
+                                                    .unwrap_or_else(chrono::Local::now),
                                                     ended_at: None,
                                                 },
                                             })

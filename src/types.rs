@@ -198,11 +198,11 @@ impl NormalizedReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedState {
     pub status: NormalizedStatus,
-    pub reason: NormalizedReason,
+    pub reason: Option<NormalizedReason>,
 }
 
 impl NormalizedState {
-    pub fn new(status: NormalizedStatus, reason: NormalizedReason) -> Self {
+    pub fn new(status: NormalizedStatus, reason: Option<NormalizedReason>) -> Self {
         Self { status, reason }
     }
 }

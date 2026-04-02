@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_rfc3339, AgentTool, PrimaryStatus};
+use crate::types::{from_rfc3339, Activity, AgentTool, PrimaryStatus};
 
 // ── TranscriptEntry ───────────────────────────────────────────────
 
@@ -147,6 +147,23 @@ pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStat
         Some(TranscriptEntry::ToolResult { .. }) => InferredStatus::Running,
         Some(TranscriptEntry::User { .. }) => InferredStatus::Running,
         None => InferredStatus::Unknown,
+    }
+}
+
+// ── infer_activity_from_last_entry ────────────────────────────────
+
+/// Infer the current `Activity` from the last transcript entry.
+///
+/// - ToolUse (last) → Activity::ToolCall  (a tool is executing right now)
+/// - ToolResult (last) → Activity::Thinking (agent is generating after result)
+/// - User (last) → Activity::Generating   (agent is responding to user input)
+/// - Empty → None
+pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Activity> {
+    match entries.last() {
+        Some(TranscriptEntry::ToolUse { .. }) => Some(Activity::ToolCall),
+        Some(TranscriptEntry::ToolResult { .. }) => Some(Activity::Thinking),
+        Some(TranscriptEntry::User { .. }) => Some(Activity::Generating),
+        None => None,
     }
 }
 

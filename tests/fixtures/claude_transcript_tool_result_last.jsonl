@@ -1,0 +1,3 @@
+{"type":"user","timestamp":"2026-03-31T09:18:23.158Z","content":"Do something"}
+{"type":"tool_use","timestamp":"2026-03-31T09:18:37.023Z","tool_name":"read","tool_input":{"filePath":"src/foo.rs"}}
+{"type":"tool_result","timestamp":"2026-03-31T09:18:37.100Z","tool_name":"read","tool_input":{"filePath":"src/foo.rs"},"tool_output":{"output":"..."}}

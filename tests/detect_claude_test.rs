@@ -2,6 +2,44 @@ use ai_overview::detect::claude::*;
 use ai_overview::types::PrimaryStatus;
 
 #[test]
+fn test_infer_activity_tool_use_last() {
+    let entries = vec![TranscriptEntry::ToolUse {
+        timestamp: "2026-03-31T09:18:37.023Z".to_string(),
+        tool_name: "read".to_string(),
+        tool_input: serde_json::Map::new(),
+    }];
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(ai_overview::types::Activity::ToolCall)
+    );
+}
+
+#[test]
+fn test_infer_activity_tool_result_last() {
+    let content = include_str!("fixtures/claude_transcript_tool_result_last.jsonl");
+    let entries = parse_transcript(content);
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(ai_overview::types::Activity::Thinking)
+    );
+}
+
+#[test]
+fn test_infer_activity_user_last() {
+    let content = include_str!("fixtures/claude_transcript_user_last.jsonl");
+    let entries = parse_transcript(content);
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(ai_overview::types::Activity::Generating)
+    );
+}
+
+#[test]
+fn test_infer_activity_empty() {
+    assert_eq!(infer_activity_from_last_entry(&[]), None);
+}
+
+#[test]
 fn test_parse_transcript_events() {
     let content = include_str!("fixtures/claude_transcript.jsonl");
     let events = parse_transcript(content);

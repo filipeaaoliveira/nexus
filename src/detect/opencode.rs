@@ -362,22 +362,32 @@ pub fn resolve_status(parts: &[PartData], assistant_turn_completed: bool) -> Pri
 }
 
 /// Infer an Activity from recent parts.
+///
+/// Scans all parts for running tools first (takes priority), then falls
+/// back to the latest part type.
 pub fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
+    // Priority: any running tool anywhere in the list
+    if parts
+        .iter()
+        .any(|p| p.tool_status.as_deref() == Some("running"))
+    {
+        return Some(Activity::ToolCall);
+    }
+
+    // Fall back to latest part type
     if let Some(latest) = parts.first() {
-        match latest.part_type.as_str() {
-            "compaction" => return Some(Activity::Compacting),
+        return match latest.part_type.as_str() {
+            "compaction" => Some(Activity::Compacting),
             "tool" | "tool-invocation" => {
-                if latest.tool_status.as_deref() == Some("running") {
-                    return Some(Activity::ToolCall);
-                }
-                // Tool completed, model is thinking about next step
-                return Some(Activity::Thinking);
+                // Tool completed/error/pending — model is thinking about next step
+                Some(Activity::Thinking)
             }
-            "step-start" => return Some(Activity::Thinking),
-            "text" => return Some(Activity::Generating),
-            "step-finish" => return Some(Activity::Idle),
-            _ => {}
-        }
+            "step-start" => Some(Activity::Thinking),
+            "text" => Some(Activity::Generating),
+            "step-finish" => Some(Activity::Idle),
+            "reasoning" => Some(Activity::Thinking),
+            _ => None,
+        };
     }
     None
 }

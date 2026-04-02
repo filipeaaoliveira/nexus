@@ -328,6 +328,41 @@ fn test_non_compaction_part_not_affected() {
     assert_eq!(activity, Some(Activity::Generating));
 }
 
+#[test]
+fn test_infer_activity_running_tool_in_non_latest_position() {
+    // A running tool deeper in the list should be detected as ToolCall,
+    // even if the latest part is a text part.
+    let parts = vec![
+        PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 3000,
+        },
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("running".to_string()),
+            tool_input_summary: None,
+            time_created: 2000,
+        },
+    ];
+    assert_eq!(infer_activity_from_parts(&parts), Some(Activity::ToolCall));
+}
+
+#[test]
+fn test_infer_activity_reasoning_part() {
+    let parts = vec![PartData {
+        part_type: "reasoning".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 1000,
+    }];
+    assert_eq!(infer_activity_from_parts(&parts), Some(Activity::Thinking));
+}
+
 // ── Todo query tests ──────────────────────────────────────────────
 
 /// Helper: create a temp DB with the `todo` table.

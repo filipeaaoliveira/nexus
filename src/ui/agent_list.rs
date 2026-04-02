@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::{self, Agent, PrimaryStatus};
+use crate::types::{self, Activity, ActivityEventKind, Agent, PrimaryStatus};
 
 use super::theme;
 
@@ -52,10 +52,34 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
             format!("{} ", agent.id.tool.as_str()),
             Style::default().fg(theme::FG_DEFAULT),
         ),
-        Span::styled(
-            agent.status.as_str().to_string(),
-            Style::default().fg(theme::status_color(agent.status)),
-        ),
+        {
+            let (text, color) = if agent.status == PrimaryStatus::Running {
+                let activity_text = match agent.activity {
+                    Some(Activity::ToolCall) => agent
+                        .recent_events
+                        .iter()
+                        .rev()
+                        .find(|e| e.kind == ActivityEventKind::ToolCall)
+                        .map(|e| {
+                            e.description
+                                .split(" (")
+                                .next()
+                                .unwrap_or(&e.description)
+                                .to_lowercase()
+                        })
+                        .unwrap_or_else(|| "tool call".to_string()),
+                    Some(ref a) => a.as_str().to_string(),
+                    None => "idle".to_string(),
+                };
+                (activity_text, theme::STATUS_RUNNING)
+            } else {
+                (
+                    agent.status.as_str().to_string(),
+                    theme::status_color(agent.status),
+                )
+            };
+            Span::styled(text, Style::default().fg(color))
+        },
         Span::styled(
             format!("  {elapsed}"),
             Style::default().fg(theme::FG_DIMMED),

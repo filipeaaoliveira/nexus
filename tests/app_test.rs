@@ -931,6 +931,34 @@ fn test_codex_session_info_can_unbind_pid() {
 }
 
 #[test]
+fn test_codex_session_without_pid_is_not_visible() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "codex-a"),
+        pid: None,
+        session_id: "codex-a".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
+    assert!(state.visible_agents().is_empty());
+}
+
+#[test]
+fn test_codex_session_with_pid_is_visible() {
+    let mut state = make_state();
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "codex-a"),
+        pid: Some(42),
+        session_id: "codex-a".to_string(),
+        branch: Some("main".to_string()),
+        is_worktree: false,
+        started_at: None,
+    });
+    assert_eq!(state.visible_agents().len(), 1);
+}
+
+#[test]
 fn test_codex_session_discovery_revives_exited_session_row() {
     let mut state = make_state();
 

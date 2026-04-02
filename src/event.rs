@@ -23,6 +23,11 @@ pub enum AgentEvent {
         pid: Option<u32>,
         activity: Option<Activity>,
     },
+    NormalizedStateChanged {
+        id: AgentId,
+        pid: Option<u32>,
+        state: crate::types::NormalizedState,
+    },
     SubagentSpawned {
         id: AgentId,
         pid: Option<u32>,

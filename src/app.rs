@@ -147,6 +147,14 @@ impl AppState {
                 }
             }
 
+            AgentEvent::NormalizedStateChanged { id, pid, state } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
+                    agent.normalized = state;
+                    agent.last_activity = Local::now();
+                }
+            }
+
             AgentEvent::SubagentSpawned { id, pid, subagent } => {
                 if let Some(agent) = self.find_agent_mut_by_id(&id) {
                     agent.pid = pid.or(agent.pid);
@@ -362,6 +370,9 @@ impl AppState {
     pub fn visible_agents(&self) -> Vec<&Agent> {
         let mut agents: Vec<&Agent> = self.agents.iter().collect();
 
+        agents.retain(|agent| {
+            !(agent.id.tool() == AgentTool::Codex && agent.id.is_session() && agent.pid.is_none())
+        });
         // Apply filter
         if let Some(ref filter) = self.filter {
             let f = filter.to_lowercase();

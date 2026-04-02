@@ -1,6 +1,7 @@
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::AgentTool;
+use chrono::{DateTime, Local, NaiveDateTime};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,31 +13,82 @@ use tracing::{debug, warn};
 pub struct ProcessInfo {
     pub pid: u32,
     pub tool: AgentTool,
-    pub started_at: Option<chrono::DateTime<chrono::Local>>,
+    pub started_at: Option<DateTime<Local>>,
 }
 
 pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
     let mut results = Vec::new();
-    for line in output.lines().skip(1) {
+    let mut lines = output.lines();
+    let header = match lines.next() {
+        Some(h) => h,
+        None => return results,
+    };
+
+    // Detect if lstart is present by checking for STARTED column.
+    // lstart format: "Thu Mar 27 14:30:00 2026" (24 chars).
+    let has_lstart = header.contains("STARTED");
+
+    for line in lines {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let pid_str = match parts.next() {
-            Some(s) => s.trim(),
-            None => continue,
-        };
-        let cmd = match parts.next() {
-            Some(s) => s.trim(),
-            None => continue,
-        };
-        let pid: u32 = match pid_str.parse() {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        if let Some(tool) = detect_tool_from_command(cmd) {
-            results.push(ProcessInfo { pid, tool, started_at: None });
+
+        if has_lstart {
+            // Format: "PID <24-char lstart> COMMAND"
+            let mut parts = line.splitn(2, char::is_whitespace);
+            let pid_str = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let rest = match parts.next() {
+                Some(s) => s.trim_start(),
+                None => continue,
+            };
+            let pid: u32 = match pid_str.parse() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            // lstart is exactly 24 characters: "Thu Mar 27 14:30:00 2026"
+            if rest.len() < 24 {
+                continue;
+            }
+            let lstart_str = &rest[..24];
+            let cmd = rest[24..].trim();
+            let started_at = NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b %d %H:%M:%S %Y")
+                .or_else(|_| {
+                    // macOS uses single-digit day with extra space: "Thu Mar  7 14:30:00 2026"
+                    NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b  %d %H:%M:%S %Y")
+                })
+                .ok()
+                .map(|naive| {
+                    naive
+                        .and_local_timezone(Local)
+                        .single()
+                        .unwrap_or_else(|| Local::now())
+                });
+
+            if let Some(tool) = detect_tool_from_command(cmd) {
+                results.push(ProcessInfo { pid, tool, started_at });
+            }
+        } else {
+            // Fallback: no lstart column, original format "PID COMMAND"
+            let mut parts = line.splitn(2, char::is_whitespace);
+            let pid_str = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let cmd = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let pid: u32 = match pid_str.parse() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if let Some(tool) = detect_tool_from_command(cmd) {
+                results.push(ProcessInfo { pid, tool, started_at: None });
+            }
         }
     }
     results
@@ -100,7 +152,7 @@ pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
 
 pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     let output = match Command::new("ps")
-        .args(["-eo", "pid,command"])
+        .args(["-eo", "pid,lstart,command"])
         .output()
         .await
     {
@@ -143,7 +195,7 @@ pub async fn run_process_scanner(
                         tool: proc.tool,
                         pid: proc.pid,
                         cwd: cwd.clone(),
-                        started_at: None,
+                        started_at: proc.started_at,
                     })
                     .await;
             }

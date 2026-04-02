@@ -131,3 +131,39 @@ fn test_parse_lsof_cwd_ignores_other_fd_paths() {
 fn test_parse_lsof_cwd_empty_output() {
     assert_eq!(parse_lsof_cwd(""), None);
 }
+
+#[test]
+fn test_parse_ps_output_extracts_start_time() {
+    let output = include_str!("fixtures/ps_output.txt");
+    let procs = parse_ps_output(output);
+    // First process: opencode, started Thu Mar 27 14:30:00 2026
+    let first = &procs[0];
+    assert_eq!(first.pid, 12345);
+    assert_eq!(first.tool, AgentTool::OpenCode);
+    let started = first.started_at.expect("should have start time");
+    assert_eq!(
+        started.format("%Y-%m-%d %H:%M:%S").to_string(),
+        "2026-03-27 14:30:00"
+    );
+}
+
+#[test]
+fn test_parse_ps_output_all_have_start_times() {
+    let output = include_str!("fixtures/ps_output.txt");
+    let procs = parse_ps_output(output);
+    for proc in &procs {
+        assert!(
+            proc.started_at.is_some(),
+            "pid {} should have start time",
+            proc.pid
+        );
+    }
+}
+
+#[test]
+fn test_parse_ps_output_no_lstart_fallback() {
+    let output = "  PID COMMAND\n12345 /usr/local/bin/opencode\n";
+    let procs = parse_ps_output(output);
+    assert_eq!(procs.len(), 1);
+    assert!(procs[0].started_at.is_none());
+}

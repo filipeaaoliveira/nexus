@@ -108,6 +108,19 @@ fn test_normalize_claude_review_text_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_normalize_claude_generic_issues_analysis_does_not_map_to_review() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Issues:\nI reviewed the codebase and wrote down observations.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
 fn test_parse_transcript_parses_assistant_entry_and_normalizes_working() {
     let content = concat!(
         "{\"type\":\"assistant\",\"timestamp\":\"2026-04-02T10:00:00Z\",\"content\":[",
@@ -210,6 +223,32 @@ fn test_normalize_claude_error_log_reference_does_not_map_to_blocked() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "I found fatal error in the logs and fixed it.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_retrospective_could_not_complete_does_not_map_to_blocked() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "The previous run could not complete, but I fixed it.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_retrospective_unable_to_continue_does_not_map_to_blocked() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "The previous attempt was unable to continue, but the fix is in place now.".to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, false);

@@ -244,7 +244,6 @@ fn looks_like_review_output(text: &str) -> bool {
     }
 
     [
-        "issues",
         "requested changes",
     ]
     .iter()
@@ -259,19 +258,14 @@ fn looks_like_terminal_failure_output(text: &str) -> bool {
 
     let lower = trimmed.to_ascii_lowercase();
     let failure_markers = [
+        "i'm unable to continue",
+        "i am unable to continue",
         "i can't continue",
         "i cannot continue",
         "i'm blocked",
         "i am blocked",
-        "unable to continue",
         "cannot continue",
         "can't continue",
-        "unrecoverable error",
-        "failed permanently",
-        "blocking error",
-        "could not complete",
-        "can't complete",
-        "cannot complete",
     ];
 
     if failure_markers.iter().any(|marker| lower.contains(marker)) {

@@ -574,6 +574,60 @@ fn test_remove_selected_none_selected() {
 }
 
 #[test]
+fn test_remove_selected_with_filter_removes_correct_agent() {
+    let mut state = make_state();
+    // Add claude (pid 100) and opencode (pid 200)
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 200,
+        cwd: "/tmp/b".into(),
+        started_at: None,
+    });
+    // Filter to show only opencode
+    state.filter = Some("opencode".to_string());
+    state.selected = Some(0); // first visible = opencode
+    state.remove_selected();
+    // opencode should be removed, claude should remain
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].id.tool, AgentTool::Claude);
+}
+
+#[test]
+fn test_rename_with_filter_renames_correct_agent() {
+    let mut state = make_state();
+    // Add claude (pid 100) and opencode (pid 200)
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::Claude,
+        pid: 100,
+        cwd: "/tmp/a".into(),
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::Discovered {
+        tool: AgentTool::OpenCode,
+        pid: 200,
+        cwd: "/tmp/b".into(),
+        started_at: None,
+    });
+    // Filter to show only opencode
+    state.filter = Some("opencode".to_string());
+    state.selected = Some(0); // first visible = opencode
+    state.start_rename();
+    state.rename_input = "my-oc".to_string();
+    state.confirm_rename();
+    // opencode should be renamed, claude untouched
+    let oc = state.agents.iter().find(|a| a.id.pid == 200).unwrap();
+    assert_eq!(oc.alias, Some("my-oc".to_string()));
+    let cl = state.agents.iter().find(|a| a.id.pid == 100).unwrap();
+    assert_eq!(cl.alias, None);
+}
+
+#[test]
 fn test_session_info_only_applies_earlier_start_time() {
     let mut state = make_state();
     let now = chrono::Local::now();

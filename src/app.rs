@@ -314,16 +314,24 @@ impl AppState {
         self.clamp_selection();
     }
 
+    /// Resolve the currently selected visible index to the corresponding
+    /// `AgentId` and its position in `self.agents`.
+    fn resolve_selected(&self) -> Option<(usize, AgentId)> {
+        let vis_idx = self.selected?;
+        let visible = self.visible_agents();
+        let agent = visible.get(vis_idx)?;
+        let id = agent.id.clone();
+        let real_idx = self.agents.iter().position(|a| a.id == id)?;
+        Some((real_idx, id))
+    }
+
     pub fn start_rename(&mut self) {
-        if self.selected.is_none() || self.agents.is_empty() {
-            return;
-        }
-        let idx = self.selected.unwrap();
-        if idx >= self.agents.len() {
-            return;
-        }
+        let (real_idx, _id) = match self.resolve_selected() {
+            Some(v) => v,
+            None => return,
+        };
         self.rename_mode = true;
-        self.rename_input = self.agents[idx].display_name().to_string();
+        self.rename_input = self.agents[real_idx].display_name().to_string();
     }
 
     pub fn rename_push_char(&mut self, c: char) {
@@ -335,12 +343,12 @@ impl AppState {
     }
 
     pub fn confirm_rename(&mut self) {
-        if let Some(idx) = self.selected {
-            if idx < self.agents.len() {
+        if let Some((real_idx, _id)) = self.resolve_selected() {
+            if real_idx < self.agents.len() {
                 if self.rename_input.is_empty() {
-                    self.agents[idx].alias = None;
+                    self.agents[real_idx].alias = None;
                 } else {
-                    self.agents[idx].alias = Some(self.rename_input.clone());
+                    self.agents[real_idx].alias = Some(self.rename_input.clone());
                 }
             }
         }
@@ -355,29 +363,16 @@ impl AppState {
 
     pub fn remove_exited(&mut self) {
         self.agents.retain(|a| a.status != PrimaryStatus::Exited);
-        if self.agents.is_empty() {
-            self.selected = None;
-        } else if let Some(idx) = self.selected {
-            if idx >= self.agents.len() {
-                self.selected = Some(self.agents.len() - 1);
-            }
-        }
+        self.clamp_selection();
     }
 
     pub fn remove_selected(&mut self) {
-        let idx = match self.selected {
-            Some(i) => i,
+        let (real_idx, _id) = match self.resolve_selected() {
+            Some(v) => v,
             None => return,
         };
-        if idx >= self.agents.len() {
-            return;
-        }
-        self.agents.remove(idx);
-        if self.agents.is_empty() {
-            self.selected = None;
-        } else if idx >= self.agents.len() {
-            self.selected = Some(self.agents.len() - 1);
-        }
+        self.agents.remove(real_idx);
+        self.clamp_selection();
     }
 
     fn clamp_selection(&mut self) {

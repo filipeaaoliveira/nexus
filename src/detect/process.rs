@@ -50,6 +50,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                 Err(_) => continue,
             };
             // lstart is exactly 24 characters: "Thu Mar 27 14:30:00 2026"
+            // TODO: This 24-char assumption is locale-dependent. On non-English
+            // locales, day/month names may be longer, causing silent fallback to
+            // started_at=None. Consider parsing by year-pattern or column offsets.
             if rest.len() < 24 {
                 continue;
             }

@@ -16,6 +16,7 @@ fn discovered(
 ) -> AgentEvent {
     AgentEvent::Discovered {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
         cwd: cwd.into(),
         started_at,
     }
@@ -31,12 +32,13 @@ fn session_info(
 ) -> AgentEvent {
     let session_id = session_id.into();
     let id = if tool == AgentTool::Codex && !session_id.is_empty() {
-        AgentId::session(tool, pid, session_id.clone())
+        AgentId::session(tool, session_id.clone())
     } else {
         AgentId::new(tool, pid)
     };
     AgentEvent::SessionInfo {
         id,
+        pid: Some(pid),
         session_id,
         branch,
         is_worktree,
@@ -47,6 +49,7 @@ fn session_info(
 fn status_changed(tool: AgentTool, pid: u32, old: PrimaryStatus, new: PrimaryStatus) -> AgentEvent {
     AgentEvent::StatusChanged {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
         old,
         new,
     }
@@ -55,12 +58,14 @@ fn status_changed(tool: AgentTool, pid: u32, old: PrimaryStatus, new: PrimarySta
 fn process_exited(tool: AgentTool, pid: u32) -> AgentEvent {
     AgentEvent::ProcessExited {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
     }
 }
 
 fn subagent_spawned(tool: AgentTool, pid: u32, subagent: Subagent) -> AgentEvent {
     AgentEvent::SubagentSpawned {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
         subagent,
     }
 }
@@ -68,6 +73,7 @@ fn subagent_spawned(tool: AgentTool, pid: u32, subagent: Subagent) -> AgentEvent
 fn subagent_completed(tool: AgentTool, pid: u32, subagent_name: String) -> AgentEvent {
     AgentEvent::SubagentCompleted {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
         subagent_name,
     }
 }
@@ -75,6 +81,7 @@ fn subagent_completed(tool: AgentTool, pid: u32, subagent_name: String) -> Agent
 fn todos_updated(tool: AgentTool, pid: u32, todos: Vec<TodoItem>) -> AgentEvent {
     AgentEvent::TodosUpdated {
         id: AgentId::new(tool, pid),
+        pid: Some(pid),
         todos,
     }
 }
@@ -98,8 +105,8 @@ fn test_discover_agent() {
         None,
     ));
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].id.pid, 1234);
-    assert_eq!(state.agents[0].id.tool, AgentTool::Claude);
+    assert_eq!(state.agents[0].pid, Some(1234));
+    assert_eq!(state.agents[0].id.tool(), AgentTool::Claude);
     assert_eq!(state.agents[0].status, PrimaryStatus::Running);
     assert_eq!(state.selected, Some(0));
 }
@@ -284,9 +291,9 @@ fn test_visible_agents_sort_by_urgency() {
     ));
     // Urgency sort: Waiting < Running < Done
     let visible = state.visible_agents();
-    assert_eq!(visible[0].id.pid, 3); // Waiting
-    assert_eq!(visible[1].id.pid, 2); // Running
-    assert_eq!(visible[2].id.pid, 1); // Done
+    assert_eq!(visible[0].pid.unwrap(), 3); // Waiting
+    assert_eq!(visible[1].pid.unwrap(), 2); // Running
+    assert_eq!(visible[2].pid.unwrap(), 1); // Done
 }
 
 #[test]
@@ -307,9 +314,9 @@ fn test_visible_agents_sort_by_name() {
     }
     let visible = state.visible_agents();
     // Alphabetical: claude < codex < opencode
-    assert_eq!(visible[0].id.tool, AgentTool::Claude);
-    assert_eq!(visible[1].id.tool, AgentTool::Codex);
-    assert_eq!(visible[2].id.tool, AgentTool::OpenCode);
+    assert_eq!(visible[0].id.tool(), AgentTool::Claude);
+    assert_eq!(visible[1].id.tool(), AgentTool::Codex);
+    assert_eq!(visible[2].id.tool(), AgentTool::OpenCode);
 }
 
 #[test]
@@ -331,7 +338,7 @@ fn test_visible_agents_filter() {
     state.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].id.tool, AgentTool::Claude);
+    assert_eq!(visible[0].id.tool(), AgentTool::Claude);
 
     // Filter for status "RUNNING" — should match all
     state.filter = Some("running".to_string());
@@ -359,7 +366,7 @@ fn test_filter_by_tool_name() {
     state.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].id.tool, AgentTool::Claude);
+    assert_eq!(visible[0].id.tool(), AgentTool::Claude);
 }
 
 #[test]
@@ -392,7 +399,7 @@ fn test_filter_by_branch() {
     state.filter = Some("auth".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].id.pid, 1);
+    assert_eq!(visible[0].pid.unwrap(), 1);
 }
 
 #[test]
@@ -415,7 +422,7 @@ fn test_filter_by_status() {
     state.filter = Some("waiting".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
-    assert_eq!(visible[0].id.pid, 1);
+    assert_eq!(visible[0].pid.unwrap(), 1);
 }
 
 #[test]
@@ -498,7 +505,7 @@ fn test_remove_exited_agents() {
     state.selected = Some(0);
     state.remove_exited();
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].id.pid, 200);
+    assert_eq!(state.agents[0].pid.unwrap(), 200);
     assert_eq!(state.selected, Some(0));
 }
 
@@ -552,7 +559,7 @@ fn test_remove_selected_agent() {
     state.selected = Some(0);
     state.remove_selected();
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].id.pid, 200);
+    assert_eq!(state.agents[0].pid.unwrap(), 200);
     assert_eq!(state.selected, Some(0));
 }
 
@@ -628,7 +635,7 @@ fn test_remove_selected_with_filter_removes_correct_agent() {
     state.remove_selected();
     // opencode should be removed, claude should remain
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].id.tool, AgentTool::Claude);
+    assert_eq!(state.agents[0].id.tool(), AgentTool::Claude);
 }
 
 #[test]
@@ -654,9 +661,9 @@ fn test_rename_with_filter_renames_correct_agent() {
     state.rename_input = "my-oc".to_string();
     state.confirm_rename();
     // opencode should be renamed, claude untouched
-    let oc = state.agents.iter().find(|a| a.id.pid == 200).unwrap();
+    let oc = state.agents.iter().find(|a| a.pid == Some(200)).unwrap();
     assert_eq!(oc.alias, Some("my-oc".to_string()));
-    let cl = state.agents.iter().find(|a| a.id.pid == 100).unwrap();
+    let cl = state.agents.iter().find(|a| a.pid == Some(100)).unwrap();
     assert_eq!(cl.alias, None);
 }
 
@@ -729,6 +736,19 @@ fn test_codex_session_info_uses_session_identity() {
 }
 
 #[test]
+fn test_agent_identity_session_has_no_pid() {
+    let id = AgentId::session(AgentTool::Codex, "session-a");
+    assert_eq!(
+        id.identity,
+        AgentIdentity::Session {
+            tool: AgentTool::Codex,
+            session_id: "session-a".to_string(),
+        }
+    );
+    assert_eq!(id.pid(), None);
+}
+
+#[test]
 fn test_claude_session_info_stays_process_keyed() {
     let mut state = make_state();
     state.handle_event(discovered(
@@ -756,7 +776,7 @@ fn test_claude_session_info_stays_process_keyed() {
     ));
 
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.agents[0].id.pid, 44);
+    assert_eq!(state.agents[0].pid.unwrap(), 44);
     assert_eq!(
         state.agents[0].session_id,
         Some("claude-session-b".to_string())

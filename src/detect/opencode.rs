@@ -435,6 +435,7 @@ pub async fn run_opencode_detector(
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     id: AgentId::new(AgentTool::OpenCode, pid),
+                                    pid: Some(pid),
                                     session_id: session.id.clone(),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
@@ -497,6 +498,7 @@ pub async fn run_opencode_detector(
                                 let _ = tx
                                     .send(AgentEvent::StatusChanged {
                                         id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         old,
                                         new: status,
                                     })
@@ -510,6 +512,7 @@ pub async fn run_opencode_detector(
                                 let _ = tx
                                     .send(AgentEvent::ActivityChanged {
                                         id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         activity,
                                     })
                                     .await;
@@ -532,6 +535,7 @@ pub async fn run_opencode_detector(
                                                 let _ = tx
                                                     .send(AgentEvent::ToolCallStarted {
                                                         id: AgentId::new(AgentTool::OpenCode, pid),
+                                                        pid: Some(pid),
                                                         tool_name: tool_name.clone(),
                                                         args_summary: part
                                                             .tool_input_summary
@@ -569,6 +573,7 @@ pub async fn run_opencode_detector(
                                         let _ = tx
                                             .send(AgentEvent::SubagentCompleted {
                                                 id: AgentId::new(AgentTool::OpenCode, pid),
+                                                pid: Some(pid),
                                                 subagent_name: name,
                                             })
                                             .await;
@@ -583,6 +588,7 @@ pub async fn run_opencode_detector(
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
                                             id: AgentId::new(AgentTool::OpenCode, pid),
+                                            pid: Some(pid),
                                             subagent: crate::types::Subagent {
                                                 name: subagent_type,
                                                 status: if sub.time_archived.is_some() {
@@ -614,6 +620,7 @@ pub async fn run_opencode_detector(
                                 let _ = tx
                                     .send(AgentEvent::TodosUpdated {
                                         id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         todos: todos.clone(),
                                     })
                                     .await;

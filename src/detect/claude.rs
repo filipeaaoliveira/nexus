@@ -553,6 +553,7 @@ pub async fn run_claude_detector(
                         let _ = tx
                             .send(AgentEvent::SessionInfo {
                                 id: AgentId::new(AgentTool::Claude, pid),
+                                pid: Some(pid),
                                 session_id: session_info.session_id.clone().unwrap_or_default(),
                                 branch: session_info.branch.clone(),
                                 is_worktree: false,
@@ -573,6 +574,7 @@ pub async fn run_claude_detector(
                     let _ = tx
                         .send(AgentEvent::StatusChanged {
                             id: AgentId::new(AgentTool::Claude, pid),
+                            pid: Some(pid),
                             old: PrimaryStatus::Waiting,
                             new: PrimaryStatus::Running,
                         })
@@ -593,6 +595,7 @@ pub async fn run_claude_detector(
                     let _ = tx
                         .send(AgentEvent::StatusChanged {
                             id: AgentId::new(AgentTool::Claude, pid),
+                            pid: Some(pid),
                             old,
                             new: primary,
                         })
@@ -622,6 +625,7 @@ pub async fn run_claude_detector(
                                         let _ = tx
                                             .send(AgentEvent::SubagentSpawned {
                                                 id: AgentId::new(AgentTool::Claude, pid),
+                                                pid: Some(pid),
                                                 subagent: crate::types::Subagent {
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
@@ -649,6 +653,7 @@ pub async fn run_claude_detector(
                                 let _ = tx
                                     .send(AgentEvent::ToolCallStarted {
                                         id: AgentId::new(AgentTool::Claude, pid),
+                                        pid: Some(pid),
                                         tool_name: tool_name.clone(),
                                         args_summary,
                                     })
@@ -670,6 +675,7 @@ pub async fn run_claude_detector(
                 let _ = tx
                     .send(AgentEvent::ActivityChanged {
                         id: AgentId::new(AgentTool::Claude, pid),
+                        pid: Some(pid),
                         activity: new_activity,
                     })
                     .await;
@@ -680,6 +686,7 @@ pub async fn run_claude_detector(
                     let _ = tx
                         .send(AgentEvent::TodosUpdated {
                             id: AgentId::new(AgentTool::Claude, pid),
+                            pid: Some(pid),
                             todos: todos.clone(),
                         })
                         .await;
@@ -709,6 +716,7 @@ pub async fn run_claude_detector(
                 let _ = tx
                     .send(AgentEvent::StatusChanged {
                         id: AgentId::new(AgentTool::Claude, pid),
+                        pid: Some(pid),
                         old,
                         new: PrimaryStatus::Waiting,
                     })
@@ -716,6 +724,7 @@ pub async fn run_claude_detector(
                 let _ = tx
                     .send(AgentEvent::ActivityChanged {
                         id: AgentId::new(AgentTool::Claude, pid),
+                        pid: Some(pid),
                         activity: None, // clear activity when Waiting
                     })
                     .await;

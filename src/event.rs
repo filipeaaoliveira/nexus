@@ -8,44 +8,54 @@ use crate::types::{Activity, AgentId, PrimaryStatus, Subagent, TodoItem};
 pub enum AgentEvent {
     Discovered {
         id: AgentId,
+        pid: Option<u32>,
         cwd: PathBuf,
         started_at: Option<DateTime<Local>>,
     },
     StatusChanged {
         id: AgentId,
+        pid: Option<u32>,
         old: PrimaryStatus,
         new: PrimaryStatus,
     },
     ActivityChanged {
         id: AgentId,
+        pid: Option<u32>,
         activity: Option<Activity>,
     },
     SubagentSpawned {
         id: AgentId,
+        pid: Option<u32>,
         subagent: Subagent,
     },
     SubagentCompleted {
         id: AgentId,
+        pid: Option<u32>,
         subagent_name: String,
     },
     ToolCallStarted {
         id: AgentId,
+        pid: Option<u32>,
         tool_name: String,
         args_summary: Option<String>,
     },
     ToolCallCompleted {
         id: AgentId,
+        pid: Option<u32>,
         tool_name: String,
     },
     ProcessExited {
         id: AgentId,
+        pid: Option<u32>,
     },
     TodosUpdated {
         id: AgentId,
+        pid: Option<u32>,
         todos: Vec<TodoItem>,
     },
     SessionInfo {
         id: AgentId,
+        pid: Option<u32>,
         session_id: String,
         branch: Option<String>,
         is_worktree: bool,

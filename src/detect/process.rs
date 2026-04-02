@@ -206,6 +206,7 @@ pub async fn run_process_scanner(
                 let _ = tx
                     .send(AgentEvent::Discovered {
                         id: AgentId::new(proc.tool, proc.pid),
+                        pid: Some(proc.pid),
                         cwd: cwd.clone(),
                         started_at: proc.started_at,
                     })
@@ -219,6 +220,7 @@ pub async fn run_process_scanner(
             let _ = tx
                 .send(AgentEvent::ProcessExited {
                     id: AgentId::new(tool, pid),
+                    pid: Some(pid),
                 })
                 .await;
         }

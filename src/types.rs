@@ -28,71 +28,83 @@ impl std::fmt::Display for AgentTool {
     }
 }
 
-// ── AgentId ────────────────────────────────────────────────────────
+// ── AgentIdentity / AgentId ────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AgentIdentity {
+    Process { tool: AgentTool, pid: u32 },
+    Session { tool: AgentTool, session_id: String },
+}
+
+impl AgentIdentity {
+    pub fn tool(&self) -> AgentTool {
+        match self {
+            Self::Process { tool, .. } | Self::Session { tool, .. } => *tool,
+        }
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        match self {
+            Self::Process { pid, .. } => Some(*pid),
+            Self::Session { .. } => None,
+        }
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::Process { .. } => None,
+            Self::Session { session_id, .. } => Some(session_id.as_str()),
+        }
+    }
+
+    pub fn is_process(&self) -> bool {
+        matches!(self, Self::Process { .. })
+    }
+
+    pub fn is_session(&self) -> bool {
+        matches!(self, Self::Session { .. })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AgentId {
-    pub tool: AgentTool,
-    pub pid: u32,
-    pub session_id: Option<String>,
+    pub identity: AgentIdentity,
 }
 
 impl AgentId {
     pub fn new(tool: AgentTool, pid: u32) -> Self {
         Self {
-            tool,
-            pid,
-            session_id: None,
+            identity: AgentIdentity::Process { tool, pid },
         }
     }
 
-    pub fn session(tool: AgentTool, pid: u32, session_id: impl Into<String>) -> Self {
+    pub fn session(tool: AgentTool, session_id: impl Into<String>) -> Self {
         Self {
-            tool,
-            pid,
-            session_id: Some(session_id.into()),
+            identity: AgentIdentity::Session {
+                tool,
+                session_id: session_id.into(),
+            },
         }
     }
 
-    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
-        self.session_id = Some(session_id.into());
-        self
+    pub fn tool(&self) -> AgentTool {
+        self.identity.tool()
     }
 
-    pub fn is_session_keyed(&self) -> bool {
-        self.session_id.is_some()
+    pub fn pid(&self) -> Option<u32> {
+        self.identity.pid()
     }
 
     pub fn session_id(&self) -> Option<&str> {
-        self.session_id.as_deref()
+        self.identity.session_id()
     }
-}
 
-impl PartialEq for AgentId {
-    fn eq(&self, other: &Self) -> bool {
-        match (self.session_id.as_deref(), other.session_id.as_deref()) {
-            (Some(a), Some(b)) => self.tool == other.tool && a == b,
-            (None, None) => self.tool == other.tool && self.pid == other.pid,
-            _ => false,
-        }
+    pub fn is_process(&self) -> bool {
+        self.identity.is_process()
     }
-}
 
-impl Eq for AgentId {}
-
-impl std::hash::Hash for AgentId {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.tool.hash(state);
-        match self.session_id.as_deref() {
-            Some(session_id) => {
-                1u8.hash(state);
-                session_id.hash(state);
-            }
-            None => {
-                0u8.hash(state);
-                self.pid.hash(state);
-            }
-        }
+    pub fn is_session(&self) -> bool {
+        self.identity.is_session()
     }
 }
 
@@ -237,6 +249,7 @@ pub struct TodoItem {
 #[derive(Debug, Clone)]
 pub struct Agent {
     pub id: AgentId,
+    pub pid: Option<u32>,
     pub status: PrimaryStatus,
     pub activity: Option<Activity>,
     pub cwd: PathBuf,
@@ -261,7 +274,7 @@ impl Agent {
     }
 
     pub fn display_name(&self) -> &str {
-        self.alias.as_deref().unwrap_or(self.id.tool.as_str())
+        self.alias.as_deref().unwrap_or(self.id.tool().as_str())
     }
 }
 

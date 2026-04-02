@@ -38,7 +38,12 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
                     theme::status_badge_style(agent.status),
                 ),
                 Span::styled(
-                    format!("  PID: {}", agent.id.pid),
+                    format!(
+                        "  PID: {}",
+                        agent.pid
+                            .map(|pid| pid.to_string())
+                            .unwrap_or_else(|| "-".to_string())
+                    ),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
             ]));

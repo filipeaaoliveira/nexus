@@ -52,6 +52,7 @@ fn test_agent_id_uniqueness() {
 fn test_agent_elapsed_time() {
     let agent = Agent {
         id: AgentId::new(AgentTool::Claude, 1000),
+        pid: Some(1000),
         status: PrimaryStatus::Running,
         activity: Some(Activity::Generating),
         cwd: std::path::PathBuf::from("/tmp/test"),
@@ -125,6 +126,7 @@ fn test_activity_compacting_as_str() {
 fn test_display_name_without_alias() {
     let agent = Agent {
         id: AgentId::new(AgentTool::Claude, 100),
+        pid: Some(100),
         status: PrimaryStatus::Running,
         activity: None,
         cwd: std::path::PathBuf::from("/tmp"),
@@ -145,6 +147,7 @@ fn test_display_name_without_alias() {
 fn test_display_name_with_alias() {
     let agent = Agent {
         id: AgentId::new(AgentTool::OpenCode, 200),
+        pid: Some(200),
         status: PrimaryStatus::Running,
         activity: None,
         cwd: std::path::PathBuf::from("/tmp"),

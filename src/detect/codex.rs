@@ -492,7 +492,7 @@ pub async fn run_codex_detector(
                             Some(p) => p,
                             None => continue, // no matching process discovered yet
                         };
-                        let agent_id = AgentId::session(AgentTool::Codex, pid, thread.id.clone());
+                        let agent_id = AgentId::session(AgentTool::Codex, thread.id.clone());
 
                         let state = thread_states.entry(thread.id.clone()).or_default();
 
@@ -502,6 +502,7 @@ pub async fn run_codex_detector(
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     id: agent_id.clone(),
+                                    pid: Some(pid),
                                     session_id: thread.id.clone(),
                                     branch: thread.git_branch.clone(),
                                     is_worktree: false,
@@ -530,6 +531,7 @@ pub async fn run_codex_detector(
                                         let _ = tx
                                             .send(AgentEvent::StatusChanged {
                                                 id: agent_id.clone(),
+                                                pid: Some(pid),
                                                 old,
                                                 new: inferred,
                                             })
@@ -551,6 +553,7 @@ pub async fn run_codex_detector(
                                             let _ = tx
                                                 .send(AgentEvent::ToolCallStarted {
                                                     id: agent_id.clone(),
+                                                    pid: Some(pid),
                                                     tool_name: latest.name.clone(),
                                                     args_summary: args,
                                                 })
@@ -566,6 +569,7 @@ pub async fn run_codex_detector(
                                             let _ = tx
                                                 .send(AgentEvent::SubagentSpawned {
                                                     id: agent_id.clone(),
+                                                    pid: Some(pid),
                                                     subagent: crate::types::Subagent {
                                                         name: spawn.nickname.clone(),
                                                         status: PrimaryStatus::Running,
@@ -601,6 +605,7 @@ pub async fn run_codex_detector(
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
                                             id: agent_id.clone(),
+                                            pid: Some(pid),
                                             subagent: crate::types::Subagent {
                                                 name: edge.child_thread_id.clone(),
                                                 status: sub_status,

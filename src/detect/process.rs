@@ -1,5 +1,6 @@
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
+use crate::types::AgentId;
 use crate::types::AgentTool;
 use chrono::{DateTime, Local, NaiveDateTime};
 use std::collections::HashSet;
@@ -58,21 +59,26 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
             }
             let lstart_str = &rest[..24];
             let cmd = rest[24..].trim();
-            let started_at = NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b %d %H:%M:%S %Y")
-                .or_else(|_| {
-                    // macOS uses single-digit day with extra space: "Thu Mar  7 14:30:00 2026"
-                    NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b  %d %H:%M:%S %Y")
-                })
-                .ok()
-                .map(|naive| {
-                    naive
-                        .and_local_timezone(Local)
-                        .single()
-                        .unwrap_or_else(Local::now)
-                });
+            let started_at =
+                NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b %d %H:%M:%S %Y")
+                    .or_else(|_| {
+                        // macOS uses single-digit day with extra space: "Thu Mar  7 14:30:00 2026"
+                        NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b  %d %H:%M:%S %Y")
+                    })
+                    .ok()
+                    .map(|naive| {
+                        naive
+                            .and_local_timezone(Local)
+                            .single()
+                            .unwrap_or_else(Local::now)
+                    });
 
             if let Some(tool) = detect_tool_from_command(cmd) {
-                results.push(ProcessInfo { pid, tool, started_at });
+                results.push(ProcessInfo {
+                    pid,
+                    tool,
+                    started_at,
+                });
             }
         } else {
             // Fallback: no lstart column, original format "PID COMMAND"
@@ -90,7 +96,11 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                 Err(_) => continue,
             };
             if let Some(tool) = detect_tool_from_command(cmd) {
-                results.push(ProcessInfo { pid, tool, started_at: None });
+                results.push(ProcessInfo {
+                    pid,
+                    tool,
+                    started_at: None,
+                });
             }
         }
     }
@@ -195,8 +205,8 @@ pub async fn run_process_scanner(
                 registry.register(proc.tool, cwd.clone(), proc.pid);
                 let _ = tx
                     .send(AgentEvent::Discovered {
-                        tool: proc.tool,
-                        pid: proc.pid,
+                        id: AgentId::new(proc.tool, proc.pid),
+                        pid: Some(proc.pid),
                         cwd: cwd.clone(),
                         started_at: proc.started_at,
                     })
@@ -207,7 +217,12 @@ pub async fn run_process_scanner(
         for (tool, pid) in exited {
             debug!("Process exited: {} pid={}", tool.as_str(), pid);
             registry.remove(pid);
-            let _ = tx.send(AgentEvent::ProcessExited { pid, tool }).await;
+            let _ = tx
+                .send(AgentEvent::ProcessExited {
+                    id: AgentId::new(tool, pid),
+                    pid: Some(pid),
+                })
+                .await;
         }
         known_pids = current_pids;
         tokio::time::sleep(poll_interval).await;

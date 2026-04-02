@@ -5,7 +5,7 @@ use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
 use ai_overview::input;
 use clap::Parser;
-use std::io::{IsTerminal, stdout};
+use std::io::{stdout, IsTerminal};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
@@ -15,8 +15,8 @@ async fn main() -> anyhow::Result<()> {
     // Initialize tracing — log to a file so debug output doesn't corrupt the TUI.
     // Use RUST_LOG env var to control level (default: warn).
     // Logs go to /tmp/ai-overview.log when enabled.
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
     let log_file = std::fs::File::create("/tmp/ai-overview.log")?;
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -55,19 +55,16 @@ async fn run_loop(
     loop {
         // Drain all pending events
         while let Ok(event) = rx.try_recv() {
-            if let AgentEvent::Discovered {
-                tool,
-                pid,
-                ref cwd,
-                ..
-            } = event
+            if let AgentEvent::Discovered { ref id, ref pid, ref cwd, .. } = event
             {
                 let cwd_clone = cwd.clone();
+                let id_clone = id.clone();
+                let pid_clone = *pid;
                 state.handle_event(event);
                 let (branch, is_wt) = worktree::lookup_branch_info(&cwd_clone).await;
                 state.handle_event(AgentEvent::SessionInfo {
-                    pid,
-                    tool,
+                    id: id_clone,
+                    pid: pid_clone,
                     session_id: String::new(),
                     branch,
                     is_worktree: is_wt,
@@ -82,7 +79,11 @@ async fn run_loop(
             ai_overview::ui::render(frame, state);
         })?;
 
-        match input::poll_action(Duration::from_millis(100), state.filter_mode, state.rename_mode)? {
+        match input::poll_action(
+            Duration::from_millis(100),
+            state.filter_mode,
+            state.rename_mode,
+        )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => state.move_selection_down(),
             Some(input::Action::MoveUp) => state.move_selection_up(),

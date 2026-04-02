@@ -9,7 +9,10 @@ use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_epoch_millis, Activity, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus};
+use crate::types::{
+    from_epoch_millis, Activity, AgentId, AgentTool, PrimaryStatus, TodoItem, TodoPriority,
+    TodoStatus,
+};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[derive(Debug, Clone)]
@@ -294,10 +297,7 @@ pub fn check_assistant_turn_completed(
 /// `time.completed` timestamp set (meaning OpenCode's `cleanup()` ran and
 /// the turn is finished). Returns `false` if the timestamp is NULL or if
 /// there are no assistant messages.
-pub fn query_assistant_turn_completed(
-    db_path: &Path,
-    session_id: &str,
-) -> anyhow::Result<bool> {
+pub fn query_assistant_turn_completed(db_path: &Path, session_id: &str) -> anyhow::Result<bool> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -413,10 +413,7 @@ pub async fn run_opencode_detector(
     loop {
         if db_path.exists() {
             let db = db_path.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                query_opencode_sessions(&db)
-            })
-            .await?;
+            let result = tokio::task::spawn_blocking(move || query_opencode_sessions(&db)).await?;
 
             match result {
                 Ok(sessions) => {
@@ -438,18 +435,15 @@ pub async fn run_opencode_detector(
                             None => continue, // no matching process discovered yet
                         };
 
-                        let state = session_states
-                            .entry(session.id.clone())
-                            .or_default();
+                        let state = session_states.entry(session.id.clone()).or_default();
 
                         // Emit SessionInfo once per session
                         if !state.session_info_sent {
-                            let session_started =
-                                from_epoch_millis(session.time_created);
+                            let session_started = from_epoch_millis(session.time_created);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
-                                    pid,
-                                    tool: AgentTool::OpenCode,
+                                    id: AgentId::new(AgentTool::OpenCode, pid),
+                                    pid: Some(pid),
                                     session_id: session.id.clone(),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
@@ -511,8 +505,8 @@ pub async fn run_opencode_detector(
                                 let old = state.last_status.unwrap_or(PrimaryStatus::Running);
                                 let _ = tx
                                     .send(AgentEvent::StatusChanged {
-                                        pid,
-                                        tool: AgentTool::OpenCode,
+                                        id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         old,
                                         new: status,
                                     })
@@ -525,8 +519,8 @@ pub async fn run_opencode_detector(
                                 let activity = infer_activity_from_parts(&parts);
                                 let _ = tx
                                     .send(AgentEvent::ActivityChanged {
-                                        pid,
-                                        tool: AgentTool::OpenCode,
+                                        id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         activity,
                                     })
                                     .await;
@@ -535,7 +529,9 @@ pub async fn run_opencode_detector(
                             // Emit tool call for the most recent tool part if new
                             if has_new_parts {
                                 for part in &parts {
-                                    if part.part_type == "tool" || part.part_type == "tool-invocation" {
+                                    if part.part_type == "tool"
+                                        || part.part_type == "tool-invocation"
+                                    {
                                         if let Some(ref tool_name) = part.tool_name {
                                             let key = format!(
                                                 "{}:{}:{}",
@@ -546,8 +542,8 @@ pub async fn run_opencode_detector(
                                             if state.last_tool_call.as_deref() != Some(&key) {
                                                 let _ = tx
                                                     .send(AgentEvent::ToolCallStarted {
-                                                        pid,
-                                                        tool: AgentTool::OpenCode,
+                                                        id: AgentId::new(AgentTool::OpenCode, pid),
+                                                        pid: Some(pid),
                                                         tool_name: tool_name.clone(),
                                                         args_summary: part
                                                             .tool_input_summary
@@ -584,8 +580,8 @@ pub async fn run_opencode_detector(
                                             .to_string();
                                         let _ = tx
                                             .send(AgentEvent::SubagentCompleted {
-                                                pid,
-                                                tool: AgentTool::OpenCode,
+                                                id: AgentId::new(AgentTool::OpenCode, pid),
+                                                pid: Some(pid),
                                                 subagent_name: name,
                                             })
                                             .await;
@@ -599,8 +595,8 @@ pub async fn run_opencode_detector(
                                         .to_string();
                                     let _ = tx
                                         .send(AgentEvent::SubagentSpawned {
-                                            pid,
-                                            tool: AgentTool::OpenCode,
+                                            id: AgentId::new(AgentTool::OpenCode, pid),
+                                            pid: Some(pid),
                                             subagent: crate::types::Subagent {
                                                 name: subagent_type,
                                                 status: if sub.time_archived.is_some() {
@@ -609,10 +605,8 @@ pub async fn run_opencode_detector(
                                                     PrimaryStatus::Running
                                                 },
                                                 description: sub.title.clone(),
-                                                started_at: from_epoch_millis(
-                                                    sub.time_created,
-                                                )
-                                                .unwrap_or_else(chrono::Local::now),
+                                                started_at: from_epoch_millis(sub.time_created)
+                                                    .unwrap_or_else(chrono::Local::now),
                                                 ended_at: None,
                                             },
                                         })
@@ -633,8 +627,8 @@ pub async fn run_opencode_detector(
                             if todos != state.last_todos {
                                 let _ = tx
                                     .send(AgentEvent::TodosUpdated {
-                                        pid,
-                                        tool: AgentTool::OpenCode,
+                                        id: AgentId::new(AgentTool::OpenCode, pid),
+                                        pid: Some(pid),
                                         todos: todos.clone(),
                                     })
                                     .await;

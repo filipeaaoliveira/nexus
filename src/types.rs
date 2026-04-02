@@ -28,17 +28,83 @@ impl std::fmt::Display for AgentTool {
     }
 }
 
-// ── AgentId ────────────────────────────────────────────────────────
+// ── AgentIdentity / AgentId ────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AgentIdentity {
+    Process { tool: AgentTool, pid: u32 },
+    Session { tool: AgentTool, session_id: String },
+}
+
+impl AgentIdentity {
+    pub fn tool(&self) -> AgentTool {
+        match self {
+            Self::Process { tool, .. } | Self::Session { tool, .. } => *tool,
+        }
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        match self {
+            Self::Process { pid, .. } => Some(*pid),
+            Self::Session { .. } => None,
+        }
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        match self {
+            Self::Process { .. } => None,
+            Self::Session { session_id, .. } => Some(session_id.as_str()),
+        }
+    }
+
+    pub fn is_process(&self) -> bool {
+        matches!(self, Self::Process { .. })
+    }
+
+    pub fn is_session(&self) -> bool {
+        matches!(self, Self::Session { .. })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AgentId {
-    pub tool: AgentTool,
-    pub pid: u32,
+    pub identity: AgentIdentity,
 }
 
 impl AgentId {
     pub fn new(tool: AgentTool, pid: u32) -> Self {
-        Self { tool, pid }
+        Self {
+            identity: AgentIdentity::Process { tool, pid },
+        }
+    }
+
+    pub fn session(tool: AgentTool, session_id: impl Into<String>) -> Self {
+        Self {
+            identity: AgentIdentity::Session {
+                tool,
+                session_id: session_id.into(),
+            },
+        }
+    }
+
+    pub fn tool(&self) -> AgentTool {
+        self.identity.tool()
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.identity.pid()
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.identity.session_id()
+    }
+
+    pub fn is_process(&self) -> bool {
+        self.identity.is_process()
+    }
+
+    pub fn is_session(&self) -> bool {
+        self.identity.is_session()
     }
 }
 
@@ -183,6 +249,7 @@ pub struct TodoItem {
 #[derive(Debug, Clone)]
 pub struct Agent {
     pub id: AgentId,
+    pub pid: Option<u32>,
     pub status: PrimaryStatus,
     pub activity: Option<Activity>,
     pub cwd: PathBuf,
@@ -207,7 +274,7 @@ impl Agent {
     }
 
     pub fn display_name(&self) -> &str {
-        self.alias.as_deref().unwrap_or(self.id.tool.as_str())
+        self.alias.as_deref().unwrap_or(self.id.tool().as_str())
     }
 }
 

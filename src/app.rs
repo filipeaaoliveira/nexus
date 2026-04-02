@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use chrono::Local;
 
@@ -42,18 +43,70 @@ impl AppState {
     pub fn handle_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Discovered {
-                tool,
+                id,
                 pid,
                 cwd,
                 started_at: real_start,
             } => {
-                let id = AgentId::new(tool, pid);
-                if self.agents.iter().any(|a| a.id == id) {
+                let now = Local::now();
+                let pid = pid.or_else(|| id.pid());
+                if let Some(agent_idx) = self.agents.iter().position(|a| a.id == id) {
+                    if id.tool() == AgentTool::Codex && id.is_session() {
+                        let absorbed_pid = {
+                            let agent = &mut self.agents[agent_idx];
+                            agent.cwd = cwd;
+                            agent.pid = pid.or(agent.pid);
+                            agent.status = PrimaryStatus::Running;
+                            if let Some(real_start) = real_start {
+                                if real_start < agent.started_at {
+                                    agent.started_at = real_start;
+                                }
+                            }
+                            agent.last_activity = now;
+                            agent.pid
+                        };
+                        self.remove_redundant_codex_process_agents(absorbed_pid);
+                    }
                     return;
                 }
-                let now = Local::now();
+                let session_id = id.session_id().map(str::to_string);
+                if id.tool() == AgentTool::Codex {
+                    if let Some(pid) = pid {
+                        let matching_agent_indices =
+                            self.find_session_agent_indices_by_pid(id.tool(), pid, &cwd);
+                        if matching_agent_indices.len() > 1 {
+                            for agent_idx in matching_agent_indices {
+                                let agent = &mut self.agents[agent_idx];
+                                agent.cwd = cwd.clone();
+                                agent.pid = Some(pid);
+                                agent.status = PrimaryStatus::Running;
+                                if let Some(real_start) = real_start {
+                                    if real_start < agent.started_at {
+                                        agent.started_at = real_start;
+                                    }
+                                }
+                                agent.last_activity = now;
+                            }
+                            return;
+                        }
+                        if let Some(agent_idx) = matching_agent_indices.into_iter().next() {
+                            let agent = &mut self.agents[agent_idx];
+                            agent.cwd = cwd;
+                            agent.pid = Some(pid);
+                            agent.status = PrimaryStatus::Running;
+                            if let Some(real_start) = real_start {
+                                if real_start < agent.started_at {
+                                    agent.started_at = real_start;
+                                }
+                            }
+                            agent.last_activity = now;
+                            return;
+                        }
+                    }
+                }
                 self.agents.push(Agent {
                     id,
+                    pid,
                     status: PrimaryStatus::Running,
                     activity: None,
                     cwd,
@@ -63,7 +116,7 @@ impl AppState {
                     last_activity: now,
                     subagents: Vec::new(),
                     recent_events: VecDeque::new(),
-                    session_id: None,
+                    session_id,
                     alias: None,
                     todos: Vec::new(),
                 });
@@ -72,13 +125,9 @@ impl AppState {
                 }
             }
 
-            AgentEvent::StatusChanged {
-                pid,
-                tool,
-                old,
-                new,
-            } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+            AgentEvent::StatusChanged { id, pid, old, new } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     agent.status = new;
                     agent.last_activity = Local::now();
                     push_event(
@@ -89,23 +138,17 @@ impl AppState {
                 }
             }
 
-            AgentEvent::ActivityChanged {
-                pid,
-                tool,
-                activity,
-            } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+            AgentEvent::ActivityChanged { id, pid, activity } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     agent.activity = activity;
                     agent.last_activity = Local::now();
                 }
             }
 
-            AgentEvent::SubagentSpawned {
-                pid,
-                tool,
-                subagent,
-            } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+            AgentEvent::SubagentSpawned { id, pid, subagent } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     let desc = format!("spawned: {}", subagent.name);
                     agent.subagents.push(subagent);
                     agent.last_activity = Local::now();
@@ -118,13 +161,21 @@ impl AppState {
             }
 
             AgentEvent::SubagentCompleted {
+                id,
                 pid,
-                tool,
                 subagent_name,
             } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
-                    if let Some(sub) = agent.subagents.iter_mut().find(|s| s.name == subagent_name)
-                    {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
+                    let matching_subagent = if id.tool() == AgentTool::Codex {
+                        agent.subagents.iter_mut().find(|s| {
+                            s.name == subagent_name
+                                || s.description.as_deref() == Some(subagent_name.as_str())
+                        })
+                    } else {
+                        agent.subagents.iter_mut().find(|s| s.name == subagent_name)
+                    };
+                    if let Some(sub) = matching_subagent {
                         sub.status = PrimaryStatus::Done;
                         sub.ended_at = Some(Local::now());
                     }
@@ -138,12 +189,13 @@ impl AppState {
             }
 
             AgentEvent::ToolCallStarted {
+                id,
                 pid,
-                tool,
                 tool_name,
                 args_summary,
             } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     agent.activity = Some(Activity::ToolCall);
                     agent.last_activity = Local::now();
                     let desc = match args_summary {
@@ -155,11 +207,12 @@ impl AppState {
             }
 
             AgentEvent::ToolCallCompleted {
+                id,
                 pid,
-                tool,
                 tool_name: _,
             } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     if agent.activity == Some(Activity::ToolCall) {
                         agent.activity = Some(Activity::Idle);
                     }
@@ -167,8 +220,9 @@ impl AppState {
                 }
             }
 
-            AgentEvent::ProcessExited { pid, tool } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+            AgentEvent::ProcessExited { id, pid } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     agent.status = PrimaryStatus::Exited;
                     agent.activity = None;
                     agent.last_activity = Local::now();
@@ -177,35 +231,126 @@ impl AppState {
                         ActivityEventKind::StatusChanged,
                         "Process exited".to_string(),
                     );
+                } else if let Some(pid) = pid {
+                    if id.tool() == AgentTool::Codex {
+                        let matching_indices: Vec<usize> = self
+                            .agents
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, a)| a.id.tool() == id.tool() && a.pid == Some(pid))
+                            .map(|(idx, _)| idx)
+                            .collect();
+
+                        if !matching_indices.is_empty() {
+                            for agent_idx in matching_indices {
+                                let agent = &mut self.agents[agent_idx];
+                                agent.status = PrimaryStatus::Exited;
+                                agent.activity = None;
+                                agent.last_activity = Local::now();
+                                push_event(
+                                    &mut agent.recent_events,
+                                    ActivityEventKind::StatusChanged,
+                                    "Process exited".to_string(),
+                                );
+                            }
+                            return;
+                        }
+                    }
+
+                    if let Some(agent) = self.find_agent_mut_by_pid(id.tool(), pid) {
+                        agent.status = PrimaryStatus::Exited;
+                        agent.activity = None;
+                        agent.last_activity = Local::now();
+                        push_event(
+                            &mut agent.recent_events,
+                            ActivityEventKind::StatusChanged,
+                            "Process exited".to_string(),
+                        );
+                    }
                 }
             }
 
             AgentEvent::SessionInfo {
+                id,
                 pid,
-                tool,
                 session_id,
                 branch,
                 is_worktree,
                 started_at,
             } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
-                    agent.session_id = Some(session_id);
-                    if branch.is_some() {
-                        agent.branch = branch;
+                let pid = pid.or_else(|| id.pid());
+                if id.is_session() {
+                    if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                        let absorbed_pid = {
+                            Self::apply_session_info(
+                                agent,
+                                pid,
+                                session_id,
+                                branch,
+                                is_worktree,
+                                started_at,
+                            );
+                            agent.pid
+                        };
+                        self.remove_redundant_codex_process_agents(absorbed_pid);
+                        return;
                     }
-                    agent.is_worktree = is_worktree;
-                    // Apply real start time if available and earlier than current
-                    if let Some(real_start) = started_at {
-                        if real_start < agent.started_at {
-                            agent.started_at = real_start;
+
+                    if let Some(pid) = pid {
+                        if let Some(agent) = self.find_process_agent_mut(id.tool(), pid) {
+                            agent.id = id.clone();
+                            Self::apply_session_info(
+                                agent,
+                                Some(pid),
+                                session_id,
+                                branch,
+                                is_worktree,
+                                started_at,
+                            );
+                            self.remove_redundant_codex_process_agents(Some(pid));
+                            return;
                         }
                     }
-                    agent.last_activity = Local::now();
+
+                    let now = Local::now();
+                    self.agents.push(Agent {
+                        id,
+                        pid,
+                        status: PrimaryStatus::Running,
+                        activity: None,
+                        cwd: PathBuf::new(),
+                        branch,
+                        is_worktree,
+                        started_at: started_at.unwrap_or(now),
+                        last_activity: now,
+                        subagents: Vec::new(),
+                        recent_events: VecDeque::new(),
+                        session_id: Some(session_id),
+                        alias: None,
+                        todos: Vec::new(),
+                    });
+                    if self.selected.is_none() {
+                        self.selected = Some(0);
+                    }
+                    self.remove_redundant_codex_process_agents(pid);
+                    return;
+                }
+
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    Self::apply_session_info(
+                        agent,
+                        pid,
+                        session_id,
+                        branch,
+                        is_worktree,
+                        started_at,
+                    );
                 }
             }
 
-            AgentEvent::TodosUpdated { pid, tool, todos } => {
-                if let Some(agent) = self.find_agent_mut(pid, tool) {
+            AgentEvent::TodosUpdated { id, pid, todos } => {
+                if let Some(agent) = self.find_agent_mut_by_id(&id) {
+                    agent.pid = pid.or(agent.pid);
                     agent.todos = todos;
                 }
             }
@@ -235,7 +380,8 @@ impl AppState {
             SortMode::Name => agents.sort_by(|a, b| {
                 a.display_name()
                     .cmp(b.display_name())
-                    .then_with(|| a.id.pid.cmp(&b.id.pid))
+                    .then_with(|| a.pid.cmp(&b.pid))
+                    .then_with(|| a.id.session_id().cmp(&b.id.session_id()))
             }),
             SortMode::Elapsed => {
                 agents.sort_by(|a, b| a.started_at.cmp(&b.started_at));
@@ -387,9 +533,83 @@ impl AppState {
         }
     }
 
-    fn find_agent_mut(&mut self, pid: u32, tool: AgentTool) -> Option<&mut Agent> {
-        let id = AgentId::new(tool, pid);
-        self.agents.iter_mut().find(|a| a.id == id)
+    fn find_agent_mut_by_id(&mut self, id: &AgentId) -> Option<&mut Agent> {
+        self.agents.iter_mut().find(|a| a.id == *id)
+    }
+
+    fn find_process_agent_mut(&mut self, tool: AgentTool, pid: u32) -> Option<&mut Agent> {
+        self.agents
+            .iter_mut()
+            .find(|a| a.id.tool() == tool && a.pid == Some(pid) && a.id.is_process())
+    }
+
+    fn find_session_agent_indices_by_pid(
+        &self,
+        tool: AgentTool,
+        pid: u32,
+        cwd: &PathBuf,
+    ) -> Vec<usize> {
+        self.agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| {
+                a.id.tool() == tool
+                    && a.id.is_session()
+                    && a.pid == Some(pid)
+                    && a.status != PrimaryStatus::Exited
+                    && (a.cwd.as_os_str().is_empty() || a.cwd == *cwd)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    fn find_agent_mut_by_pid(&mut self, tool: AgentTool, pid: u32) -> Option<&mut Agent> {
+        self.agents
+            .iter_mut()
+            .find(|a| a.id.tool() == tool && a.pid == Some(pid))
+    }
+
+    fn remove_redundant_codex_process_agents(&mut self, pid: Option<u32>) {
+        let Some(pid) = pid else {
+            return;
+        };
+
+        let len_before = self.agents.len();
+        self.agents.retain(|agent| {
+            !(agent.id.tool() == AgentTool::Codex
+                && agent.id.is_process()
+                && agent.pid == Some(pid))
+        });
+
+        if self.agents.len() != len_before {
+            self.clamp_selection();
+        }
+    }
+
+    fn apply_session_info(
+        agent: &mut Agent,
+        pid: Option<u32>,
+        session_id: String,
+        branch: Option<String>,
+        is_worktree: bool,
+        started_at: Option<chrono::DateTime<chrono::Local>>,
+    ) {
+        if agent.id.tool() == AgentTool::Codex && agent.id.is_session() {
+            agent.pid = pid;
+        } else {
+            agent.pid = pid.or(agent.pid);
+        }
+        agent.session_id = Some(session_id);
+        if branch.is_some() {
+            agent.branch = branch;
+        }
+        agent.is_worktree = is_worktree;
+        if let Some(real_start) = started_at {
+            if real_start < agent.started_at {
+                agent.started_at = real_start;
+            }
+        }
+        agent.last_activity = Local::now();
     }
 }
 

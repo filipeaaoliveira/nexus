@@ -2,60 +2,60 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 
-use crate::types::{Activity, AgentTool, PrimaryStatus, Subagent, TodoItem};
+use crate::types::{Activity, AgentId, PrimaryStatus, Subagent, TodoItem};
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
     Discovered {
-        tool: AgentTool,
-        pid: u32,
+        id: AgentId,
+        pid: Option<u32>,
         cwd: PathBuf,
         started_at: Option<DateTime<Local>>,
     },
     StatusChanged {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         old: PrimaryStatus,
         new: PrimaryStatus,
     },
     ActivityChanged {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         activity: Option<Activity>,
     },
     SubagentSpawned {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         subagent: Subagent,
     },
     SubagentCompleted {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         subagent_name: String,
     },
     ToolCallStarted {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         tool_name: String,
         args_summary: Option<String>,
     },
     ToolCallCompleted {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         tool_name: String,
     },
     ProcessExited {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
     },
     TodosUpdated {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         todos: Vec<TodoItem>,
     },
     SessionInfo {
-        pid: u32,
-        tool: AgentTool,
+        id: AgentId,
+        pid: Option<u32>,
         session_id: String,
         branch: Option<String>,
         is_worktree: bool,

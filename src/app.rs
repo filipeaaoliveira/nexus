@@ -26,7 +26,7 @@ impl AppState {
         Self {
             agents: Vec::new(),
             selected: None,
-            sort_mode: SortMode::Urgency,
+            sort_mode: SortMode::Name,
             group_by_worktree: false,
             show_help: false,
             filter: None,
@@ -224,9 +224,8 @@ impl AppState {
         match self.sort_mode {
             SortMode::Urgency => agents.sort_by_key(|a| a.status),
             SortMode::Name => agents.sort_by(|a, b| {
-                a.id.tool
-                    .as_str()
-                    .cmp(b.id.tool.as_str())
+                a.display_name()
+                    .cmp(b.display_name())
                     .then_with(|| a.id.pid.cmp(&b.id.pid))
             }),
             SortMode::Elapsed => {

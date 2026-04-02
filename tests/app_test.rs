@@ -13,7 +13,7 @@ fn test_initial_state_is_empty() {
     let state = make_state();
     assert!(state.agents.is_empty());
     assert_eq!(state.selected, None);
-    assert_eq!(state.sort_mode, SortMode::Urgency);
+    assert_eq!(state.sort_mode, SortMode::Name);
     assert!(!state.group_by_worktree);
     assert!(!state.show_help);
 }
@@ -171,13 +171,13 @@ fn test_count_by_status() {
 #[test]
 fn test_cycle_sort_mode() {
     let mut state = make_state();
-    assert_eq!(state.sort_mode, SortMode::Urgency);
-    state.cycle_sort_mode();
     assert_eq!(state.sort_mode, SortMode::Name);
     state.cycle_sort_mode();
     assert_eq!(state.sort_mode, SortMode::Elapsed);
     state.cycle_sort_mode();
     assert_eq!(state.sort_mode, SortMode::Urgency);
+    state.cycle_sort_mode();
+    assert_eq!(state.sort_mode, SortMode::Name);
 }
 
 #[test]
@@ -193,6 +193,7 @@ fn test_toggle_help() {
 #[test]
 fn test_visible_agents_sort_by_urgency() {
     let mut state = make_state();
+    state.sort_mode = SortMode::Urgency;
     // Add agents with different statuses
     for (pid, tool) in [
         (1, AgentTool::Claude),
@@ -463,6 +464,12 @@ fn test_session_info_only_applies_earlier_start_time() {
     });
     // Should still be the earlier time
     assert_eq!(state.agents[0].started_at, earlier);
+}
+
+#[test]
+fn test_default_sort_mode_is_name() {
+    let state = make_state();
+    assert_eq!(state.sort_mode, SortMode::Name);
 }
 
 #[test]

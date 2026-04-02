@@ -146,3 +146,17 @@ fn test_inferred_to_primary_mapping() {
         PrimaryStatus::Running
     );
 }
+
+#[test]
+fn test_is_stale_old_mtime() {
+    use std::time::{Duration, SystemTime};
+    let old = SystemTime::now() - Duration::from_secs(30);
+    assert!(ai_overview::detect::claude::is_stale(old, 10));
+}
+
+#[test]
+fn test_is_stale_recent_mtime() {
+    use std::time::SystemTime;
+    let now = SystemTime::now();
+    assert!(!ai_overview::detect::claude::is_stale(now, 10));
+}

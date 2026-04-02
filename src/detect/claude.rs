@@ -11,6 +11,10 @@ use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::{from_rfc3339, Activity, AgentTool, PrimaryStatus};
 
+/// Seconds since last transcript write before we consider the agent to be
+/// waiting for user input. Derived from transcript gap analysis: p90 = 25.6 s.
+const CLAUDE_IDLE_SECS: u64 = 10;
+
 // ── TranscriptEntry ───────────────────────────────────────────────
 
 /// A parsed entry from a Claude transcript JSONL file.
@@ -167,6 +171,16 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
     }
 }
 
+// ── is_stale ──────────────────────────────────────────────────────
+
+/// Returns true if `mtime` is older than `threshold_secs` seconds ago.
+pub fn is_stale(mtime: std::time::SystemTime, threshold_secs: u64) -> bool {
+    mtime
+        .elapsed()
+        .map(|e| e.as_secs() >= threshold_secs)
+        .unwrap_or(false)
+}
+
 // ── parse_project_session ─────────────────────────────────────────
 
 /// Parse a Claude project session JSONL file to extract session metadata.
@@ -297,6 +311,8 @@ struct SessionEmitState {
     emitted_subagent_tools: Vec<String>,
     session_info_sent: bool,
     entry_count: usize,
+    last_mtime: Option<std::time::SystemTime>,
+    pid: Option<u32>,
 }
 
 // ── run_claude_detector ───────────────────────────────────────────
@@ -319,6 +335,8 @@ pub async fn run_claude_detector(
     let mut file_sizes: HashMap<PathBuf, u64> = HashMap::new();
     // Track emit state per session (keyed by session_id or transcript path)
     let mut session_states: HashMap<String, SessionEmitState> = HashMap::new();
+    // Track last known mtime for all transcript files (for stale-file Waiting detection)
+    let mut file_mtimes: HashMap<PathBuf, std::time::SystemTime> = HashMap::new();
 
     loop {
         // Phase 1: Scan project session files to build CWD→session_id map
@@ -373,6 +391,7 @@ pub async fn run_claude_detector(
             let scan_result = tokio::task::spawn_blocking(move || {
                 let mut new_sizes = sizes;
                 let mut results: Vec<(PathBuf, u64, Vec<TranscriptEntry>)> = Vec::new();
+                let mut mtime_only: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
 
                 if let Ok(read_dir) = std::fs::read_dir(&dir) {
                     for entry in read_dir.flatten() {
@@ -394,22 +413,33 @@ pub async fn run_claude_detector(
                         let current_size = metadata.len();
                         let prev_size = new_sizes.get(&file_path).copied().unwrap_or(0);
 
+                        let mtime = metadata
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
                         if current_size > prev_size {
                             if let Ok(content) = std::fs::read_to_string(&file_path) {
                                 let entries = parse_transcript(&content);
                                 results.push((file_path.clone(), current_size, entries));
                             }
-                            new_sizes.insert(file_path, current_size);
+                            new_sizes.insert(file_path.clone(), current_size);
                         }
+
+                        mtime_only.push((file_path, mtime));
                     }
                 }
 
-                (new_sizes, results)
+                (new_sizes, results, mtime_only)
             })
             .await?;
 
-            let (new_sizes, results) = scan_result;
+            let (new_sizes, results, mtime_updates) = scan_result;
             file_sizes = new_sizes;
+
+            // Update the mtime map
+            for (path, mtime) in mtime_updates {
+                file_mtimes.insert(path, mtime);
+            }
 
             for (file_path, _current_size, entries) in &results {
                 // Try to find a matching CWD for this transcript via project sessions.
@@ -456,6 +486,8 @@ pub async fn run_claude_detector(
                 let session_key = file_path.to_string_lossy().to_string();
                 let state = session_states.entry(session_key).or_default();
 
+                state.pid = Some(pid);
+
                 // Emit SessionInfo once
                 if !state.session_info_sent {
                     if let Some(session_info) = matched_session {
@@ -484,8 +516,23 @@ pub async fn run_claude_detector(
                 if entries.len() <= state.entry_count {
                     continue;
                 }
+
+                // If we were Waiting and new entries arrived, restore Running
+                if state.last_status == Some(PrimaryStatus::Waiting) {
+                    let _ = tx
+                        .send(AgentEvent::StatusChanged {
+                            pid,
+                            tool: AgentTool::Claude,
+                            old: PrimaryStatus::Waiting,
+                            new: PrimaryStatus::Running,
+                        })
+                        .await;
+                    state.last_status = Some(PrimaryStatus::Running);
+                }
+
                 let new_entries = &entries[state.entry_count..];
                 state.entry_count = entries.len();
+                state.last_mtime = file_mtimes.get(file_path).copied();
 
                 // Infer status from transcript
                 let inferred = infer_status_from_transcript(entries);
@@ -583,6 +630,43 @@ pub async fn run_claude_detector(
                         activity: new_activity,
                     })
                     .await;
+            }
+
+            // Staleness check: if any Running session's transcript file hasn't been
+            // written for CLAUDE_IDLE_SECS, emit StatusChanged → Waiting.
+            for (session_key, state) in session_states.iter_mut() {
+                if state.last_status != Some(PrimaryStatus::Running) {
+                    continue;
+                }
+                let path = PathBuf::from(session_key.as_str());
+                let mtime = match file_mtimes.get(&path) {
+                    Some(m) => *m,
+                    None => continue,
+                };
+                if !is_stale(mtime, CLAUDE_IDLE_SECS) {
+                    continue;
+                }
+                let pid = match state.pid {
+                    Some(p) => p,
+                    None => continue,
+                };
+                let old = state.last_status.unwrap_or(PrimaryStatus::Running);
+                let _ = tx
+                    .send(AgentEvent::StatusChanged {
+                        pid,
+                        tool: AgentTool::Claude,
+                        old,
+                        new: PrimaryStatus::Waiting,
+                    })
+                    .await;
+                let _ = tx
+                    .send(AgentEvent::ActivityChanged {
+                        pid,
+                        tool: AgentTool::Claude,
+                        activity: None, // clear activity when Waiting
+                    })
+                    .await;
+                state.last_status = Some(PrimaryStatus::Waiting);
             }
         }
 

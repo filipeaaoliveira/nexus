@@ -417,7 +417,7 @@ fn looks_like_review_output(text: &str) -> bool {
 
 pub fn normalize_opencode_state(
     session_state: Option<&str>,
-    latest_tool_name: Option<&str>,
+    _latest_tool_name: Option<&str>,
     parts: &[PartData],
     assistant_turn_completed: bool,
     latest_assistant_message: Option<&str>,
@@ -455,27 +455,21 @@ pub fn normalize_opencode_state(
     }
 
     if assistant_turn_completed {
-        if latest_assistant_message
-            .map(str::trim)
-            .is_some_and(|message| !message.is_empty())
-        {
-            return NormalizedState::new(
-                NormalizedStatus::Done,
-                Some(NormalizedReason::ReadyForNextTask),
-            );
-        }
-
-        return NormalizedState::new(NormalizedStatus::Unknown, None);
-    }
-
-    if latest_tool_name.is_some() {
         return NormalizedState::new(
-            NormalizedStatus::Working,
-            Some(NormalizedReason::ToolCall),
+            NormalizedStatus::Done,
+            Some(NormalizedReason::ReadyForNextTask),
         );
     }
 
     NormalizedState::new(NormalizedStatus::Unknown, None)
+}
+
+pub fn observed_session_state(status: PrimaryStatus) -> Option<&'static str> {
+    match status {
+        PrimaryStatus::Running => Some("busy"),
+        PrimaryStatus::Waiting => Some("idle"),
+        _ => None,
+    }
 }
 
 /// State tracked per session to avoid emitting duplicate events.
@@ -856,7 +850,7 @@ pub async fn run_opencode_detector(
                             })
                             .and_then(|part| part.tool_name.as_deref());
                         let normalized_state = normalize_opencode_state(
-                            parts.first().map(|part| part.part_type.as_str()),
+                            observed_session_state(status),
                             latest_tool_name,
                             &parts,
                             assistant_turn_completed,

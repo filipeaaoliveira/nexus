@@ -295,6 +295,61 @@ fn test_completed_review_maps_to_needs_input_review() {
 }
 
 #[test]
+fn test_completed_turn_without_assistant_text_maps_to_done_ready_for_next_task() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let state = normalize_opencode_state(
+        Some("idle"),
+        None,
+        &[PartData {
+            part_type: "step-finish".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        true,
+        None,
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Done);
+    assert_eq!(state.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() {
+    use ai_overview::types::NormalizedStatus;
+
+    let state = normalize_opencode_state(
+        Some("idle"),
+        Some("bash"),
+        &[PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("completed".to_string()),
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        None,
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Unknown);
+    assert_ne!(
+        state.reason,
+        Some(ai_overview::types::NormalizedReason::ToolCall)
+    );
+}
+
+#[test]
+fn test_observed_session_state_maps_running_to_busy() {
+    assert_eq!(
+        observed_session_state(PrimaryStatus::Running),
+        Some("busy")
+    );
+}
+
+#[test]
 fn test_assistant_turn_completed_no_messages() {
     let (_dir, db_path) = setup_message_db();
     let result = query_assistant_turn_completed(&db_path, "nonexistent");

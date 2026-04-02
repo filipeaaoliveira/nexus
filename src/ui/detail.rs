@@ -1,15 +1,14 @@
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::app::AppState;
 use crate::types::{self, TodoStatus};
 
-use super::theme;
+use super::{theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::BOTTOM)
         .border_style(theme::border_style())
@@ -19,32 +18,53 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let visible = state.visible_agents();
-    let agent = state.selected.and_then(|i| visible.get(i).copied());
-
-    let lines = match agent {
+    let lines = match render_data.selected_agent {
         None => vec![Line::from(Span::styled(
             "  no agent selected",
             Style::default().fg(theme::FG_FADED),
         ))],
         Some(agent) => {
             let mut lines = Vec::new();
+            let normalized_text = match &agent.normalized.reason {
+                Some(reason) => {
+                    format!("{} · {}", agent.normalized.status.as_str(), reason.as_str())
+                }
+                None => agent.normalized.status.as_str().to_string(),
+            };
 
-            // Status badge + PID
+            // Normalized state badge + PID
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    format!(" {} ", agent.status.as_str()),
-                    theme::status_badge_style(agent.status),
+                    format!(" {} ", normalized_text),
+                    normalized_status_badge_style(agent.normalized.status),
                 ),
                 Span::styled(
                     format!(
                         "  PID: {}",
-                        agent.pid
+                        agent
+                            .pid
                             .map(|pid| pid.to_string())
                             .unwrap_or_else(|| "-".to_string())
                     ),
                     Style::default().fg(theme::FG_DIMMED),
+                ),
+            ]));
+
+            // Tool-native diagnostics
+            lines.push(Line::from(vec![
+                Span::styled("  tool status: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(
+                    agent.status.as_str().to_string(),
+                    Style::default().fg(theme::status_color(agent.status)),
+                ),
+                Span::styled("  activity: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(
+                    agent
+                        .activity
+                        .map(|activity| activity.as_str().to_string())
+                        .unwrap_or_else(|| "idle".to_string()),
+                    Style::default().fg(theme::FG_DEFAULT),
                 ),
             ]));
 
@@ -65,17 +85,6 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
                     Span::styled(
                         format!("{branch}{wt}"),
                         Style::default().fg(theme::COLOR_BRANCH),
-                    ),
-                ]));
-            }
-
-            // Activity
-            if let Some(ref activity) = agent.activity {
-                lines.push(Line::from(vec![
-                    Span::styled("  activity: ", Style::default().fg(theme::FG_COMMENT)),
-                    Span::styled(
-                        activity.as_str().to_string(),
-                        Style::default().fg(theme::FG_DEFAULT),
                     ),
                 ]));
             }
@@ -140,4 +149,22 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let paragraph = Paragraph::new(lines).block(block);
     frame.render_widget(paragraph, area);
+}
+
+fn normalized_status_badge_style(status: crate::types::NormalizedStatus) -> Style {
+    let color = normalized_status_color(status);
+    Style::default()
+        .fg(theme::BG_HEADER)
+        .bg(color)
+        .add_modifier(Modifier::BOLD)
+}
+
+fn normalized_status_color(status: crate::types::NormalizedStatus) -> Color {
+    match status {
+        crate::types::NormalizedStatus::Working => theme::STATUS_RUNNING,
+        crate::types::NormalizedStatus::NeedsInput => theme::STATUS_WAITING,
+        crate::types::NormalizedStatus::Blocked => theme::STATUS_ERROR,
+        crate::types::NormalizedStatus::Done => theme::STATUS_DONE,
+        crate::types::NormalizedStatus::Unknown => theme::FG_DIMMED,
+    }
 }

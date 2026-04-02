@@ -311,7 +311,52 @@ fn looks_like_done_output(text: &str) -> bool {
 }
 
 pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> NormalizedState {
+    let classify_assistant = |content: &str| -> Option<NormalizedState> {
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if looks_like_review_output(trimmed) {
+            return Some(NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Review),
+            ));
+        }
+
+        if looks_like_terminal_failure_output(trimmed) {
+            return Some(NormalizedState::new(
+                NormalizedStatus::Blocked,
+                Some(NormalizedReason::Error),
+            ));
+        }
+
+        if looks_like_done_output(trimmed) {
+            return Some(NormalizedState::new(
+                NormalizedStatus::Done,
+                Some(NormalizedReason::ReadyForNextTask),
+            ));
+        }
+
+        None
+    };
+
     if is_stale {
+        for entry in entries.iter().rev() {
+            match entry {
+                TranscriptEntry::ToolUse { .. }
+                | TranscriptEntry::ToolResult { .. }
+                | TranscriptEntry::User { .. } => {
+                    return NormalizedState::new(NormalizedStatus::Unknown, None);
+                }
+                TranscriptEntry::Assistant { content, .. } => {
+                    if let Some(state) = classify_assistant(content) {
+                        return state;
+                    }
+                }
+            }
+        }
+
         return NormalizedState::new(NormalizedStatus::Unknown, None);
     }
 
@@ -327,30 +372,8 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                 return NormalizedState::new(NormalizedStatus::Working, None);
             }
             TranscriptEntry::Assistant { content, .. } => {
-                let trimmed = content.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-
-                if looks_like_review_output(trimmed) {
-                    return NormalizedState::new(
-                        NormalizedStatus::NeedsInput,
-                        Some(NormalizedReason::Review),
-                    );
-                }
-
-                if looks_like_terminal_failure_output(trimmed) {
-                    return NormalizedState::new(
-                        NormalizedStatus::Blocked,
-                        Some(NormalizedReason::Error),
-                    );
-                }
-
-                if looks_like_done_output(trimmed) {
-                    return NormalizedState::new(
-                        NormalizedStatus::Done,
-                        Some(NormalizedReason::ReadyForNextTask),
-                    );
+                if let Some(state) = classify_assistant(content) {
+                    return state;
                 }
             }
         }

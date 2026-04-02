@@ -121,6 +121,48 @@ fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
 }
 
 #[test]
+fn test_normalize_claude_stale_review_still_maps_to_needs_input_review() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Findings:\n- The implementation is solid overall.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
+fn test_normalize_claude_stale_done_still_maps_to_ready_for_next_task() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "The changes are complete and ready for the next task.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(
+        normalized.reason,
+        Some(NormalizedReason::ReadyForNextTask)
+    );
+}
+
+#[test]
+fn test_normalize_claude_stale_blocked_still_maps_to_error() {
+    let entries = vec![TranscriptEntry::Assistant {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Fatal error: cannot continue.".to_string(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Blocked);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
 fn test_normalize_claude_active_tool_use_maps_to_working_tool_call() {
     let entries = vec![
         TranscriptEntry::User {
@@ -200,6 +242,19 @@ fn test_normalize_claude_stale_trailing_tool_use_maps_to_unknown() {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         tool_name: "read".to_string(),
         tool_input: serde_json::Map::new(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
+}
+
+#[test]
+fn test_normalize_claude_stale_trailing_user_activity_maps_to_unknown() {
+    let entries = vec![TranscriptEntry::User {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        content: "Please keep going.".to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, true);

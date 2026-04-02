@@ -24,20 +24,21 @@ fn test_parse_message_data_assistant() {
 #[test]
 fn test_parse_part_data_tool() {
     let json = r#"{"type":"tool","tool":"bash","callID":"tooluse_abc","state":{"status":"completed","input":{"command":"npm test"},"output":"All tests passed"}}"#;
-    let part = parse_part_data(json);
+    let part = parse_part_data(json, 1774988071935);
     assert!(part.is_some());
     let p = part.unwrap();
     assert_eq!(p.part_type, "tool");
     assert_eq!(p.tool_name, Some("bash".to_string()));
     assert_eq!(p.tool_status, Some("completed".to_string()));
     assert_eq!(p.tool_input_summary, Some("npm test".to_string()));
+    assert_eq!(p.time_created, 1774988071935);
 }
 
 #[test]
 fn test_parse_part_data_text() {
     let json =
         r#"{"type":"text","text":"I'll help you with that.","time":{"start":1774988083425}}"#;
-    let part = parse_part_data(json);
+    let part = parse_part_data(json, 0);
     assert!(part.is_some());
     let p = part.unwrap();
     assert_eq!(p.part_type, "text");
@@ -46,7 +47,7 @@ fn test_parse_part_data_text() {
 #[test]
 fn test_parse_part_data_step_finish() {
     let json = r#"{"type":"step-finish","snapshot":"abc123","reason":"tool-calls","tokens":{"total":34898},"cost":0}"#;
-    let part = parse_part_data(json);
+    let part = parse_part_data(json, 0);
     assert!(part.is_some());
     let p = part.unwrap();
     assert_eq!(p.part_type, "step-finish");
@@ -71,4 +72,204 @@ fn test_extract_subagent_type() {
         Some("general")
     );
     assert_eq!(extract_subagent_type("Normal title"), None);
+}
+
+// ── query_latest_message_role tests ───────────────────────────────
+
+#[test]
+fn test_query_latest_message_role_nonexistent_session() {
+    // In-memory DB won't work with query_latest_message_role because it opens by path.
+    // Use a temp file instead.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            time_created INTEGER NOT NULL
+        );",
+    )
+    .unwrap();
+    drop(conn);
+
+    let result = query_latest_message_role(&db_path, "nonexistent-session");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+}
+
+#[test]
+fn test_query_latest_message_role_returns_assistant() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            time_created INTEGER NOT NULL
+        );",
+    )
+    .unwrap();
+
+    // Insert a user message then an assistant message
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["msg1", "sess1", r#"{"role":"user"}"#, 1000,],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["msg2", "sess1", r#"{"role":"assistant"}"#, 2000,],
+    )
+    .unwrap();
+    drop(conn);
+
+    let result = query_latest_message_role(&db_path, "sess1");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some("assistant".to_string()));
+}
+
+#[test]
+fn test_query_latest_message_role_returns_user() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("test.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            data TEXT NOT NULL,
+            time_created INTEGER NOT NULL
+        );",
+    )
+    .unwrap();
+
+    // Insert assistant then user (user is latest)
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["msg1", "sess1", r#"{"role":"assistant"}"#, 1000,],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO message (id, session_id, data, time_created) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["msg2", "sess1", r#"{"role":"user"}"#, 2000,],
+    )
+    .unwrap();
+    drop(conn);
+
+    let result = query_latest_message_role(&db_path, "sess1");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some("user".to_string()));
+}
+
+#[test]
+fn test_waiting_status_when_assistant_done_no_running_parts() {
+    // When the last message is from the assistant and no parts are running,
+    // the status should be Waiting (not Running).
+    use ai_overview::types::PrimaryStatus;
+
+    // Build parts with no running tool calls (all completed)
+    let parts = vec![
+        PartData {
+            part_type: "tool".to_string(),
+            tool_name: Some("bash".to_string()),
+            tool_status: Some("completed".to_string()),
+            tool_input_summary: None,
+            time_created: 2000,
+        },
+        PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        },
+    ];
+
+    // infer_status_from_parts returns Running for completed tools
+    // (the agent is still processing after a tool completes).
+    // But when the last message is assistant and no parts are running,
+    // the combined logic should produce Waiting.
+
+    // Simulate the same logic used in run_opencode_detector:
+    let inferred = infer_status_from_parts(&parts);
+    let latest_role = Some("assistant".to_string());
+
+    let status = if inferred == PrimaryStatus::Error {
+        PrimaryStatus::Error
+    } else if latest_role.as_deref() == Some("assistant")
+        && !parts
+            .iter()
+            .any(|p| p.tool_status.as_deref() == Some("running"))
+    {
+        PrimaryStatus::Waiting
+    } else {
+        inferred
+    };
+
+    assert_eq!(status, PrimaryStatus::Waiting);
+}
+
+#[test]
+fn test_running_status_when_parts_are_running() {
+    use ai_overview::types::PrimaryStatus;
+
+    let parts = vec![PartData {
+        part_type: "tool".to_string(),
+        tool_name: Some("bash".to_string()),
+        tool_status: Some("running".to_string()),
+        tool_input_summary: None,
+        time_created: 2000,
+    }];
+
+    // Even if last message is assistant, a running part means Running.
+    let inferred = infer_status_from_parts(&parts);
+    let latest_role = Some("assistant".to_string());
+
+    let status = if inferred == PrimaryStatus::Error {
+        PrimaryStatus::Error
+    } else if latest_role.as_deref() == Some("assistant")
+        && !parts
+            .iter()
+            .any(|p| p.tool_status.as_deref() == Some("running"))
+    {
+        PrimaryStatus::Waiting
+    } else {
+        inferred
+    };
+
+    assert_eq!(status, PrimaryStatus::Running);
+}
+
+#[test]
+fn test_error_status_preserved_even_with_assistant_role() {
+    use ai_overview::types::PrimaryStatus;
+
+    let parts = vec![PartData {
+        part_type: "error".to_string(),
+        tool_name: None,
+        tool_status: None,
+        tool_input_summary: None,
+        time_created: 3000,
+    }];
+
+    let inferred = infer_status_from_parts(&parts);
+    let latest_role = Some("assistant".to_string());
+
+    let status = if inferred == PrimaryStatus::Error {
+        PrimaryStatus::Error
+    } else if latest_role.as_deref() == Some("assistant")
+        && !parts
+            .iter()
+            .any(|p| p.tool_status.as_deref() == Some("running"))
+    {
+        PrimaryStatus::Waiting
+    } else {
+        inferred
+    };
+
+    assert_eq!(status, PrimaryStatus::Error);
 }

@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use rusqlite::OptionalExtension;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{AgentTool, PrimaryStatus};
+use crate::types::{Activity, AgentTool, PrimaryStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[derive(Debug, Clone)]
@@ -26,6 +27,7 @@ pub struct PartData {
     pub tool_name: Option<String>,
     pub tool_status: Option<String>,
     pub tool_input_summary: Option<String>,
+    pub time_created: i64,
 }
 
 /// Parse message.data JSON column.
@@ -66,7 +68,7 @@ pub fn parse_message_data(json: &str) -> Option<MessageData> {
 }
 
 /// Parse part.data JSON column.
-pub fn parse_part_data(json: &str) -> Option<PartData> {
+pub fn parse_part_data(json: &str, time_created: i64) -> Option<PartData> {
     let value: Value = serde_json::from_str(json).ok()?;
     let part_type = value.get("type")?.as_str()?.to_string();
     let tool_name = value.get("tool").and_then(|v| v.as_str()).map(String::from);
@@ -92,6 +94,7 @@ pub fn parse_part_data(json: &str) -> Option<PartData> {
         tool_name,
         tool_status,
         tool_input_summary,
+        time_created,
     })
 }
 
@@ -174,21 +177,21 @@ pub fn query_recent_parts(
     )?;
 
     let mut stmt = conn.prepare(
-        "SELECT data FROM part WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
+        "SELECT data, time_created FROM part WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
     )?;
 
     let parts: Vec<PartData> = stmt
         .query_map(rusqlite::params![session_id, limit as i64], |row| {
-            row.get::<_, String>(0)
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?
         .filter_map(|r| match r {
-            Ok(json) => Some(json),
+            Ok((json, time_created)) => Some((json, time_created)),
             Err(e) => {
                 debug!("failed to parse part row: {e}");
                 None
             }
         })
-        .filter_map(|json| parse_part_data(&json))
+        .filter_map(|(json, time_created)| parse_part_data(&json, time_created))
         .collect();
 
     Ok(parts)
@@ -236,17 +239,45 @@ pub fn query_subagent_sessions(
     Ok(sessions)
 }
 
+/// Query the role of the latest message in a session.
+///
+/// Returns `Some("assistant")` or `Some("user")` for the most recent message,
+/// or `None` if no messages exist for the given session.
+pub fn query_latest_message_role(
+    db_path: &Path,
+    session_id: &str,
+) -> anyhow::Result<Option<String>> {
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT json_extract(data, '$.role') FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 1",
+    )?;
+
+    let role = stmt
+        .query_row(rusqlite::params![session_id], |row| row.get::<_, Option<String>>(0))
+        .optional()?
+        .flatten();
+
+    Ok(role)
+}
+
 /// State tracked per session to avoid emitting duplicate events.
 #[derive(Debug, Clone, Default)]
 struct SessionEmitState {
     last_status: Option<PrimaryStatus>,
     last_tool_call: Option<String>,
+    /// Tracks the time_created of the most recent part we saw, so we can
+    /// detect new activity even when the tool name/status hasn't changed.
+    last_part_time: i64,
     emitted_subagent_ids: Vec<String>,
     session_info_sent: bool,
 }
 
 /// Infer a primary status from recent parts for an OpenCode session.
-fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
+pub fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
     // Parts are ordered most-recent-first from the query
     if let Some(latest) = parts.first() {
         match latest.part_type.as_str() {
@@ -254,8 +285,10 @@ fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
                 if latest.tool_status.as_deref() == Some("running") {
                     return PrimaryStatus::Running;
                 }
+                // Completed tool call — still running (generating next step)
                 return PrimaryStatus::Running;
             }
+            "step-start" => return PrimaryStatus::Running,
             "step-finish" => return PrimaryStatus::Running,
             "text" => return PrimaryStatus::Running,
             "error" => return PrimaryStatus::Error,
@@ -263,6 +296,26 @@ fn infer_status_from_parts(parts: &[PartData]) -> PrimaryStatus {
         }
     }
     PrimaryStatus::Running
+}
+
+/// Infer an Activity from recent parts.
+fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
+    if let Some(latest) = parts.first() {
+        match latest.part_type.as_str() {
+            "tool" | "tool-invocation" => {
+                if latest.tool_status.as_deref() == Some("running") {
+                    return Some(Activity::ToolCall);
+                }
+                // Tool completed, model is thinking about next step
+                return Some(Activity::Thinking);
+            }
+            "step-start" => return Some(Activity::Thinking),
+            "text" => return Some(Activity::Generating),
+            "step-finish" => return Some(Activity::Idle),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Run the OpenCode detector loop.
@@ -286,6 +339,13 @@ pub async fn run_opencode_detector(
             match result {
                 Ok(sessions) => {
                     for session in &sessions {
+                        // Skip subagent sessions — they share the parent's CWD
+                        // and would incorrectly emit events against the parent PID.
+                        // Subagents are tracked via query_subagent_sessions below.
+                        if session.parent_id.is_some() {
+                            continue;
+                        }
+
                         let cwd = match &session.directory {
                             Some(d) => d,
                             None => continue,
@@ -322,45 +382,91 @@ pub async fn run_opencode_detector(
                         })
                         .await
                         {
-                            // Emit status change if different from last known
+                            // Check if there's new activity by comparing the most
+                            // recent part's time_created against what we saw last poll.
+                            let newest_time = parts.first().map(|p| p.time_created).unwrap_or(0);
+                            let has_new_parts = newest_time > state.last_part_time;
+                            if has_new_parts {
+                                state.last_part_time = newest_time;
+                            }
+
+                            // Query the latest message role to detect Waiting status.
+                            let msg_session_id = session.id.clone();
+                            let db_msg = db_path.clone();
+                            let latest_role = tokio::task::spawn_blocking(move || {
+                                query_latest_message_role(&db_msg, &msg_session_id)
+                            })
+                            .await
+                            .ok()
+                            .and_then(|r| r.ok())
+                            .flatten();
+
+                            // Determine status: if the parts-based inference says Error, keep it.
+                            // Otherwise, check if the agent is waiting for user input:
+                            // the last message is from the assistant AND no parts are running.
                             let inferred = infer_status_from_parts(&parts);
-                            if state.last_status != Some(inferred) {
+                            let status = if inferred == PrimaryStatus::Error {
+                                PrimaryStatus::Error
+                            } else if latest_role.as_deref() == Some("assistant")
+                                && !parts.iter().any(|p| p.tool_status.as_deref() == Some("running"))
+                            {
+                                PrimaryStatus::Waiting
+                            } else {
+                                inferred
+                            };
+
+                            // Emit status change if different from last known
+                            if state.last_status != Some(status) {
                                 let old = state.last_status.unwrap_or(PrimaryStatus::Running);
                                 let _ = tx
                                     .send(AgentEvent::StatusChanged {
                                         pid,
                                         tool: AgentTool::OpenCode,
                                         old,
-                                        new: inferred,
+                                        new: status,
                                     })
                                     .await;
-                                state.last_status = Some(inferred);
+                                state.last_status = Some(status);
                             }
 
-                            // Emit tool call for the most recent tool part
-                            for part in &parts {
-                                if part.part_type == "tool" || part.part_type == "tool-invocation" {
-                                    if let Some(ref tool_name) = part.tool_name {
-                                        // Only emit if this is a different tool call
-                                        let key = format!(
-                                            "{}:{}",
-                                            tool_name,
-                                            part.tool_input_summary.as_deref().unwrap_or("")
-                                        );
-                                        if state.last_tool_call.as_deref() != Some(&key) {
-                                            let _ = tx
-                                                .send(AgentEvent::ToolCallStarted {
-                                                    pid,
-                                                    tool: AgentTool::OpenCode,
-                                                    tool_name: tool_name.clone(),
-                                                    args_summary: part
-                                                        .tool_input_summary
-                                                        .clone(),
-                                                })
-                                                .await;
-                                            state.last_tool_call = Some(key);
+                            // Emit activity change on every poll that sees new parts
+                            if has_new_parts {
+                                let activity = infer_activity_from_parts(&parts);
+                                let _ = tx
+                                    .send(AgentEvent::ActivityChanged {
+                                        pid,
+                                        tool: AgentTool::OpenCode,
+                                        activity,
+                                    })
+                                    .await;
+                            }
+
+                            // Emit tool call for the most recent tool part if new
+                            if has_new_parts {
+                                for part in &parts {
+                                    if part.part_type == "tool" || part.part_type == "tool-invocation" {
+                                        if let Some(ref tool_name) = part.tool_name {
+                                            let key = format!(
+                                                "{}:{}:{}",
+                                                tool_name,
+                                                part.tool_input_summary.as_deref().unwrap_or(""),
+                                                part.time_created,
+                                            );
+                                            if state.last_tool_call.as_deref() != Some(&key) {
+                                                let _ = tx
+                                                    .send(AgentEvent::ToolCallStarted {
+                                                        pid,
+                                                        tool: AgentTool::OpenCode,
+                                                        tool_name: tool_name.clone(),
+                                                        args_summary: part
+                                                            .tool_input_summary
+                                                            .clone(),
+                                                    })
+                                                    .await;
+                                                state.last_tool_call = Some(key);
+                                            }
+                                            break; // only emit for the most recent tool call
                                         }
-                                        break; // only emit for the most recent tool call
                                     }
                                 }
                             }

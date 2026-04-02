@@ -299,7 +299,7 @@ fn test_incomplete_review_maps_to_needs_input_review() {
     use ai_overview::types::{NormalizedReason, NormalizedStatus};
 
     let state = normalize_opencode_state(
-        Some("busy"),
+        Some("idle"),
         None,
         &[PartData {
             part_type: "text".to_string(),
@@ -314,6 +314,31 @@ fn test_incomplete_review_maps_to_needs_input_review() {
 
     assert_eq!(state.status, NormalizedStatus::NeedsInput);
     assert_eq!(state.reason, Some(NormalizedReason::Review));
+}
+
+#[test]
+fn test_busy_review_like_text_stays_working() {
+    use ai_overview::types::NormalizedStatus;
+
+    let state = normalize_opencode_state(
+        Some("busy"),
+        None,
+        &[PartData {
+            part_type: "text".to_string(),
+            tool_name: None,
+            tool_status: None,
+            tool_input_summary: None,
+            time_created: 1000,
+        }],
+        false,
+        Some("### Issues\n#### Critical"),
+    );
+
+    assert_eq!(state.status, NormalizedStatus::Working);
+    assert_ne!(
+        state.reason,
+        Some(ai_overview::types::NormalizedReason::Review)
+    );
 }
 
 #[test]
@@ -828,22 +853,18 @@ fn test_collect_subagent_events_completed_emitted_only_once() {
 #[test]
 fn test_collect_subagent_events_already_archived_on_first_sight_emits_spawned_and_completed() {
     // Edge case: we first observe a subagent that is already archived.
-    // It should emit SubagentSpawned once, then SubagentCompleted once.
+    // It should emit SubagentSpawned once and never emit a later
+    // SubagentCompleted because it was never observed active.
     let mut state = SessionEmitState::default();
     let archived = make_subagent("sub-1", "Do task (@explore subagent)", true);
 
     let events1 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
-    // The subagent was never seen as active: depends on desired behavior.
-    // We expect SubagentSpawned to still be emitted (it's the first time we see it),
-    // but SubagentCompleted NOT yet (the "completed" check runs on the next poll
-    // for the already-emitted set, not for newly-added ones).
     assert_eq!(events1.len(), 1);
     assert!(matches!(&events1[0], AgentEvent::SubagentSpawned { .. }));
 
-    // Second poll: now it is in emitted set and archived → SubagentCompleted once
+    // Second poll: still archived, but no completion event should be emitted.
     let events2 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
-    assert_eq!(events2.len(), 1);
-    assert!(matches!(&events2[0], AgentEvent::SubagentCompleted { .. }));
+    assert!(events2.is_empty());
 
     // Third poll: no more events
     let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42);

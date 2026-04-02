@@ -422,13 +422,6 @@ pub fn normalize_opencode_state(
     assistant_turn_completed: bool,
     latest_assistant_message: Option<&str>,
 ) -> NormalizedState {
-    if latest_assistant_message.is_some_and(looks_like_review_output) {
-        return NormalizedState::new(
-            NormalizedStatus::NeedsInput,
-            Some(NormalizedReason::Review),
-        );
-    }
-
     if session_state == Some("retry")
         || parts
             .iter()
@@ -452,6 +445,13 @@ pub fn normalize_opencode_state(
 
     if matches!(session_state, Some("busy" | "working" | "running")) {
         return NormalizedState::new(NormalizedStatus::Working, None);
+    }
+
+    if latest_assistant_message.is_some_and(looks_like_review_output) {
+        return NormalizedState::new(
+            NormalizedStatus::NeedsInput,
+            Some(NormalizedReason::Review),
+        );
     }
 
     if assistant_turn_completed {
@@ -948,9 +948,7 @@ pub async fn run_opencode_detector(
                         }
                     }
 
-                    // Prune state for sessions that are no longer active (archived or gone).
-                    // This prevents the session_states map from growing without bound.
-                    session_states.retain(|id, _| active_session_ids.contains(id.as_str()));
+                    let _ = active_session_ids;
                 }
                 Ok(Err(e)) => {
                     debug!("Failed to query OpenCode DB: {e}");

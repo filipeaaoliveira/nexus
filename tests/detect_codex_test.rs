@@ -300,7 +300,7 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_multiple_top_level_threads_in
 }
 
 #[test]
-fn test_build_codex_snapshot_does_not_bind_pid_for_low_fidelity_thread_without_rollout() {
+fn test_build_codex_snapshot_binds_pid_for_unique_top_level_thread_without_rollout() {
     let registry = AgentRegistry::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
 
@@ -323,7 +323,7 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_low_fidelity_thread_without_r
     let snapshot = build_codex_snapshot(&threads, &[], &registry);
 
     assert_eq!(snapshot.top_level_threads.len(), 1);
-    assert!(snapshot.top_level_threads[0].pid.is_none());
+    assert_eq!(snapshot.top_level_threads[0].pid, Some(44));
 }
 
 #[test]

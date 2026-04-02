@@ -475,6 +475,73 @@ fn test_codex_waiting_without_rollout_evidence_maps_to_unknown() {
 }
 
 #[test]
+fn test_codex_completed_rollout_does_not_reuse_stale_assistant_text_as_final_output() {
+    use ai_overview::types::NormalizedStatus;
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let rollout_path = std::env::temp_dir().join(format!("codex-stale-final-output-{unique}.jsonl"));
+    std::fs::write(
+        &rollout_path,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:05.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Still working through the changes.\"}]}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:35.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn_1\",\"last_agent_message\":\"\"}}\n"
+        ),
+    )
+    .unwrap();
+    let now = chrono::Local::now().timestamp();
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: now - 5,
+                updated_at: now,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(rollout_path.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: None,
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+    let normalized = normalize_codex_session(
+        &event_snapshot.sessions[0],
+        event_snapshot.sessions[0].final_output.as_deref(),
+    );
+
+    assert_eq!(event_snapshot.sessions[0].status, PrimaryStatus::Done);
+    assert_eq!(event_snapshot.sessions[0].final_output, None);
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+
+    std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
+    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
+    let normalized =
+        normalize_codex_session(&session, Some("Completed implementation after an assessment run."));
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
 fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {

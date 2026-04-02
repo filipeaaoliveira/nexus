@@ -706,20 +706,23 @@ fn summarize_tool_arguments(arguments: &str) -> Option<String> {
 }
 
 fn extract_final_output_text(events: &[RolloutEvent]) -> Option<String> {
+    if let Some(task_complete) = events.iter().rev().find(|event| {
+        event.event_type == "event_msg"
+            && event.payload.get("type").and_then(|value| value.as_str()) == Some("task_complete")
+    }) {
+        return task_complete
+            .payload
+            .get("last_agent_message")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+    }
+
     events
         .iter()
         .rev()
         .find_map(|event| {
-            if event.event_type == "event_msg" {
-                return event
-                    .payload
-                    .get("last_agent_message")
-                    .and_then(|value| value.as_str())
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string);
-            }
-
             if event.event_type != "response_item" {
                 return None;
             }
@@ -760,7 +763,6 @@ fn looks_like_review_output(text: &str) -> bool {
         "#### critical",
         "requested changes",
         "review findings",
-        "merge-readiness",
         "merge-readiness assessment",
         "review assessment",
         "audit findings",

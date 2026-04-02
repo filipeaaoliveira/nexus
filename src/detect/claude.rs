@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_rfc3339, Activity, AgentTool, PrimaryStatus};
+use crate::types::{from_rfc3339, Activity, AgentTool, PrimaryStatus, TodoItem, TodoPriority, TodoStatus};
 
 /// Seconds since last transcript write before we consider the agent to be
 /// waiting for user input. Derived from transcript gap analysis: p90 = 25.6 s.
@@ -177,6 +177,52 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
     }
 }
 
+// ── extract_todos_from_transcript ─────────────────────────────────
+
+/// Extract the current todo list from transcript entries.
+///
+/// Finds the last `todowrite` tool_use call and parses its `tool_input.todos`
+/// array. Returns empty vec if no todowrite calls found.
+pub fn extract_todos_from_transcript(entries: &[TranscriptEntry]) -> Vec<TodoItem> {
+    // Iterate in reverse to find the last todowrite call
+    for entry in entries.iter().rev() {
+        if let TranscriptEntry::ToolUse {
+            tool_name,
+            tool_input,
+            ..
+        } = entry
+        {
+            if tool_name == "todowrite" {
+                if let Some(todos_value) = tool_input.get("todos") {
+                    if let Some(todos_array) = todos_value.as_array() {
+                        return todos_array
+                            .iter()
+                            .filter_map(|item| {
+                                let content = item.get("content")?.as_str()?.to_string();
+                                let status = item
+                                    .get("status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("pending");
+                                let priority = item
+                                    .get("priority")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("medium");
+                                Some(TodoItem {
+                                    content,
+                                    status: TodoStatus::from_str(status),
+                                    priority: TodoPriority::from_str(priority),
+                                })
+                            })
+                            .collect();
+                    }
+                }
+                return Vec::new();
+            }
+        }
+    }
+    Vec::new()
+}
+
 // ── is_stale ──────────────────────────────────────────────────────
 
 /// Returns true if `mtime` is older than `threshold_secs` seconds ago.
@@ -319,6 +365,7 @@ struct SessionEmitState {
     entry_count: usize,
     last_mtime: Option<std::time::SystemTime>,
     pid: Option<u32>,
+    last_todos: Vec<TodoItem>,
 }
 
 // ── run_claude_detector ───────────────────────────────────────────
@@ -636,6 +683,19 @@ pub async fn run_claude_detector(
                         activity: new_activity,
                     })
                     .await;
+
+                // Extract todos and emit if changed
+                let todos = extract_todos_from_transcript(entries);
+                if todos != state.last_todos {
+                    let _ = tx
+                        .send(AgentEvent::TodosUpdated {
+                            pid,
+                            tool: AgentTool::Claude,
+                            todos: todos.clone(),
+                        })
+                        .await;
+                    state.last_todos = todos;
+                }
             }
 
             // Staleness check: if any Running session's transcript file hasn't been

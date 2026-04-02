@@ -1,5 +1,5 @@
 use ai_overview::detect::claude::*;
-use ai_overview::types::{Activity, PrimaryStatus};
+use ai_overview::types::{Activity, PrimaryStatus, TodoPriority, TodoStatus};
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -179,4 +179,120 @@ fn test_infer_activity_normal_user_entry_not_compaction() {
     }];
     let activity = infer_activity_from_last_entry(&entries);
     assert_eq!(activity, Some(Activity::Generating));
+}
+
+// ── extract_todos_from_transcript tests ───────────────────────────
+
+#[test]
+fn test_extract_todos_empty_transcript() {
+    let entries: Vec<TranscriptEntry> = vec![];
+    let todos = extract_todos_from_transcript(&entries);
+    assert!(todos.is_empty());
+}
+
+#[test]
+fn test_extract_todos_no_todowrite_calls() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "hello".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            tool_name: "bash".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+    ];
+    let todos = extract_todos_from_transcript(&entries);
+    assert!(todos.is_empty());
+}
+
+#[test]
+fn test_extract_todos_single_todowrite() {
+    let mut input = serde_json::Map::new();
+    input.insert(
+        "todos".to_string(),
+        serde_json::json!([
+            {"content": "Fix bug", "status": "in_progress", "priority": "high"},
+            {"content": "Write tests", "status": "pending", "priority": "medium"},
+        ]),
+    );
+    let entries = vec![TranscriptEntry::ToolUse {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        tool_name: "todowrite".to_string(),
+        tool_input: input,
+    }];
+    let todos = extract_todos_from_transcript(&entries);
+    assert_eq!(todos.len(), 2);
+    assert_eq!(todos[0].content, "Fix bug");
+    assert_eq!(todos[0].status, TodoStatus::InProgress);
+    assert_eq!(todos[0].priority, TodoPriority::High);
+    assert_eq!(todos[1].content, "Write tests");
+    assert_eq!(todos[1].status, TodoStatus::Pending);
+    assert_eq!(todos[1].priority, TodoPriority::Medium);
+}
+
+#[test]
+fn test_extract_todos_uses_last_todowrite() {
+    let mut input1 = serde_json::Map::new();
+    input1.insert(
+        "todos".to_string(),
+        serde_json::json!([
+            {"content": "Old task", "status": "pending", "priority": "high"},
+        ]),
+    );
+    let mut input2 = serde_json::Map::new();
+    input2.insert(
+        "todos".to_string(),
+        serde_json::json!([
+            {"content": "Old task", "status": "completed", "priority": "high"},
+            {"content": "New task", "status": "in_progress", "priority": "medium"},
+        ]),
+    );
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: input1,
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            tool_name: "bash".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:02:00Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: input2,
+        },
+    ];
+    let todos = extract_todos_from_transcript(&entries);
+    assert_eq!(todos.len(), 2);
+    assert_eq!(todos[0].content, "Old task");
+    assert_eq!(todos[0].status, TodoStatus::Completed);
+    assert_eq!(todos[1].content, "New task");
+    assert_eq!(todos[1].status, TodoStatus::InProgress);
+}
+
+#[test]
+fn test_extract_todos_handles_missing_fields() {
+    let mut input = serde_json::Map::new();
+    input.insert(
+        "todos".to_string(),
+        serde_json::json!([
+            {"content": "Has content only"},
+            {"status": "pending", "priority": "high"},
+        ]),
+    );
+    let entries = vec![TranscriptEntry::ToolUse {
+        timestamp: "2026-04-02T10:00:00Z".to_string(),
+        tool_name: "todowrite".to_string(),
+        tool_input: input,
+    }];
+    let todos = extract_todos_from_transcript(&entries);
+    // Items missing "content" are skipped; items missing status/priority get defaults
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].content, "Has content only");
+    assert_eq!(todos[0].status, TodoStatus::Pending); // default
+    assert_eq!(todos[0].priority, TodoPriority::Medium); // default
 }

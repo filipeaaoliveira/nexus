@@ -204,20 +204,20 @@ fn test_todo_item_equality() {
 
 #[test]
 fn test_todo_status_from_str() {
-    assert_eq!(TodoStatus::from_str("pending"), TodoStatus::Pending);
-    assert_eq!(TodoStatus::from_str("in_progress"), TodoStatus::InProgress);
-    assert_eq!(TodoStatus::from_str("completed"), TodoStatus::Completed);
-    assert_eq!(TodoStatus::from_str("cancelled"), TodoStatus::Cancelled);
-    assert_eq!(TodoStatus::from_str("unknown_value"), TodoStatus::Pending);
+    assert_eq!(TodoStatus::parse_str("pending"), TodoStatus::Pending);
+    assert_eq!(TodoStatus::parse_str("in_progress"), TodoStatus::InProgress);
+    assert_eq!(TodoStatus::parse_str("completed"), TodoStatus::Completed);
+    assert_eq!(TodoStatus::parse_str("cancelled"), TodoStatus::Cancelled);
+    assert_eq!(TodoStatus::parse_str("unknown_value"), TodoStatus::Pending);
 }
 
 #[test]
 fn test_todo_priority_from_str() {
-    assert_eq!(TodoPriority::from_str("high"), TodoPriority::High);
-    assert_eq!(TodoPriority::from_str("medium"), TodoPriority::Medium);
-    assert_eq!(TodoPriority::from_str("low"), TodoPriority::Low);
+    assert_eq!(TodoPriority::parse_str("high"), TodoPriority::High);
+    assert_eq!(TodoPriority::parse_str("medium"), TodoPriority::Medium);
+    assert_eq!(TodoPriority::parse_str("low"), TodoPriority::Low);
     assert_eq!(
-        TodoPriority::from_str("unknown_value"),
+        TodoPriority::parse_str("unknown_value"),
         TodoPriority::Medium
     );
 }

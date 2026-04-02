@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types;
+use crate::types::{self, TodoStatus};
 
 use super::theme;
 
@@ -88,6 +88,46 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
                     Style::default().fg(theme::FG_DIMMED),
                 ),
             ]));
+
+            // Todos section
+            if !agent.todos.is_empty() {
+                // Blank separator line
+                lines.push(Line::from(""));
+
+                // Progress header: "Todos (completed/total)"
+                let completed = agent
+                    .todos
+                    .iter()
+                    .filter(|t| t.status == TodoStatus::Completed)
+                    .count();
+                let total = agent.todos.len();
+                lines.push(Line::from(Span::styled(
+                    format!("  Todos ({completed}/{total})"),
+                    Style::default().fg(theme::COLOR_TODO_HEADER),
+                )));
+
+                // Individual todo items
+                for todo in &agent.todos {
+                    let (symbol, symbol_color, content_color) = match todo.status {
+                        TodoStatus::InProgress => {
+                            ("\u{25CF}", theme::COLOR_TODO_IN_PROGRESS, theme::FG_DEFAULT)
+                        }
+                        TodoStatus::Pending => {
+                            ("\u{25CB}", theme::COLOR_TODO_PENDING, theme::FG_DIMMED)
+                        }
+                        TodoStatus::Completed => {
+                            ("\u{2713}", theme::COLOR_TODO_DONE, theme::COLOR_TODO_DONE)
+                        }
+                        TodoStatus::Cancelled => {
+                            ("\u{2298}", theme::COLOR_TODO_DONE, theme::COLOR_TODO_DONE)
+                        }
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("  {symbol} "), Style::default().fg(symbol_color)),
+                        Span::styled(todo.content.clone(), Style::default().fg(content_color)),
+                    ]));
+                }
+            }
 
             lines
         }

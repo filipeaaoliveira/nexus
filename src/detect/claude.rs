@@ -209,8 +209,8 @@ pub fn extract_todos_from_transcript(entries: &[TranscriptEntry]) -> Vec<TodoIte
                                     .unwrap_or("medium");
                                 Some(TodoItem {
                                     content,
-                                    status: TodoStatus::from_str(status),
-                                    priority: TodoPriority::from_str(priority),
+                                    status: TodoStatus::parse_str(status),
+                                    priority: TodoPriority::parse_str(priority),
                                 })
                             })
                             .collect();

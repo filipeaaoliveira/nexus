@@ -142,7 +142,7 @@ pub enum TodoStatus {
 }
 
 impl TodoStatus {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_str(s: &str) -> Self {
         match s {
             "pending" => Self::Pending,
             "in_progress" => Self::InProgress,
@@ -161,7 +161,7 @@ pub enum TodoPriority {
 }
 
 impl TodoPriority {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_str(s: &str) -> Self {
         match s {
             "high" => Self::High,
             "medium" => Self::Medium,

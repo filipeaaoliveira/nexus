@@ -259,8 +259,8 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> anyhow::Result<V
         .filter_map(|r| r.ok())
         .map(|(content, status, priority)| TodoItem {
             content,
-            status: TodoStatus::from_str(&status),
-            priority: TodoPriority::from_str(&priority),
+            status: TodoStatus::parse_str(&status),
+            priority: TodoPriority::parse_str(&priority),
         })
         .collect();
     Ok(todos)

@@ -34,6 +34,10 @@ pub const COLOR_SUBAGENT: Color = Color::Rgb(0x8e, 0xa4, 0xa2);
 pub const COLOR_TOOL_EVENT: Color = Color::Rgb(0x8b, 0xa4, 0xb0);
 pub const COLOR_SUB_EVENT: Color = Color::Rgb(0x87, 0xa9, 0x87);
 pub const COLOR_MSG_EVENT: Color = Color::Rgb(0xc4, 0xb2, 0x8a);
+pub const COLOR_TODO_IN_PROGRESS: Color = Color::Rgb(0x87, 0xa9, 0x87); // same as STATUS_RUNNING — active, green
+pub const COLOR_TODO_PENDING: Color = Color::Rgb(0x9e, 0x9b, 0x93); // same as FG_DIMMED — muted
+pub const COLOR_TODO_DONE: Color = Color::Rgb(0x62, 0x5e, 0x5a); // same as FG_FADED — dim
+pub const COLOR_TODO_HEADER: Color = Color::Rgb(0xc4, 0xb2, 0x8a); // same as STATUS_WAITING — warm accent
 
 // ── Helper functions ───────────────────────────────────────────────
 

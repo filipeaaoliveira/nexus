@@ -573,6 +573,16 @@ pub async fn run_claude_detector(
                         _ => {}
                     }
                 }
+
+                // Emit ActivityChanged based on what the last entry implies
+                let new_activity = infer_activity_from_last_entry(entries);
+                let _ = tx
+                    .send(AgentEvent::ActivityChanged {
+                        pid,
+                        tool: AgentTool::Claude,
+                        activity: new_activity,
+                    })
+                    .await;
             }
         }
 

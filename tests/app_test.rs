@@ -808,6 +808,38 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
 }
 
 #[test]
+fn test_codex_process_exit_retires_all_session_rows_sharing_pid() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-b".to_string(),
+        None,
+        false,
+        None,
+    ));
+
+    state.handle_event(process_exited(AgentTool::Codex, 44));
+
+    assert_eq!(state.agents.len(), 2);
+    assert!(
+        state
+            .agents
+            .iter()
+            .all(|a| a.status == PrimaryStatus::Exited && a.pid == Some(44))
+    );
+}
+
+#[test]
 fn test_agent_identity_session_has_no_pid() {
     let id = AgentId::session(AgentTool::Codex, "session-a");
     assert_eq!(

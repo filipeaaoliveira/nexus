@@ -207,6 +207,31 @@ impl AppState {
                         "Process exited".to_string(),
                     );
                 } else if let Some(pid) = pid {
+                    if id.tool() == AgentTool::Codex {
+                        let matching_indices: Vec<usize> = self
+                            .agents
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, a)| a.id.tool() == id.tool() && a.pid == Some(pid))
+                            .map(|(idx, _)| idx)
+                            .collect();
+
+                        if !matching_indices.is_empty() {
+                            for agent_idx in matching_indices {
+                                let agent = &mut self.agents[agent_idx];
+                                agent.status = PrimaryStatus::Exited;
+                                agent.activity = None;
+                                agent.last_activity = Local::now();
+                                push_event(
+                                    &mut agent.recent_events,
+                                    ActivityEventKind::StatusChanged,
+                                    "Process exited".to_string(),
+                                );
+                            }
+                            return;
+                        }
+                    }
+
                     if let Some(agent) = self.find_agent_mut_by_pid(id.tool(), pid) {
                         agent.status = PrimaryStatus::Exited;
                         agent.activity = None;

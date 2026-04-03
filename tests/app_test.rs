@@ -2,10 +2,25 @@ use ai_overview::app::{ActiveTab, AppState, CodexTabState};
 use ai_overview::config::Config;
 use ai_overview::event::AgentEvent;
 use ai_overview::types::*;
+use ai_overview::ui::{footer, help};
 use std::path::PathBuf;
+use tempfile::tempdir;
 
 fn make_state() -> AppState {
-    AppState::new(Config::default())
+    let temp = tempdir().expect("tempdir");
+    let root = temp.keep();
+
+    let mut config = Config::default();
+    config.codex_management_dir = root.join("codex-management");
+    config.codex_profiles_dir = config.codex_management_dir.join("profiles");
+    config.codex_repos_dir = config.codex_management_dir.join("repos");
+    config.codex_runtime_dir = config.codex_management_dir.join("runtime");
+    config.codex_quota_cache_file = config.codex_management_dir.join("quota-cache.json");
+    config.codex_data_dir = root.join("codex-monitor");
+    config.claude_data_dir = root.join("claude");
+    config.opencode_data_dir = root.join("opencode");
+
+    AppState::new(config)
 }
 
 fn discovered(
@@ -176,6 +191,41 @@ fn codex_tab_filter_input_stays_on_codex_state() {
     state.confirm_codex_filter();
     assert!(!state.codex_tab.filter_mode);
     assert_eq!(state.codex_tab.filter_input, "q1");
+}
+
+#[test]
+fn codex_footer_uses_codex_shortcuts() {
+    let mut state = make_state();
+    state.next_tab();
+
+    let footer = footer::shortcut_text(&state);
+    assert!(footer.contains("Enter"));
+    assert!(footer.contains("launch"));
+    assert!(footer.contains("i"));
+    assert!(footer.contains("import auth"));
+    assert!(!footer.contains("sort:"));
+    assert!(!footer.contains(" rename"));
+}
+
+#[test]
+fn help_overlay_lists_codex_import_and_launch_shortcuts() {
+    let lines = help::help_lines(ActiveTab::Codex, false);
+    let content: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        })
+        .collect();
+
+    assert!(content
+        .iter()
+        .any(|line| line.contains("Launch selected profile")));
+    assert!(content
+        .iter()
+        .any(|line| line.contains("Import current ~/.codex/auth.json")));
 }
 
 #[test]
@@ -1766,4 +1816,12 @@ fn test_count_by_status_consistent_with_agents_vec() {
             "count_by_status({status:?}) mismatch"
         );
     }
+}
+
+#[test]
+fn codex_tab_active_profile_can_be_set() {
+    let mut state = AppState::new(Config::default());
+    state.codex_tab.profile_ids = vec!["profile-01".into(), "profile-02".into()];
+    state.set_active_codex_profile(Some("profile-01".into()));
+    assert_eq!(state.active_codex_profile_id(), Some("profile-01"));
 }

@@ -1,10 +1,14 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::Reverse;
 use std::collections::VecDeque;
+use std::fs;
 use std::path::PathBuf;
 
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::Local;
 
+use crate::codex_profiles::profile::CodexProfile;
+use crate::codex_profiles::runtime::{launch_codex, require_codex_binary, RuntimePlan};
 use crate::config::Config;
 use crate::event::AgentEvent;
 use crate::types::*;
@@ -46,6 +50,7 @@ impl ActiveTab {
 pub struct CodexTabState {
     pub profile_ids: Vec<String>,
     pub selected_profile_index: Option<usize>,
+    pub active_profile_id: Option<String>,
     pub filter_mode: bool,
     pub filter_input: String,
     pub status_message: Option<String>,
@@ -80,6 +85,10 @@ impl CodexTabState {
             Some(index) => (index + len - 1) % len,
             None => len - 1,
         });
+    }
+
+    pub fn set_active(&mut self, profile_id: Option<String>) {
+        self.active_profile_id = profile_id;
     }
 }
 
@@ -120,7 +129,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(config: Config) -> Self {
-        Self {
+        let mut state = Self {
             active_tab: ActiveTab::Overview,
             codex_tab: CodexTabState::default(),
             agents: Vec::new(),
@@ -136,7 +145,9 @@ impl AppState {
             should_quit: false,
             visible_agent_cache: RefCell::new(VisibleAgentCache::default()),
             agents_version: Cell::new(0),
-        }
+        };
+        state.reload_codex_profiles();
+        state
     }
 
     pub fn active_tab(&self) -> ActiveTab {
@@ -335,6 +346,118 @@ impl AppState {
 
     pub fn confirm_codex_filter(&mut self) {
         self.codex_tab.filter_mode = false;
+    }
+
+    pub fn import_codex_auth(&mut self) -> Result<()> {
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory not found"))?;
+        let auth_source = home.join(".codex").join("auth.json");
+        if !auth_source.is_file() {
+            bail!("{} does not exist", auth_source.display());
+        }
+
+        fs::create_dir_all(&self.config.codex_profiles_dir).with_context(|| {
+            format!(
+                "failed to create {}",
+                self.config.codex_profiles_dir.display()
+            )
+        })?;
+
+        let next_index = self.codex_tab.profile_ids.len() + 1;
+        let profile_id = format!("profile-{next_index:02}");
+        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+        let profile = CodexProfile::import_from_auth(
+            &profile_id,
+            &profile_id,
+            profile_dir,
+            auth_source.as_path(),
+        )?;
+
+        self.reload_codex_profiles();
+        self.select_codex_profile_id(&profile.id);
+        self.codex_tab.status_message = Some(format!("Imported {}", profile.id));
+        Ok(())
+    }
+
+    pub fn launch_selected_codex_profile(&mut self) -> Result<()> {
+        let profile_id = self
+            .selected_codex_profile_id()
+            .ok_or_else(|| anyhow!("no Codex profile selected"))?;
+        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+        let repo_dir = self.config.codex_repos_dir.join("current-repo");
+        let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
+        let working_dir =
+            std::env::current_dir().context("failed to resolve current working directory")?;
+        let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
+        let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())?;
+
+        let status = launch_codex(
+            codex_bin.as_path(),
+            &runtime,
+            &self.config.codex_launch_args,
+            working_dir.as_path(),
+        )?;
+
+        self.codex_tab.status_message = Some(if status.success() {
+            format!("Codex exited successfully for {profile_id}")
+        } else {
+            format!("Codex exited with status {status} for {profile_id}")
+        });
+        Ok(())
+    }
+
+    pub fn reload_codex_profiles(&mut self) {
+        let selected_profile_id = self.selected_codex_profile_id().map(ToOwned::to_owned);
+        let mut profile_ids = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(&self.config.codex_profiles_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.join("auth.json").is_file() {
+                    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                        profile_ids.push(name.to_string());
+                    }
+                }
+            }
+            profile_ids.sort();
+        }
+
+        self.codex_tab.profile_ids = profile_ids;
+        if let Some(profile_id) = selected_profile_id.as_deref() {
+            self.select_codex_profile_id(profile_id);
+        } else {
+            self.clamp_codex_selection();
+        }
+    }
+
+    pub fn selected_codex_profile_id(&self) -> Option<&str> {
+        let index = self.codex_tab.selected_profile_index?;
+        self.codex_tab.profile_ids.get(index).map(String::as_str)
+    }
+
+    pub fn set_active_codex_profile(&mut self, profile_id: Option<String>) {
+        self.codex_tab.set_active(profile_id);
+    }
+
+    pub fn active_codex_profile_id(&self) -> Option<&str> {
+        self.codex_tab.active_profile_id.as_deref()
+    }
+
+    fn select_codex_profile_id(&mut self, profile_id: &str) {
+        self.codex_tab.selected_profile_index = self
+            .codex_tab
+            .profile_ids
+            .iter()
+            .position(|candidate| candidate == profile_id);
+        self.clamp_codex_selection();
+    }
+
+    fn clamp_codex_selection(&mut self) {
+        let len = self.codex_tab.profile_ids.len();
+        self.codex_tab.selected_profile_index = match (self.codex_tab.selected_profile_index, len) {
+            (_, 0) => None,
+            (Some(index), len) if index < len => Some(index),
+            _ => Some(0),
+        };
     }
 
     /// Resolve the currently selected visible index to the corresponding

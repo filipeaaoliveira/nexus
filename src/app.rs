@@ -6,8 +6,11 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::Local;
+use chrono::Utc;
 
-use crate::codex_profiles::profile::CodexProfile;
+use crate::codex_profiles::profile::{
+    load_profile_metadata, save_profile_metadata, CodexProfile, ProfileMetadata,
+};
 use crate::codex_profiles::runtime::{launch_codex, require_codex_binary, RuntimePlan};
 use crate::config::Config;
 use crate::event::AgentEvent;
@@ -46,6 +49,14 @@ impl ActiveTab {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum EditField {
+    #[default]
+    Label,
+    Notes,
+    Enabled,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CodexTabState {
     pub profile_ids: Vec<String>,
@@ -56,6 +67,11 @@ pub struct CodexTabState {
     pub status_message: Option<String>,
     pub session_picker_mode: bool,
     pub session_picker_selected: Option<usize>,
+    pub edit_mode: bool,
+    pub edit_label: String,
+    pub edit_notes: String,
+    pub edit_enabled: bool,
+    pub edit_field: EditField,
 }
 
 impl CodexTabState {
@@ -97,6 +113,22 @@ impl CodexTabState {
 
     pub fn set_active(&mut self, profile_id: Option<String>) {
         self.active_profile_id = profile_id;
+    }
+
+    pub fn start_edit(&mut self, label: &str, notes: &str, enabled: bool) {
+        self.edit_mode = true;
+        self.edit_label = label.to_string();
+        self.edit_notes = notes.to_string();
+        self.edit_enabled = enabled;
+        self.edit_field = EditField::Label;
+    }
+
+    pub fn cancel_edit(&mut self) {
+        self.edit_mode = false;
+        self.edit_label.clear();
+        self.edit_notes.clear();
+        self.edit_enabled = true;
+        self.edit_field = EditField::Label;
     }
 }
 
@@ -361,6 +393,56 @@ impl AppState {
             self.codex_tab.active_profile_id = self.codex_tab.profile_ids.get(index).cloned();
         }
         self.dismiss_session_picker();
+    }
+
+    pub fn start_codex_edit(&mut self) {
+        let profile_id = match self.selected_codex_profile_id() {
+            Some(id) => id.to_string(),
+            None => return,
+        };
+        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+        if let Ok(metadata) = load_profile_metadata(&profile_dir) {
+            self.codex_tab.start_edit(
+                metadata.label.as_deref().unwrap_or(&profile_id),
+                metadata.notes.as_deref().unwrap_or(""),
+                metadata.enabled,
+            );
+            return;
+        }
+        self.codex_tab.start_edit(&profile_id, "", true);
+    }
+
+    pub fn confirm_codex_edit(&mut self) -> Result<()> {
+        if !self.codex_tab.edit_mode {
+            return Ok(());
+        }
+        let profile_id = match self.selected_codex_profile_id() {
+            Some(id) => id.to_string(),
+            None => return Err(anyhow!("no profile selected")),
+        };
+        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+
+        let metadata = ProfileMetadata {
+            id: profile_id.clone(),
+            label: Some(self.codex_tab.edit_label.clone()),
+            notes: if self.codex_tab.edit_notes.is_empty() {
+                None
+            } else {
+                Some(self.codex_tab.edit_notes.clone())
+            },
+            enabled: self.codex_tab.edit_enabled,
+            created_at: None,
+            updated_at: Some(Utc::now()),
+        };
+
+        save_profile_metadata(&profile_dir, &metadata)?;
+        self.codex_tab.edit_mode = false;
+        self.codex_tab.status_message = Some(format!("Saved profile {}", profile_id));
+        Ok(())
+    }
+
+    pub fn cancel_codex_edit(&mut self) {
+        self.codex_tab.cancel_edit();
     }
 
     pub fn filter_push_char(&mut self, c: char) {

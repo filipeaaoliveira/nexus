@@ -78,11 +78,29 @@ async fn run_loop(
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
                 ActiveTab::Overview => state.move_selection_down(),
-                ActiveTab::Codex => state.handle_codex_move_down(),
+                ActiveTab::Codex => {
+                    let previous_active = state.active_codex_profile_id().map(String::from);
+                    state.handle_codex_move_down();
+                    let new_active = state.active_codex_profile_id().map(String::from);
+                    if previous_active.as_deref() != new_active.as_deref() {
+                        if let Err(e) = state.restart_running_codex_with_profile() {
+                            state.codex_tab.status_message = Some(e.to_string());
+                        }
+                    }
+                }
             },
             Some(input::Action::MoveUp) => match state.active_tab() {
                 ActiveTab::Overview => state.move_selection_up(),
-                ActiveTab::Codex => state.handle_codex_move_up(),
+                ActiveTab::Codex => {
+                    let previous_active = state.active_codex_profile_id().map(String::from);
+                    state.handle_codex_move_up();
+                    let new_active = state.active_codex_profile_id().map(String::from);
+                    if previous_active.as_deref() != new_active.as_deref() {
+                        if let Err(e) = state.restart_running_codex_with_profile() {
+                            state.codex_tab.status_message = Some(e.to_string());
+                        }
+                    }
+                }
             },
             Some(input::Action::NextTab) => state.next_tab(),
             Some(input::Action::PreviousTab) => state.previous_tab(),
@@ -120,6 +138,24 @@ async fn run_loop(
                 ActiveTab::Overview => state.start_rename(),
                 ActiveTab::Codex => {}
             },
+            Some(input::Action::CodexImportAuth) => {
+                if state.active_tab() == ActiveTab::Codex {
+                    if let Err(error) = state.import_codex_auth() {
+                        state.codex_tab.status_message = Some(error.to_string());
+                    }
+                }
+            }
+            Some(input::Action::CodexLaunchSelected) => {
+                if state.active_tab() == ActiveTab::Codex {
+                    ratatui::restore();
+                    let launch_result = state.launch_selected_codex_profile();
+                    *terminal = ratatui::init();
+                    terminal.clear()?;
+                    if let Err(error) = launch_result {
+                        state.codex_tab.status_message = Some(error.to_string());
+                    }
+                }
+            }
             Some(input::Action::RenameChar(c)) => match state.active_tab() {
                 ActiveTab::Overview => state.rename_push_char(c),
                 ActiveTab::Codex => {}

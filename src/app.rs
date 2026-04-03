@@ -65,26 +65,32 @@ impl CodexTabState {
         let len = self.profile_ids.len();
         if len == 0 {
             self.selected_profile_index = None;
+            self.active_profile_id = None;
             return;
         }
 
-        self.selected_profile_index = Some(match self.selected_profile_index {
+        let new_index = match self.selected_profile_index {
             Some(index) => (index + 1) % len,
             None => 0,
-        });
+        };
+        self.selected_profile_index = Some(new_index);
+        self.active_profile_id = Some(self.profile_ids[new_index].clone());
     }
 
     pub fn previous_profile(&mut self) {
         let len = self.profile_ids.len();
         if len == 0 {
             self.selected_profile_index = None;
+            self.active_profile_id = None;
             return;
         }
 
-        self.selected_profile_index = Some(match self.selected_profile_index {
+        let new_index = match self.selected_profile_index {
             Some(index) => (index + len - 1) % len,
             None => len - 1,
-        });
+        };
+        self.selected_profile_index = Some(new_index);
+        self.active_profile_id = Some(self.profile_ids[new_index].clone());
     }
 
     pub fn set_active(&mut self, profile_id: Option<String>) {
@@ -440,6 +446,50 @@ impl AppState {
 
     pub fn active_codex_profile_id(&self) -> Option<&str> {
         self.codex_tab.active_profile_id.as_deref()
+    }
+
+    pub fn running_codex_sessions(&self) -> Vec<(String, Option<u32>)> {
+        self.agents
+            .iter()
+            .filter(|a| a.id.tool() == AgentTool::Codex && a.id.is_session())
+            .filter(|a| a.status != PrimaryStatus::Exited)
+            .map(|a| (a.session_id.clone().unwrap_or_default(), a.pid))
+            .collect()
+    }
+
+    pub fn restart_running_codex_with_profile(&mut self) -> Result<usize> {
+        let active_profile_id = self
+            .active_codex_profile_id()
+            .ok_or_else(|| anyhow!("no active profile"))?;
+
+        let running_sessions = self.running_codex_sessions();
+        if running_sessions.is_empty() {
+            return Ok(0);
+        }
+
+        let profile_dir = self.config.codex_profiles_dir.join(active_profile_id);
+        let repo_dir = self.config.codex_repos_dir.join("current-repo");
+        let runtime_home = self.config.codex_runtime_dir.join(active_profile_id);
+        let working_dir =
+            std::env::current_dir().context("failed to resolve current working directory")?;
+        let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
+        let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())?;
+
+        let mut restarted = 0;
+        for (session_id, _pid) in &running_sessions {
+            let args = vec!["resume".to_string(), session_id.clone()];
+            let status = launch_codex(codex_bin.as_path(), &runtime, &args, working_dir.as_path())?;
+
+            if status.success() {
+                restarted += 1;
+            }
+        }
+
+        self.codex_tab.status_message = Some(format!(
+            "Restarted {} session(s) with {}",
+            restarted, active_profile_id
+        ));
+        Ok(restarted)
     }
 
     fn select_codex_profile_id(&mut self, profile_id: &str) {

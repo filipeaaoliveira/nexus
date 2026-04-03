@@ -30,6 +30,14 @@ pub enum Action {
     CodexSessionPickerDown,
     CodexSessionPickerConfirm,
     CodexSessionPickerCancel,
+    CodexEditStart,
+    CodexEditChar(char),
+    CodexEditBackspace,
+    CodexEditToggleEnabled,
+    CodexEditNextField,
+    CodexEditPrevField,
+    CodexEditConfirm,
+    CodexEditCancel,
 }
 
 pub fn poll_action(
@@ -37,6 +45,7 @@ pub fn poll_action(
     filter_mode: bool,
     rename_mode: bool,
     session_picker_mode: bool,
+    edit_mode: bool,
 ) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
         if let Event::Key(key) = event::read()? {
@@ -45,6 +54,7 @@ pub fn poll_action(
                 filter_mode,
                 rename_mode,
                 session_picker_mode,
+                edit_mode,
             ));
         }
     }
@@ -56,9 +66,23 @@ fn action_for_key(
     filter_mode: bool,
     rename_mode: bool,
     session_picker_mode: bool,
+    edit_mode: bool,
 ) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
+    }
+
+    if edit_mode {
+        return match key.code {
+            KeyCode::Esc => Some(Action::CodexEditCancel),
+            KeyCode::Enter => Some(Action::CodexEditConfirm),
+            KeyCode::Char(' ') => Some(Action::CodexEditToggleEnabled),
+            KeyCode::Tab => Some(Action::CodexEditNextField),
+            KeyCode::BackTab => Some(Action::CodexEditPrevField),
+            KeyCode::Char(c) => Some(Action::CodexEditChar(c)),
+            KeyCode::Backspace => Some(Action::CodexEditBackspace),
+            _ => None,
+        };
     }
 
     if session_picker_mode {
@@ -106,6 +130,7 @@ fn action_for_key(
         KeyCode::Char('r') => Some(Action::StartRename),
         KeyCode::Char('i') => Some(Action::CodexImportAuth),
         KeyCode::Char('w') => Some(Action::CodexWriteToHome),
+        KeyCode::Char('e') => Some(Action::CodexEditStart),
         KeyCode::Enter => Some(Action::CodexLaunchSelected),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,
@@ -124,6 +149,7 @@ mod tests {
                 KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
                 false,
                 false,
+                false,
                 false
             ),
             Some(Action::CodexImportAuth)
@@ -131,6 +157,7 @@ mod tests {
         assert_eq!(
             action_for_key(
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                false,
                 false,
                 false,
                 false
@@ -146,9 +173,46 @@ mod tests {
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                 true,
                 false,
+                false,
                 false
             ),
             Some(Action::FilterConfirm)
+        );
+    }
+
+    #[test]
+    fn test_edit_mode_keys_map_correctly() {
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                false
+            ),
+            Some(Action::CodexEditStart)
+        );
+
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                true
+            ),
+            Some(Action::CodexEditConfirm)
+        );
+
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                true
+            ),
+            Some(Action::CodexEditToggleEnabled)
         );
     }
 }

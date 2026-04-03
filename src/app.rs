@@ -445,6 +445,42 @@ impl AppState {
         self.codex_tab.cancel_edit();
     }
 
+    pub fn codex_edit_push_char(&mut self, c: char) {
+        match self.codex_tab.edit_field {
+            EditField::Label => self.codex_tab.edit_label.push(c),
+            EditField::Notes => self.codex_tab.edit_notes.push(c),
+            EditField::Enabled => {}
+        }
+    }
+
+    pub fn codex_edit_pop_char(&mut self) {
+        match self.codex_tab.edit_field {
+            EditField::Label => {
+                self.codex_tab.edit_label.pop();
+            }
+            EditField::Notes => {
+                self.codex_tab.edit_notes.pop();
+            }
+            EditField::Enabled => {}
+        }
+    }
+
+    pub fn codex_edit_toggle_enabled(&mut self) {
+        self.codex_tab.edit_enabled = !self.codex_tab.edit_enabled;
+    }
+
+    pub fn codex_edit_next_field(&mut self) {
+        self.codex_tab.edit_field = EditField::Notes;
+    }
+
+    pub fn codex_edit_prev_field(&mut self) {
+        self.codex_tab.edit_field = EditField::Label;
+    }
+
+    pub fn dismiss_codex_edit(&mut self) {
+        self.codex_tab.cancel_edit();
+    }
+
     pub fn filter_push_char(&mut self, c: char) {
         self.filter_input.push(c);
         self.sync_filter();

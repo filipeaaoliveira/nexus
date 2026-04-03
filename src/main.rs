@@ -75,6 +75,7 @@ async fn run_loop(
             state.active_filter_mode(),
             state.active_rename_mode(),
             state.codex_tab.session_picker_mode,
+            state.codex_tab.edit_mode,
         )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
@@ -194,6 +195,46 @@ async fn run_loop(
             Some(input::Action::CodexSessionPickerCancel) => {
                 if state.codex_tab.session_picker_mode {
                     state.dismiss_session_picker();
+                }
+            }
+            Some(input::Action::CodexEditStart) => {
+                if state.active_tab() == ActiveTab::Codex {
+                    state.start_codex_edit();
+                }
+            }
+            Some(input::Action::CodexEditChar(c)) => {
+                if state.codex_tab.edit_mode {
+                    state.codex_edit_push_char(c);
+                }
+            }
+            Some(input::Action::CodexEditBackspace) => {
+                if state.codex_tab.edit_mode {
+                    state.codex_edit_pop_char();
+                }
+            }
+            Some(input::Action::CodexEditToggleEnabled) => {
+                if state.codex_tab.edit_mode {
+                    state.codex_edit_toggle_enabled();
+                }
+            }
+            Some(input::Action::CodexEditNextField) => {
+                if state.codex_tab.edit_mode {
+                    state.codex_edit_next_field();
+                }
+            }
+            Some(input::Action::CodexEditPrevField) => {
+                if state.codex_tab.edit_mode {
+                    state.codex_edit_prev_field();
+                }
+            }
+            Some(input::Action::CodexEditConfirm) => {
+                if state.codex_tab.edit_mode {
+                    state.confirm_codex_edit();
+                }
+            }
+            Some(input::Action::CodexEditCancel) => {
+                if state.codex_tab.edit_mode {
+                    state.dismiss_codex_edit();
                 }
             }
             Some(input::Action::Tick) | None => {}

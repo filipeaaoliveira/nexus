@@ -1,14 +1,23 @@
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::AppState;
+use crate::app::{ActiveTab, AppState};
 
 use super::{theme, RenderData};
 
 pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>, area: Rect) {
+    let tab_style = |tab: ActiveTab| {
+        if tab == render_data.active_tab {
+            theme::bar_style()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            theme::bar_style().fg(theme::FG_DIMMED)
+        }
+    };
     let total = render_data.header.total;
     let running = render_data.header.running;
     let waiting = render_data.header.waiting;
@@ -17,8 +26,19 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
     let exited = render_data.header.exited;
     let subagent_count = render_data.header.subagent_count;
 
-    let spans = vec![
+    let mut spans = vec![
         Span::styled(" ai-overview ", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled("  ", theme::bar_style()),
+    ];
+
+    for (index, tab) in ActiveTab::ALL.iter().copied().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(" / ", theme::bar_style().fg(theme::FG_DIMMED)));
+        }
+        spans.push(Span::styled(tab.label(), tab_style(tab)));
+    }
+
+    spans.extend([
         Span::styled("  ", theme::bar_style()),
         Span::styled(
             format!("{total} agents"),
@@ -54,7 +74,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
             format!("{subagent_count} subagents"),
             theme::bar_style().fg(theme::COLOR_SUBAGENT),
         ),
-    ];
+    ]);
 
     let right_spans = vec![Span::styled(
         format!("poll: {}s ", state.config.poll_interval_secs),

@@ -1,4 +1,4 @@
-use ai_overview::app::AppState;
+use ai_overview::app::{ActiveTab, AppState};
 use ai_overview::config::Config;
 use ai_overview::event::AgentEvent;
 use ai_overview::types::*;
@@ -101,6 +101,30 @@ fn test_initial_state_is_empty() {
     assert_eq!(state.selected, None);
     assert_eq!(state.sort_mode, SortMode::Name);
     assert!(!state.show_help);
+}
+
+#[test]
+fn test_initial_state_starts_on_overview_tab() {
+    let state = make_state();
+    assert_eq!(state.active_tab(), ActiveTab::Overview);
+}
+
+#[test]
+fn test_tab_navigation_cycles_between_tabs() {
+    let mut state = make_state();
+    assert_eq!(state.active_tab(), ActiveTab::Overview);
+
+    state.next_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Codex);
+
+    state.previous_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Overview);
+
+    state.previous_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Codex);
+
+    state.next_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Overview);
 }
 
 #[test]

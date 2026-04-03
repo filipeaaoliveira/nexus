@@ -40,6 +40,10 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     let line = Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" navigate", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" switch", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  Shift+Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" back", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" filter", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  s", theme::bar_style().fg(theme::FG_DEFAULT)),

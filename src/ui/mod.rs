@@ -10,7 +10,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::Style;
 use ratatui::Frame;
 
-use crate::app::AppState;
+use crate::app::{ActiveTab, AppState};
 use crate::types::{Agent, PrimaryStatus};
 
 pub struct HeaderStats {
@@ -24,6 +24,7 @@ pub struct HeaderStats {
 }
 
 pub struct RenderData<'a> {
+    pub active_tab: ActiveTab,
     pub visible_agents: Vec<&'a Agent>,
     pub selected_agent: Option<&'a Agent>,
     pub header: HeaderStats,
@@ -54,6 +55,7 @@ impl<'a> RenderData<'a> {
         };
 
         Self {
+            active_tab: state.active_tab(),
             visible_agents,
             selected_agent,
             header,
@@ -64,6 +66,13 @@ impl<'a> RenderData<'a> {
 pub fn render(frame: &mut Frame, state: &AppState) {
     let render_data = RenderData::from_state(state);
 
+    match state.active_tab() {
+        ActiveTab::Overview => render_overview(frame, state, &render_data),
+        ActiveTab::Codex => render_overview(frame, state, &render_data),
+    }
+}
+
+fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>) {
     // Fill background
     frame.render_widget(
         ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),

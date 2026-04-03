@@ -77,6 +77,8 @@ async fn run_loop(
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => state.move_selection_down(),
             Some(input::Action::MoveUp) => state.move_selection_up(),
+            Some(input::Action::NextTab) => state.next_tab(),
+            Some(input::Action::PreviousTab) => state.previous_tab(),
             Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
             Some(input::Action::RemoveAgent) => state.remove_selected(),

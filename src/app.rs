@@ -11,6 +11,37 @@ use crate::types::*;
 
 const MAX_RECENT_EVENTS: usize = 20;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveTab {
+    Overview,
+    Codex,
+}
+
+impl ActiveTab {
+    pub const ALL: [Self; 2] = [Self::Overview, Self::Codex];
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Overview => Self::Codex,
+            Self::Codex => Self::Overview,
+        }
+    }
+
+    pub fn previous(self) -> Self {
+        match self {
+            Self::Overview => Self::Codex,
+            Self::Codex => Self::Overview,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::Codex => "Codex",
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct VisibleAgentCache {
     version: u64,
@@ -29,6 +60,7 @@ struct SessionInfoUpdate {
 }
 
 pub struct AppState {
+    active_tab: ActiveTab,
     pub agents: Vec<Agent>,
     pub selected: Option<usize>,
     pub sort_mode: SortMode,
@@ -47,6 +79,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config) -> Self {
         Self {
+            active_tab: ActiveTab::Overview,
             agents: Vec::new(),
             selected: None,
             sort_mode: SortMode::Name,
@@ -61,6 +94,18 @@ impl AppState {
             visible_agent_cache: RefCell::new(VisibleAgentCache::default()),
             agents_version: Cell::new(0),
         }
+    }
+
+    pub fn active_tab(&self) -> ActiveTab {
+        self.active_tab
+    }
+
+    pub fn next_tab(&mut self) {
+        self.active_tab = self.active_tab.next();
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.active_tab = self.active_tab.previous();
     }
 
     pub fn handle_event(&mut self, event: AgentEvent) {

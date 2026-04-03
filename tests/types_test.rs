@@ -1,5 +1,8 @@
 use ai_overview::types::*;
 use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
+use ai_overview::codex_profiles::quota::{
+    parse_status_output, Confidence, LimitState, QuotaCache,
+};
 use ai_overview::codex_profiles::profile::{extract_auth_metadata, CodexProfile};
 use std::fs;
 use tempfile::tempdir;
@@ -366,4 +369,70 @@ fn codex_profile_import_rejects_blank_id_or_label() {
     assert!(blank_id.is_err());
     assert!(blank_label.is_err());
     assert!(!profile_dir.exists());
+}
+
+#[test]
+fn codex_quota_parser_marks_unknown_when_state_is_unclear() {
+    let snapshot = parse_status_output("5h window: 42% used").expect("snapshot");
+
+    assert_eq!(snapshot.confidence, Confidence::Parsed);
+    assert_eq!(snapshot.five_hour_state, LimitState::Unknown);
+}
+
+#[test]
+fn codex_quota_parser_returns_none_when_no_quota_lines_exist() {
+    assert!(parse_status_output("status: idle").is_none());
+}
+
+#[test]
+fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
+    let snapshot = parse_status_output(
+        "5h window: available, resets at 2026-04-03T12:34:56Z\nweekly window: not reached, resets at 2026-04-10T08:00:00Z",
+    )
+    .expect("snapshot");
+
+    assert_eq!(snapshot.confidence, Confidence::Parsed);
+    assert_eq!(snapshot.five_hour_state, LimitState::Available);
+    assert_eq!(snapshot.weekly_state, LimitState::Available);
+    assert_eq!(
+        snapshot.five_hour_reset_at.as_ref().map(|dt| dt.to_rfc3339()),
+        Some("2026-04-03T12:34:56+00:00".to_string())
+    );
+    assert_eq!(
+        snapshot.weekly_reset_at.as_ref().map(|dt| dt.to_rfc3339()),
+        Some("2026-04-10T08:00:00+00:00".to_string())
+    );
+}
+
+#[test]
+fn codex_quota_cache_save_load_round_trip() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("quota-cache.json");
+    let snapshot = parse_status_output(
+        "5h window: available, resets at 2026-04-03T12:34:56Z\nweekly window: not reached, resets at 2026-04-10T08:00:00Z",
+    )
+    .expect("snapshot");
+
+    let mut cache = QuotaCache::default();
+    cache.by_profile.insert("profile-1".to_string(), snapshot);
+
+    cache.save(&path).unwrap();
+    let loaded = QuotaCache::load(&path).unwrap();
+
+    assert_eq!(loaded, cache);
+}
+
+#[test]
+fn codex_quota_cache_loads_malformed_file_as_error() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("quota-cache.json");
+
+    fs::write(&path, "{ invalid json").unwrap();
+
+    let err = QuotaCache::load(&path).unwrap_err();
+
+    assert!(err
+        .to_string()
+        .contains("failed to parse"));
+    assert!(err.to_string().contains("quota-cache.json"));
 }

@@ -151,6 +151,20 @@ impl AppState {
         self.active_tab = self.active_tab.previous();
     }
 
+    pub fn active_filter_mode(&self) -> bool {
+        match self.active_tab {
+            ActiveTab::Overview => self.filter_mode,
+            ActiveTab::Codex => self.codex_tab.filter_mode,
+        }
+    }
+
+    pub fn active_rename_mode(&self) -> bool {
+        match self.active_tab {
+            ActiveTab::Overview => self.rename_mode,
+            ActiveTab::Codex => false,
+        }
+    }
+
     pub fn handle_event(&mut self, event: AgentEvent) {
         let now = Local::now();
         match event {
@@ -243,6 +257,14 @@ impl AppState {
         self.selected = Some(self.selected.map_or(0, |s| s.saturating_sub(1)));
     }
 
+    pub fn handle_codex_move_down(&mut self) {
+        self.codex_tab.next_profile();
+    }
+
+    pub fn handle_codex_move_up(&mut self) {
+        self.codex_tab.previous_profile();
+    }
+
     pub fn cycle_sort_mode(&mut self) {
         self.sort_mode = self.sort_mode.next();
     }
@@ -261,10 +283,21 @@ impl AppState {
         self.clamp_selection();
     }
 
+    pub fn dismiss_codex_overlay(&mut self) {
+        self.show_help = false;
+        self.codex_tab.filter_mode = false;
+        self.codex_tab.filter_input.clear();
+    }
+
     pub fn start_filter(&mut self) {
         self.filter_mode = true;
         self.filter_input.clear();
         self.filter = None;
+    }
+
+    pub fn start_codex_filter(&mut self) {
+        self.codex_tab.filter_mode = true;
+        self.codex_tab.filter_input.clear();
     }
 
     pub fn filter_push_char(&mut self, c: char) {
@@ -272,9 +305,17 @@ impl AppState {
         self.sync_filter();
     }
 
+    pub fn codex_filter_push_char(&mut self, c: char) {
+        self.codex_tab.filter_input.push(c);
+    }
+
     pub fn filter_pop_char(&mut self) {
         self.filter_input.pop();
         self.sync_filter();
+    }
+
+    pub fn codex_filter_pop_char(&mut self) {
+        self.codex_tab.filter_input.pop();
     }
 
     fn sync_filter(&mut self) {
@@ -290,6 +331,10 @@ impl AppState {
         self.filter_mode = false;
         // Keep filter active
         self.clamp_selection();
+    }
+
+    pub fn confirm_codex_filter(&mut self) {
+        self.codex_tab.filter_mode = false;
     }
 
     /// Resolve the currently selected visible index to the corresponding

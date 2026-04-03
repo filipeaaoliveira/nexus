@@ -1,3 +1,4 @@
+use ai_overview::app::ActiveTab;
 use ai_overview::app::AppState;
 use ai_overview::config::{Cli, Config};
 use ai_overview::detect;
@@ -71,27 +72,66 @@ async fn run_loop(
 
         match input::poll_action(
             Duration::from_millis(100),
-            state.filter_mode,
-            state.rename_mode,
+            state.active_filter_mode(),
+            state.active_rename_mode(),
         )? {
             Some(input::Action::Quit) => break,
-            Some(input::Action::MoveDown) => state.move_selection_down(),
-            Some(input::Action::MoveUp) => state.move_selection_up(),
+            Some(input::Action::MoveDown) => match state.active_tab() {
+                ActiveTab::Overview => state.move_selection_down(),
+                ActiveTab::Codex => state.handle_codex_move_down(),
+            },
+            Some(input::Action::MoveUp) => match state.active_tab() {
+                ActiveTab::Overview => state.move_selection_up(),
+                ActiveTab::Codex => state.handle_codex_move_up(),
+            },
             Some(input::Action::NextTab) => state.next_tab(),
             Some(input::Action::PreviousTab) => state.previous_tab(),
             Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
-            Some(input::Action::RemoveAgent) => state.remove_selected(),
-            Some(input::Action::RemoveExited) => state.remove_exited(),
-            Some(input::Action::DismissOverlay) => state.dismiss_overlay(),
-            Some(input::Action::StartFilter) => state.start_filter(),
-            Some(input::Action::FilterChar(c)) => state.filter_push_char(c),
-            Some(input::Action::FilterBackspace) => state.filter_pop_char(),
-            Some(input::Action::FilterConfirm) => state.confirm_filter(),
-            Some(input::Action::StartRename) => state.start_rename(),
-            Some(input::Action::RenameChar(c)) => state.rename_push_char(c),
-            Some(input::Action::RenameBackspace) => state.rename_pop_char(),
-            Some(input::Action::RenameConfirm) => state.confirm_rename(),
+            Some(input::Action::RemoveAgent) => match state.active_tab() {
+                ActiveTab::Overview => state.remove_selected(),
+                ActiveTab::Codex => {}
+            },
+            Some(input::Action::RemoveExited) => match state.active_tab() {
+                ActiveTab::Overview => state.remove_exited(),
+                ActiveTab::Codex => {}
+            },
+            Some(input::Action::DismissOverlay) => match state.active_tab() {
+                ActiveTab::Overview => state.dismiss_overlay(),
+                ActiveTab::Codex => state.dismiss_codex_overlay(),
+            },
+            Some(input::Action::StartFilter) => match state.active_tab() {
+                ActiveTab::Overview => state.start_filter(),
+                ActiveTab::Codex => state.start_codex_filter(),
+            },
+            Some(input::Action::FilterChar(c)) => match state.active_tab() {
+                ActiveTab::Overview => state.filter_push_char(c),
+                ActiveTab::Codex => state.codex_filter_push_char(c),
+            },
+            Some(input::Action::FilterBackspace) => match state.active_tab() {
+                ActiveTab::Overview => state.filter_pop_char(),
+                ActiveTab::Codex => state.codex_filter_pop_char(),
+            },
+            Some(input::Action::FilterConfirm) => match state.active_tab() {
+                ActiveTab::Overview => state.confirm_filter(),
+                ActiveTab::Codex => state.confirm_codex_filter(),
+            },
+            Some(input::Action::StartRename) => match state.active_tab() {
+                ActiveTab::Overview => state.start_rename(),
+                ActiveTab::Codex => {}
+            },
+            Some(input::Action::RenameChar(c)) => match state.active_tab() {
+                ActiveTab::Overview => state.rename_push_char(c),
+                ActiveTab::Codex => {}
+            },
+            Some(input::Action::RenameBackspace) => match state.active_tab() {
+                ActiveTab::Overview => state.rename_pop_char(),
+                ActiveTab::Codex => {}
+            },
+            Some(input::Action::RenameConfirm) => match state.active_tab() {
+                ActiveTab::Overview => state.confirm_rename(),
+                ActiveTab::Codex => {}
+            },
             Some(input::Action::Tick) | None => {}
         }
     }

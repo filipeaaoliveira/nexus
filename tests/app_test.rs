@@ -145,6 +145,40 @@ fn test_tab_navigation_cycles_between_tabs() {
 }
 
 #[test]
+fn codex_tab_navigation_keys_do_not_move_overview_selection() {
+    let mut state = make_state();
+    state.next_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Codex);
+
+    state.codex_tab.profile_ids = vec!["one".into(), "two".into()];
+    state.handle_codex_move_down();
+
+    assert_eq!(state.codex_tab.selected_profile_index, Some(0));
+    assert_eq!(state.selected, None);
+}
+
+#[test]
+fn codex_tab_filter_input_stays_on_codex_state() {
+    let mut state = make_state();
+    state.next_tab();
+    assert_eq!(state.active_tab(), ActiveTab::Codex);
+
+    state.start_codex_filter();
+    state.codex_filter_push_char('q');
+    state.codex_filter_push_char('1');
+
+    assert!(state.filter.is_none());
+    assert!(!state.filter_mode);
+    assert_eq!(state.filter_input, "");
+    assert!(state.codex_tab.filter_mode);
+    assert_eq!(state.codex_tab.filter_input, "q1");
+
+    state.confirm_codex_filter();
+    assert!(!state.codex_tab.filter_mode);
+    assert_eq!(state.codex_tab.filter_input, "q1");
+}
+
+#[test]
 fn test_discover_agent() {
     let mut state = make_state();
     state.handle_event(discovered(

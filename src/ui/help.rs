@@ -27,14 +27,32 @@ pub fn render(frame: &mut Frame) {
 
     let lines = vec![
         Line::from(""),
+        keybind_line("Tab", "Switch workspace"),
+        keybind_line("Shift-Tab", "Switch back"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Overview",
+            Style::default()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD),
+        )),
         keybind_line("j / ↓", "Move selection down"),
         keybind_line("k / ↑", "Move selection up"),
-        Line::from(""),
         keybind_line("/", "Start filter"),
         keybind_line("s", "Cycle sort mode"),
         keybind_line("d", "Remove selected agent"),
         keybind_line("D", "Remove all exited agents"),
         keybind_line("r", "Rename selected agent"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "  Codex",
+            Style::default()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD),
+        )),
+        keybind_line("j / ↓", "Move selected profile"),
+        keybind_line("k / ↑", "Move selected profile"),
+        keybind_line("/", "Start profile filter"),
         Line::from(""),
         keybind_line("?", "Toggle help"),
         keybind_line("Esc", "Dismiss overlay / clear filter"),

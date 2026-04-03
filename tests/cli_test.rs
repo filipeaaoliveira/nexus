@@ -1,6 +1,6 @@
-use ai_overview::config::Config;
 use ai_overview::codex_profiles::runtime::RuntimePlan;
 use ai_overview::codex_profiles::runtime::{launch_codex, require_codex_binary};
+use ai_overview::config::Config;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -137,7 +137,11 @@ fn launch_codex_places_injected_options_before_caller_args() {
     let status = launch_codex(
         &script,
         &plan,
-        &["--".to_string(), "--user-flag".to_string(), "positional".to_string()],
+        &[
+            "--".to_string(),
+            "--user-flag".to_string(),
+            "positional".to_string(),
+        ],
         &working_dir,
     )
     .expect("launch");

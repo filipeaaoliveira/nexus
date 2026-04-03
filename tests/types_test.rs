@@ -1,12 +1,10 @@
+use ai_overview::codex_profiles::profile::{extract_auth_metadata, CodexProfile};
+use ai_overview::codex_profiles::quota::{parse_status_output, Confidence, LimitState, QuotaCache};
 use ai_overview::types::*;
 use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
-use ai_overview::codex_profiles::quota::{
-    parse_status_output, Confidence, LimitState, QuotaCache,
-};
-use ai_overview::codex_profiles::profile::{extract_auth_metadata, CodexProfile};
+use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
-use serde_json::json;
 
 #[test]
 fn test_normalized_status_labels() {
@@ -324,8 +322,9 @@ fn codex_profile_imports_auth_and_sets_defaults() {
 
     fs::write(&source, auth_json).unwrap();
 
-    let profile = CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source)
-        .unwrap();
+    let profile =
+        CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source)
+            .unwrap();
 
     assert_eq!(profile.id, "profile-1");
     assert_eq!(profile.label, "Primary");
@@ -349,7 +348,8 @@ fn codex_profile_import_rejects_invalid_auth_without_partial_state() {
 
     fs::write(&source, "{invalid json").unwrap();
 
-    let result = CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source);
+    let result =
+        CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source);
 
     assert!(result.is_err());
     assert!(!profile_dir.exists());
@@ -364,7 +364,8 @@ fn codex_profile_import_rejects_blank_id_or_label() {
     fs::write(&source, r#"{"email":"dev@example.com"}"#).unwrap();
 
     let blank_id = CodexProfile::import_from_auth("   ", "Primary", profile_dir.clone(), &source);
-    let blank_label = CodexProfile::import_from_auth("profile-1", "\n\t", profile_dir.clone(), &source);
+    let blank_label =
+        CodexProfile::import_from_auth("profile-1", "\n\t", profile_dir.clone(), &source);
 
     assert!(blank_id.is_err());
     assert!(blank_label.is_err());
@@ -395,7 +396,10 @@ fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
     assert_eq!(snapshot.five_hour_state, LimitState::Available);
     assert_eq!(snapshot.weekly_state, LimitState::Available);
     assert_eq!(
-        snapshot.five_hour_reset_at.as_ref().map(|dt| dt.to_rfc3339()),
+        snapshot
+            .five_hour_reset_at
+            .as_ref()
+            .map(|dt| dt.to_rfc3339()),
         Some("2026-04-03T12:34:56+00:00".to_string())
     );
     assert_eq!(
@@ -431,8 +435,6 @@ fn codex_quota_cache_loads_malformed_file_as_error() {
 
     let err = QuotaCache::load(&path).unwrap_err();
 
-    assert!(err
-        .to_string()
-        .contains("failed to parse"));
+    assert!(err.to_string().contains("failed to parse"));
     assert!(err.to_string().contains("quota-cache.json"));
 }

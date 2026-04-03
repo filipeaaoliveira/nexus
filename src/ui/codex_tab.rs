@@ -60,7 +60,10 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
             } else {
                 format!("  {profile_id}")
             };
-            ListItem::new(Line::from(Span::styled(label, Style::default().fg(theme::FG_DEFAULT))))
+            ListItem::new(Line::from(Span::styled(
+                label,
+                Style::default().fg(theme::FG_DEFAULT),
+            )))
         })
         .collect();
 
@@ -83,12 +86,10 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let mut lines = vec![
-        Line::from(Span::styled(
-            "  select a profile to inspect it here",
-            Style::default().fg(theme::FG_FADED),
-        )),
-    ];
+    let mut lines = vec![Line::from(Span::styled(
+        "  select a profile to inspect it here",
+        Style::default().fg(theme::FG_FADED),
+    ))];
 
     if state.codex_tab.filter_mode {
         lines.push(Line::from(vec![

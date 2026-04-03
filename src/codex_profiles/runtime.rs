@@ -48,9 +48,8 @@ impl RuntimePlan {
         })?;
 
         let runtime_sessions_path = self.runtime_home.join("sessions");
-        replace_path(&runtime_sessions_path).with_context(|| {
-            format!("failed to prepare {}", runtime_sessions_path.display())
-        })?;
+        replace_path(&runtime_sessions_path)
+            .with_context(|| format!("failed to prepare {}", runtime_sessions_path.display()))?;
         create_dir_symlink(&self.sessions_path, &runtime_sessions_path).with_context(|| {
             format!(
                 "failed to link {} to {}",
@@ -129,7 +128,9 @@ fn replace_path(path: &Path) -> Result<()> {
             }
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => return Err(err).with_context(|| format!("failed to inspect {}", path.display())),
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to inspect {}", path.display()))
+        }
     }
 
     Ok(())
@@ -144,9 +145,9 @@ fn is_runnable_binary(path: &Path) -> bool {
     {
         use std::os::unix::fs::PermissionsExt;
 
-        return fs::metadata(path)
+        fs::metadata(path)
             .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
 
     #[cfg(windows)]

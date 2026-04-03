@@ -691,13 +691,13 @@ pub fn build_codex_snapshot(
         .collect::<Vec<_>>();
     let mut top_level_bindable_thread_count_by_cwd: HashMap<String, usize> = HashMap::new();
     for (thread, classification) in &classified_threads {
-        if matches!(classification, CodexThreadClassification::TopLevel) {
-            if thread_is_recent_enough_for_pid_binding(thread) {
-                if let Some(cwd) = thread.cwd.as_deref() {
-                    *top_level_bindable_thread_count_by_cwd
+        if matches!(classification, CodexThreadClassification::TopLevel)
+            && thread_is_recent_enough_for_pid_binding(thread)
+        {
+            if let Some(cwd) = thread.cwd.as_deref() {
+                *top_level_bindable_thread_count_by_cwd
                     .entry(cwd.to_string())
-                        .or_default() += 1;
-                }
+                    .or_default() += 1;
             }
         }
     }

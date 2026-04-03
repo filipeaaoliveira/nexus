@@ -81,9 +81,7 @@ fn classify_window_state(line: &str) -> LimitState {
         return LimitState::Hit;
     }
 
-    if normalized.contains("available")
-        || normalized.contains("not reached")
-    {
+    if normalized.contains("available") || normalized.contains("not reached") {
         return LimitState::Available;
     }
 
@@ -97,7 +95,7 @@ fn parse_reset_timestamp(line: &str) -> Option<DateTime<Utc>> {
 
     let candidate = reset_marker
         .trim()
-        .trim_end_matches(|c: char| matches!(c, ',' | '.' | ';' | ')'))
+        .trim_end_matches([',', '.', ';', ')'])
         .trim();
 
     DateTime::parse_from_rfc3339(candidate)

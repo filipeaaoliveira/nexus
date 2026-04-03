@@ -92,7 +92,7 @@ fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData
         .split(frame.area());
 
     // Header
-    header::render(frame, state, &render_data, outer[0]);
+    header::render(frame, state, render_data, outer[0]);
 
     // Main: split horizontally into agent list (35%) and right pane (65%)
     let main_chunks = Layout::default()
@@ -101,7 +101,7 @@ fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData
         .split(outer[1]);
 
     // Agent list (left)
-    agent_list::render(frame, state, &render_data, main_chunks[0]);
+    agent_list::render(frame, state, render_data, main_chunks[0]);
 
     // Right pane: split vertically into detail (40%) and activity (60%)
     let right_chunks = Layout::default()
@@ -110,10 +110,10 @@ fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData
         .split(main_chunks[1]);
 
     // Detail (right top)
-    detail::render(frame, &render_data, right_chunks[0]);
+    detail::render(frame, render_data, right_chunks[0]);
 
     // Activity (right bottom)
-    activity::render(frame, &render_data, right_chunks[1]);
+    activity::render(frame, render_data, right_chunks[1]);
 
     // Footer
     footer::render(frame, state, outer[2]);

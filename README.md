@@ -1,22 +1,23 @@
 # ai-overview
 
-Read-only terminal dashboard for monitoring local AI coding agents.
+Terminal dashboard and control surface for local AI coding agents.
 
-`ai-overview` watches local agent state for:
-- Codex
-- Claude Code
-- OpenCode
+`ai-overview` now combines two workspaces in one TUI:
 
-It aggregates process discovery, session state, tool calls, subagents, and todos/plans into a single TUI so you can see what is active without switching between terminals.
+- `Overview`: passive monitoring for local agent sessions
+- `Codex`: Codex profile management, best-effort quota inspection, and safe Codex launch workflows
+
+The goal is one terminal surface for both observing active agents and continuing Codex work under another account without opening a second TUI.
 
 ## Status
 
-This project is early-stage but already usable.
+This project is still early-stage, but the core two-workspace model is in place.
 
 Current focus:
-- passive local monitoring only
-- no remote control or mutation
+
 - local terminal-first workflow
+- passive monitoring for multiple agent tools
+- Codex-specific operational controls isolated to the `Codex` tab
 
 ## Installation
 
@@ -41,11 +42,14 @@ ai-overview
 - Rust `1.94.1`
 - macOS or another environment with compatible `ps`, `lsof`, and `git` command behavior
 - an interactive terminal
+- Codex installed locally if you want to use the `Codex` workspace launch flow
 
-The app currently reads local state from these default locations:
+Default local state roots:
+
 - Claude: `~/.claude`
-- Codex: `~/.codex`
-- OpenCode: `~/.local/share/opencode`
+- Codex agent detection: `~/.codex`
+- ai-overview Codex management data: platform local data dir under `ai-overview/codex/`
+- OpenCode: platform local data dir under `ai-overview/opencode/`
 
 ## Usage
 
@@ -55,21 +59,102 @@ Run:
 ai-overview
 ```
 
-Current CLI flag:
+Current CLI flags:
 
 ```text
 --poll-interval <SECONDS>
 --log-file <PATH>
 ```
 
-Example:
+Examples:
 
 ```bash
 ai-overview --poll-interval 2
 ai-overview --log-file ~/.cache/ai-overview/debug.log
 ```
 
+## Workspaces
+
+### Overview
+
+The `Overview` workspace is the original monitor:
+
+- left pane: discovered agents
+- right pane: details and recent activity
+- detector-driven and read-heavy
+
+### Codex
+
+The `Codex` workspace is the operational workspace for Codex account switching:
+
+- profile list
+- selected profile details
+- best-effort quota state
+- launch-oriented Codex session flow
+
+The intent is to keep Codex mutation and launch behavior out of the `Overview` workspace.
+
+## Codex Tab
+
+The `Codex` tab is designed around per-profile auth and repo-shared session continuity.
+
+Primary workflow:
+
+1. Import or manage a Codex profile
+2. Select the desired profile in the `Codex` tab
+3. Launch Codex for the current repo through `ai-overview`
+4. When one account hits a limit, switch profiles and continue the same repo work
+
+This is built specifically so `codex resume <id>` can continue working across account switches for the same repository.
+
+## Safe Launch Model
+
+Codex account switching is implemented with:
+
+- profile-specific auth/config state
+- repo-shared session state
+- repo-shared sqlite runtime state
+
+`ai-overview` does not rely on swapping a single shared `~/.codex/auth.json` during the normal flow.
+
+Instead, launch behavior is intended to:
+
+- keep profile auth isolated
+- keep repo session continuity stable
+- avoid breaking concurrent Codex tabs that are already running
+
+Compatibility/global activation remains a separate, explicit workflow rather than the default.
+
+## Quota Limitations
+
+Quota information in the `Codex` tab is best-effort only.
+
+Rules:
+
+- it is based on local Codex-visible output only
+- it may be parsed, cached, stale, or unavailable
+- it should not be treated as authoritative billing or quota truth
+
+The UI should distinguish:
+
+- exact
+- parsed
+- cached
+- unavailable
+
+If quota parsing fails, the app should prefer showing stale cached data or “unavailable” rather than claiming precision it cannot justify.
+
 ## Keybindings
+
+Global:
+
+- `Tab`: switch workspaces
+- `Shift-Tab`: switch back
+- `?`: toggle help
+- `Esc`: dismiss overlay or active input mode
+- `q`: quit
+
+Overview:
 
 - `j` / `Down`: move selection down
 - `k` / `Up`: move selection up
@@ -78,9 +163,13 @@ ai-overview --log-file ~/.cache/ai-overview/debug.log
 - `d`: remove selected agent from the view
 - `D`: remove all exited agents from the view
 - `r`: rename selected agent locally in the UI
-- `?`: toggle help
-- `Esc`: dismiss overlay or clear active input mode
-- `q`: quit
+
+Codex:
+
+- `j` / `Down`: move selected profile
+- `k` / `Up`: move selected profile
+- `/`: start Codex profile filter
+- additional Codex launch/profile actions are being layered in behind this workspace
 
 ## Development
 
@@ -102,12 +191,19 @@ Test:
 cargo test --locked
 ```
 
+Build:
+
+```bash
+cargo build --locked
+```
+
 ## Notes
 
-- This is a read-only dashboard. It does not send commands to agents.
-- The app currently requires a real terminal for startup, including normal CLI execution.
-- Logs default to a standard cache location such as `~/.cache/ai-overview/ai-overview.log` and can be overridden with `--log-file`.
-- Process discovery currently targets Unix-like environments and depends on `ps`, `lsof`, and `git` output formats. macOS is the primary supported environment today.
+- `Overview` remains a passive monitor for agent discovery and activity.
+- `Codex` is no longer passive-only; it is the explicit control surface for Codex profile workflows.
+- The app requires a real terminal for startup.
+- Logs default to a cache location such as `~/.cache/ai-overview/ai-overview.log` and can be overridden with `--log-file`.
+- Process discovery still depends on Unix-like `ps`, `lsof`, and `git` output formats. macOS remains the primary supported environment.
 
 ## Contributing
 

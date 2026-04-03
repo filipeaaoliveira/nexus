@@ -55,10 +55,19 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
         .enumerate()
         .map(|(index, profile_id)| {
             let is_selected = state.codex_tab.selected_profile_index == Some(index);
+            let is_active = state.active_codex_profile_id() == Some(profile_id.as_str());
             let label = if is_selected {
-                format!("> {profile_id}")
+                if is_active {
+                    format!("> {} (active)", profile_id)
+                } else {
+                    format!("> {}", profile_id)
+                }
             } else {
-                format!("  {profile_id}")
+                if is_active {
+                    format!("  {} (active)", profile_id)
+                } else {
+                    format!("  {}", profile_id)
+                }
             };
             ListItem::new(Line::from(Span::styled(
                 label,

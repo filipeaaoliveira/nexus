@@ -1,4 +1,4 @@
-use ai_overview::detect::process::{parse_lsof_cwd, parse_ps_output};
+use ai_overview::detect::process::{extract_claude_resume_session, parse_lsof_cwd, parse_ps_output};
 use ai_overview::types::AgentTool;
 use std::path::PathBuf;
 
@@ -94,6 +94,21 @@ fn test_parse_ps_output_extracts_codex_resume_thread_id() {
         procs[0].codex_thread_id.as_deref(),
         Some("019d4ffb-ca93-7c83-9cb5-72695ed739e0")
     );
+}
+
+#[test]
+fn test_extract_claude_resume_session_from_command_line() {
+    let cmd = "/Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude resume session-123 --dangerously-bypass-approvals-and-sandbox";
+    assert_eq!(
+        extract_claude_resume_session(cmd).as_deref(),
+        Some("session-123")
+    );
+}
+
+#[test]
+fn test_extract_claude_resume_session_ignores_fresh_launches() {
+    let cmd = "/Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude --dangerously-bypass-approvals-and-sandbox";
+    assert_eq!(extract_claude_resume_session(cmd), None);
 }
 
 #[test]

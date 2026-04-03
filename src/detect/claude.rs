@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::{AgentRegistry, ClaudeLaunchInfo};
 use crate::event::AgentEvent;
 use crate::types::{
     from_rfc3339, Activity, AgentId, AgentTool, NormalizedReason, NormalizedState,
@@ -537,6 +538,74 @@ pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
     info
 }
 
+fn transcript_entry_timestamp(entry: &TranscriptEntry) -> Option<DateTime<Local>> {
+    match entry {
+        TranscriptEntry::User { timestamp, .. }
+        | TranscriptEntry::Assistant { timestamp, .. }
+        | TranscriptEntry::ToolUse { timestamp, .. }
+        | TranscriptEntry::ToolResult { timestamp, .. } => from_rfc3339(timestamp),
+    }
+}
+
+/// For fresh launches, skip transcript entries older than the process start.
+///
+/// Resumed launches keep their full transcript history.
+pub fn transcript_start_index_for_process(
+    entries: &[TranscriptEntry],
+    started_at: Option<DateTime<Local>>,
+    is_resume_launch: bool,
+) -> usize {
+    if is_resume_launch {
+        return 0;
+    }
+
+    let Some(started_at) = started_at else {
+        return 0;
+    };
+
+    entries
+        .iter()
+        .position(|entry| {
+            transcript_entry_timestamp(entry)
+                .map(|timestamp| timestamp >= started_at)
+                .unwrap_or(true)
+        })
+        .unwrap_or(entries.len())
+}
+
+pub fn is_resume_launch(launch: Option<&ClaudeLaunchInfo>) -> bool {
+    launch
+        .and_then(|info| info.resume_session_id.as_ref())
+        .is_some()
+}
+
+pub fn should_hydrate_session_history(
+    launch: Option<&ClaudeLaunchInfo>,
+    session_info: Option<&ProjectSessionInfo>,
+) -> bool {
+    let Some(resume_session_id) = launch
+        .and_then(|info| info.resume_session_id.as_deref())
+    else {
+        return false;
+    };
+
+    session_info
+        .and_then(|info| info.session_id.as_deref())
+        .is_some_and(|session_id| session_id == resume_session_id)
+}
+
+/// Decide whether the detector can permanently mark SessionInfo as handled.
+///
+/// Fresh launches can mark it handled immediately even if no historical session
+/// data is available. Resume launches must wait until the matching historical
+/// session is actually emitted.
+pub fn should_mark_session_info_sent(
+    is_resume_launch: bool,
+    historical_session_emitted: bool,
+) -> bool {
+    !is_resume_launch || historical_session_emitted
+}
+
 // ── inferred_to_primary ───────────────────────────────────────────
 
 /// Map an inferred transcript status to a primary display status.
@@ -818,6 +887,11 @@ pub async fn run_claude_detector(
                     Some(p) => p,
                     None => continue, // no matching process discovered yet
                 };
+                let launch_info = registry.find_claude_launch(pid);
+                let resume_launch = is_resume_launch(launch_info.as_ref());
+                let hydrate_session_history =
+                    should_hydrate_session_history(launch_info.as_ref(), matched_session);
+                let process_started_at = launch_info.as_ref().and_then(|info| info.started_at);
 
                 let session_key = file_path.to_string_lossy().to_string();
                 let state = session_states.entry(session_key).or_default();
@@ -826,27 +900,45 @@ pub async fn run_claude_detector(
 
                 // Emit SessionInfo once
                 if !state.session_info_sent {
-                    if let Some(session_info) = matched_session {
-                        let session_started =
-                            session_info.started_at.as_deref().and_then(from_rfc3339);
-                        let _ = tx
-                            .send(AgentEvent::SessionInfo {
-                                id: AgentId::new(AgentTool::Claude, pid),
-                                pid: Some(pid),
-                                session_id: session_info.session_id.clone().unwrap_or_default(),
-                                branch: session_info.branch.clone(),
-                                is_worktree: false,
-                                started_at: session_started,
-                            })
-                            .await;
+                    let mut historical_session_emitted = false;
+                    if hydrate_session_history {
+                        if let Some(session_info) = matched_session {
+                            let session_started =
+                                session_info.started_at.as_deref().and_then(from_rfc3339);
+                            let _ = tx
+                                .send(AgentEvent::SessionInfo {
+                                    id: AgentId::new(AgentTool::Claude, pid),
+                                    pid: Some(pid),
+                                    session_id: session_info.session_id.clone().unwrap_or_default(),
+                                    branch: session_info.branch.clone(),
+                                    is_worktree: false,
+                                    started_at: session_started,
+                                })
+                                .await;
+                            historical_session_emitted = true;
+                        }
                     }
-                    state.session_info_sent = true;
+                    state.session_info_sent =
+                        should_mark_session_info_sent(resume_launch, historical_session_emitted);
+                }
+
+                let transcript_start_index = transcript_start_index_for_process(
+                    entries,
+                    process_started_at,
+                    resume_launch,
+                );
+                if state.entry_count < transcript_start_index {
+                    state.entry_count = transcript_start_index;
                 }
 
                 // Only process new entries since last check
                 if entries.len() <= state.entry_count {
                     continue;
                 }
+
+                let new_entries = &entries[state.entry_count..];
+                state.entry_count = entries.len();
+                state.last_mtime = file_state.get(file_path).map(|s| s.mtime);
 
                 // If we were Waiting and new entries arrived, restore Running
                 if state.last_status == Some(PrimaryStatus::Waiting) {
@@ -861,12 +953,10 @@ pub async fn run_claude_detector(
                     state.last_status = Some(PrimaryStatus::Running);
                 }
 
-                let new_entries = &entries[state.entry_count..];
-                state.entry_count = entries.len();
-                state.last_mtime = file_state.get(file_path).map(|s| s.mtime);
+                let relevant_entries = &entries[transcript_start_index..];
 
-                // Infer status from transcript
-                let inferred = infer_status_from_transcript(entries);
+                // Infer status from the processed transcript slice.
+                let inferred = infer_status_from_transcript(relevant_entries);
                 let primary = inferred_to_primary(inferred);
 
                 if state.last_status != Some(primary) {
@@ -882,7 +972,7 @@ pub async fn run_claude_detector(
                     state.last_status = Some(primary);
                 }
 
-                let normalized_state = normalize_claude_state(entries, false);
+                let normalized_state = normalize_claude_state(relevant_entries, false);
                 if state.last_normalized_state.as_ref() != Some(&normalized_state) {
                     let _ = tx
                         .send(AgentEvent::NormalizedStateChanged {
@@ -961,8 +1051,10 @@ pub async fn run_claude_detector(
                     }
                 }
 
-                // Emit ActivityChanged based on what the last entry implies
-                let new_activity = infer_activity_from_last_entry(entries);
+                // Emit ActivityChanged based on the retained slice so fresh-launch
+                // cutoff behavior stays consistent with status, normalized state,
+                // and todos.
+                let new_activity = infer_activity_from_last_entry(relevant_entries);
                 let _ = tx
                     .send(AgentEvent::ActivityChanged {
                         id: AgentId::new(AgentTool::Claude, pid),
@@ -972,7 +1064,7 @@ pub async fn run_claude_detector(
                     .await;
 
                 // Extract todos and emit if changed
-                let todos = extract_todos_from_transcript(entries);
+                let todos = extract_todos_from_transcript(relevant_entries);
                 if todos != state.last_todos {
                     let _ = tx
                         .send(AgentEvent::TodosUpdated {
@@ -984,7 +1076,7 @@ pub async fn run_claude_detector(
                     state.last_todos = todos;
                 }
 
-                state.last_entries = entries.clone();
+                state.last_entries = relevant_entries.to_vec();
             }
 
             // Staleness check: if any Running session's transcript file hasn't been

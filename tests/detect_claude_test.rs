@@ -1,4 +1,5 @@
 use ai_overview::detect::claude::*;
+use ai_overview::detect::registry::ClaudeLaunchInfo;
 use ai_overview::types::{
     Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
 };
@@ -490,6 +491,198 @@ fn test_infer_activity_normal_user_entry_not_compaction() {
     }];
     let activity = infer_activity_from_last_entry(&entries);
     assert_eq!(activity, Some(Activity::Generating));
+}
+
+#[test]
+fn test_transcript_start_index_for_process_skips_old_entries_for_fresh_launch() {
+    let started_at = ai_overview::types::from_rfc3339("2026-04-02T10:00:30Z").unwrap();
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: serde_json::json!({
+                "todos": [
+                    {"content": "Stale todo", "status": "pending", "priority": "medium"}
+                ]
+            })
+            .as_object()
+            .cloned()
+            .unwrap(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:10Z".to_string(),
+            content: "Old prompt".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:40Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: serde_json::json!({
+                "todos": [
+                    {"content": "Live todo", "status": "in_progress", "priority": "high"}
+                ]
+            })
+            .as_object()
+            .cloned()
+            .unwrap(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            content: "Keep going".to_string(),
+        },
+    ];
+
+    let start_index = transcript_start_index_for_process(&entries, Some(started_at), false);
+    assert_eq!(start_index, 2);
+
+    let todos = extract_todos_from_transcript(&entries[start_index..]);
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].content, "Live todo");
+    assert_eq!(todos[0].status, TodoStatus::InProgress);
+}
+
+#[test]
+fn test_transcript_start_index_for_process_does_not_skip_old_entries_for_resume_launch() {
+    let started_at = ai_overview::types::from_rfc3339("2026-04-02T10:00:30Z").unwrap();
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: serde_json::json!({
+                "todos": [
+                    {"content": "Resumed todo", "status": "pending", "priority": "medium"}
+                ]
+            })
+            .as_object()
+            .cloned()
+            .unwrap(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:10Z".to_string(),
+            content: "Old prompt".to_string(),
+        },
+    ];
+
+    let start_index = transcript_start_index_for_process(&entries, Some(started_at), true);
+    assert_eq!(start_index, 0);
+
+    let todos = extract_todos_from_transcript(&entries[start_index..]);
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].content, "Resumed todo");
+}
+
+#[test]
+fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
+    let fresh = ClaudeLaunchInfo {
+        started_at: Some(ai_overview::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        resume_session_id: None,
+    };
+    let resumed = ClaudeLaunchInfo {
+        started_at: Some(ai_overview::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        resume_session_id: Some("session-123".to_string()),
+    };
+    let matching_session = Some(&ai_overview::detect::claude::ProjectSessionInfo {
+        session_id: Some("session-123".to_string()),
+        branch: None,
+        cwd: None,
+        model: None,
+        has_internal_initiator: false,
+        started_at: None,
+    });
+    let mismatched_session = Some(&ai_overview::detect::claude::ProjectSessionInfo {
+        session_id: Some("session-999".to_string()),
+        branch: None,
+        cwd: None,
+        model: None,
+        has_internal_initiator: false,
+        started_at: None,
+    });
+
+    assert!(!should_hydrate_session_history(Some(&fresh), matching_session));
+    assert!(should_hydrate_session_history(Some(&resumed), matching_session));
+    assert!(!should_hydrate_session_history(Some(&resumed), mismatched_session));
+    assert!(!should_hydrate_session_history(None, matching_session));
+}
+
+#[test]
+fn test_is_resume_launch_comes_from_process_metadata_only() {
+    let resume_launch = ClaudeLaunchInfo {
+        started_at: Some(ai_overview::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        resume_session_id: Some("session-123".to_string()),
+    };
+    let fresh_launch = ClaudeLaunchInfo {
+        started_at: Some(ai_overview::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        resume_session_id: None,
+    };
+
+    assert!(is_resume_launch(Some(&resume_launch)));
+    assert!(!is_resume_launch(Some(&fresh_launch)));
+    assert!(!is_resume_launch(None));
+}
+
+#[test]
+fn test_session_info_sent_is_retryable_for_resume_until_historical_session_is_emitted() {
+    assert!(should_mark_session_info_sent(false, false));
+    assert!(!should_mark_session_info_sent(true, false));
+    assert!(should_mark_session_info_sent(true, true));
+}
+
+#[test]
+fn test_activity_uses_retained_slice_after_fresh_launch_cutoff() {
+    let retained_entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Please inspect the files".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            tool_name: "read".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+        TranscriptEntry::ToolResult {
+            timestamp: "2026-04-02T10:00:02Z".to_string(),
+            tool_name: "read".to_string(),
+        },
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-02T10:00:03Z".to_string(),
+            content: "I have the file contents.".to_string(),
+        },
+    ];
+
+    assert_eq!(
+        infer_activity_from_last_entry(&retained_entries),
+        Some(Activity::Thinking)
+    );
+}
+
+#[test]
+fn test_extract_todos_from_fresh_launch_keeps_last_todowrite_after_non_todowrite_append() {
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            tool_name: "todowrite".to_string(),
+            tool_input: serde_json::json!({
+                "todos": [
+                    {"content": "Initial todo", "status": "pending", "priority": "medium"}
+                ]
+            })
+            .as_object()
+            .cloned()
+            .unwrap(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:01:00Z".to_string(),
+            content: "Just a progress note".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:02:00Z".to_string(),
+            tool_name: "read".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+    ];
+
+    let todos = extract_todos_from_transcript(&entries);
+    assert_eq!(todos.len(), 1);
+    assert_eq!(todos[0].content, "Initial todo");
 }
 
 // ── extract_todos_from_transcript tests ───────────────────────────

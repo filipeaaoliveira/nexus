@@ -1,5 +1,6 @@
 use ai_overview::detect::registry::AgentRegistry;
 use ai_overview::types::AgentTool;
+use chrono::Local;
 use std::path::PathBuf;
 
 #[test]
@@ -81,4 +82,19 @@ fn test_codex_registry_tracks_exact_thread_pid_binding() {
         registry.find_codex_pid_for_thread("019d4ffb-ca93-7c83-9cb5-72695ed739e0"),
         None
     );
+}
+
+#[test]
+fn test_registry_tracks_claude_launch_metadata() {
+    let registry = AgentRegistry::new();
+    let started_at = Local::now();
+
+    registry.register_claude_launch(4242, Some(started_at), Some("session-123".to_string()));
+
+    let info = registry.find_claude_launch(4242).expect("launch info");
+    assert_eq!(info.started_at, Some(started_at));
+    assert_eq!(info.resume_session_id.as_deref(), Some("session-123"));
+
+    registry.remove(4242);
+    assert!(registry.find_claude_launch(4242).is_none());
 }

@@ -2,11 +2,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use chrono::{DateTime, Local};
+
 use crate::types::AgentTool;
 
 type AgentKey = (AgentTool, PathBuf);
 type PidList = Vec<u32>;
 type AgentMap = HashMap<AgentKey, PidList>;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClaudeLaunchInfo {
+    pub started_at: Option<DateTime<Local>>,
+    pub resume_session_id: Option<String>,
+}
 
 /// Shared registry of known agents, mapping (tool, cwd) → one or more pids.
 /// Populated by the process scanner, read by enrichment detectors.
@@ -14,6 +22,7 @@ type AgentMap = HashMap<AgentKey, PidList>;
 pub struct AgentRegistry {
     inner: Arc<RwLock<AgentMap>>,
     codex_thread_pids: Arc<RwLock<HashMap<String, u32>>>,
+    claude_launches: Arc<RwLock<HashMap<u32, ClaudeLaunchInfo>>>,
 }
 
 impl AgentRegistry {
@@ -42,6 +51,23 @@ impl AgentRegistry {
         map.insert(thread_id, pid);
     }
 
+    /// Register Claude launch metadata discovered from the process command line.
+    pub fn register_claude_launch(
+        &self,
+        pid: u32,
+        started_at: Option<DateTime<Local>>,
+        resume_session_id: Option<String>,
+    ) {
+        let mut map = self.claude_launches.write().unwrap();
+        map.insert(
+            pid,
+            ClaudeLaunchInfo {
+                started_at,
+                resume_session_id,
+            },
+        );
+    }
+
     /// Remove an agent by pid. Called when process exits.
     pub fn remove(&self, pid: u32) {
         let mut map = self.inner.write().unwrap();
@@ -51,6 +77,8 @@ impl AgentRegistry {
         });
         let mut codex_map = self.codex_thread_pids.write().unwrap();
         codex_map.retain(|_, current_pid| *current_pid != pid);
+        let mut claude_map = self.claude_launches.write().unwrap();
+        claude_map.remove(&pid);
     }
 
     /// Find a PID by tool and CWD. Used by enrichment detectors.
@@ -82,6 +110,12 @@ impl AgentRegistry {
     pub fn find_codex_pid_for_thread(&self, thread_id: &str) -> Option<u32> {
         let map = self.codex_thread_pids.read().unwrap();
         map.get(thread_id).copied()
+    }
+
+    /// Find launch metadata for a Claude process by pid.
+    pub fn find_claude_launch(&self, pid: u32) -> Option<ClaudeLaunchInfo> {
+        let map = self.claude_launches.read().unwrap();
+        map.get(&pid).cloned()
     }
 
     /// Get all registered agents for a given tool.

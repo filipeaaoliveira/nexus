@@ -16,6 +16,7 @@ pub struct ProcessInfo {
     pub tool: AgentTool,
     pub started_at: Option<DateTime<Local>>,
     pub codex_thread_id: Option<String>,
+    pub claude_resume_session_id: Option<String>,
 }
 
 fn extract_codex_thread_id(cmd: &str) -> Option<String> {
@@ -34,6 +35,26 @@ fn extract_codex_thread_id(cmd: &str) -> Option<String> {
                     .chars()
                     .all(|ch| ch.is_ascii_hexdigit() || ch == '-');
             if valid {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+pub fn extract_claude_resume_session(cmd: &str) -> Option<String> {
+    let tokens = cmd.split_whitespace().collect::<Vec<_>>();
+    for window in tokens.windows(3) {
+        if window[0]
+            .rsplit('/')
+            .next()
+            .unwrap_or(window[0])
+            .eq_ignore_ascii_case("claude")
+            && window[1] == "resume"
+        {
+            let candidate = window[2];
+            if !candidate.is_empty() && !candidate.starts_with('-') {
                 return Some(candidate.to_string());
             }
         }
@@ -105,6 +126,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     codex_thread_id: (tool == AgentTool::Codex)
                         .then(|| extract_codex_thread_id(cmd))
                         .flatten(),
+                    claude_resume_session_id: (tool == AgentTool::Claude)
+                        .then(|| extract_claude_resume_session(cmd))
+                        .flatten(),
                 });
             }
         } else {
@@ -129,6 +153,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     started_at: None,
                     codex_thread_id: (tool == AgentTool::Codex)
                         .then(|| extract_codex_thread_id(cmd))
+                        .flatten(),
+                    claude_resume_session_id: (tool == AgentTool::Claude)
+                        .then(|| extract_claude_resume_session(cmd))
                         .flatten(),
                 });
             }
@@ -309,6 +336,13 @@ pub async fn run_process_scanner(
             if !known_pids.contains(&key) {
                 debug!("Discovered {} pid={}", proc.tool.as_str(), proc.pid);
                 registry.register(proc.tool, cwd.clone(), proc.pid);
+                if proc.tool == AgentTool::Claude {
+                    registry.register_claude_launch(
+                        proc.pid,
+                        proc.started_at,
+                        proc.claude_resume_session_id.clone(),
+                    );
+                }
                 if proc.tool == AgentTool::Codex {
                     if let Some(thread_id) = proc.codex_thread_id.as_deref() {
                         registry.register_codex_thread(thread_id.to_string(), proc.pid);

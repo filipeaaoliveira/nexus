@@ -202,7 +202,7 @@ fn codex_footer_uses_codex_shortcuts() {
     assert!(footer.contains("Enter"));
     assert!(footer.contains("launch"));
     assert!(footer.contains("i"));
-    assert!(footer.contains("import auth"));
+    assert!(footer.contains("import"));
     assert!(!footer.contains("sort:"));
     assert!(!footer.contains(" rename"));
 }

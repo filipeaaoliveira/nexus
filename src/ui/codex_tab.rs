@@ -34,7 +34,12 @@ pub fn render(frame: &mut Frame, state: &AppState) {
         .split(outer[1]);
 
     render_profile_list(frame, state, main_chunks[0]);
-    render_detail_placeholder(frame, state, main_chunks[1]);
+
+    if state.codex_tab.view_mode {
+        render_profile_details(frame, state, main_chunks[1]);
+    } else {
+        render_detail_placeholder(frame, state, main_chunks[1]);
+    }
 
     footer::render(frame, state, outer[2]);
 
@@ -110,6 +115,92 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
+fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
+    let profile_id = match state.selected_codex_profile_id() {
+        Some(id) => id,
+        None => {
+            render_detail_placeholder(frame, state, area);
+            return;
+        }
+    };
+
+    let profile_dir = state.config.codex_profiles_dir.join(profile_id);
+    let metadata = load_profile_metadata(&profile_dir).ok();
+
+    let block = Block::default()
+        .borders(Borders::NONE)
+        .title(Span::styled(
+            " profile details ",
+            Style::default().fg(theme::FG_COMMENT),
+        ))
+        .style(Style::default().bg(theme::BG_MAIN));
+
+    let mut lines = Vec::new();
+
+    let label = metadata
+        .as_ref()
+        .and_then(|m| m.label.clone())
+        .unwrap_or_else(|| profile_id.to_string());
+    lines.push(Line::from(vec![
+        Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(&label, Style::default().fg(theme::FG_DEFAULT)),
+    ]));
+
+    let email = metadata.as_ref().and_then(|m| m.email.clone());
+    if let Some(ref email) = email {
+        lines.push(Line::from(vec![
+            Span::styled("  email: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(email, Style::default().fg(theme::FG_DEFAULT)),
+        ]));
+    }
+
+    let plan = metadata.as_ref().and_then(|m| m.plan.clone());
+    if let Some(ref plan) = plan {
+        lines.push(Line::from(vec![
+            Span::styled("  plan: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(plan, Style::default().fg(theme::FG_DEFAULT)),
+        ]));
+    }
+
+    let enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
+    lines.push(Line::from(vec![
+        Span::styled("  enabled: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(
+            if enabled { "yes" } else { "no" },
+            if enabled {
+                Style::default().fg(theme::STATUS_RUNNING)
+            } else {
+                Style::default().fg(theme::STATUS_EXITED)
+            },
+        ),
+    ]));
+
+    let notes = metadata.as_ref().and_then(|m| m.notes.clone());
+    if let Some(ref notes) = notes {
+        if !notes.is_empty() {
+            lines.push(Line::from(Span::raw("")));
+            lines.push(Line::from(vec![Span::styled(
+                "  notes: ",
+                Style::default().fg(theme::FG_COMMENT),
+            )]));
+            for note_line in notes.lines() {
+                lines.push(Line::from(vec![
+                    Span::styled("    ", Style::default()),
+                    Span::styled(note_line, Style::default().fg(theme::FG_DEFAULT)),
+                ]));
+            }
+        }
+    }
+
+    lines.push(Line::from(Span::raw("")));
+    lines.push(Line::from(vec![
+        Span::styled(" v/esc ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled("close", Style::default().fg(theme::FG_DIMMED)),
+    ]));
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
 fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
     let block = Block::default()
         .borders(Borders::NONE)
@@ -120,7 +211,7 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
         .style(Style::default().bg(theme::BG_MAIN));
 
     let mut lines = vec![Line::from(Span::styled(
-        "  select a profile to inspect it here",
+        "  press v to view profile details",
         Style::default().fg(theme::FG_FADED),
     ))];
 

@@ -38,6 +38,8 @@ pub enum Action {
     CodexEditPrevField,
     CodexEditConfirm,
     CodexEditCancel,
+    CodexViewProfile,
+    CodexDismissView,
 }
 
 pub fn poll_action(
@@ -46,6 +48,7 @@ pub fn poll_action(
     rename_mode: bool,
     session_picker_mode: bool,
     edit_mode: bool,
+    view_mode: bool,
 ) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
         if let Event::Key(key) = event::read()? {
@@ -55,6 +58,7 @@ pub fn poll_action(
                 rename_mode,
                 session_picker_mode,
                 edit_mode,
+                view_mode,
             ));
         }
     }
@@ -67,9 +71,18 @@ fn action_for_key(
     rename_mode: bool,
     session_picker_mode: bool,
     edit_mode: bool,
+    view_mode: bool,
 ) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
+    }
+
+    if view_mode {
+        return match key.code {
+            KeyCode::Esc => Some(Action::CodexDismissView),
+            KeyCode::Char('v') => Some(Action::CodexDismissView),
+            _ => None,
+        };
     }
 
     if edit_mode {
@@ -131,6 +144,7 @@ fn action_for_key(
         KeyCode::Char('i') => Some(Action::CodexImportAuth),
         KeyCode::Char('w') => Some(Action::CodexWriteToHome),
         KeyCode::Char('e') => Some(Action::CodexEditStart),
+        KeyCode::Char('v') => Some(Action::CodexViewProfile),
         KeyCode::Enter => Some(Action::CodexLaunchSelected),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,
@@ -150,6 +164,7 @@ mod tests {
                 false,
                 false,
                 false,
+                false,
                 false
             ),
             Some(Action::CodexImportAuth)
@@ -157,6 +172,7 @@ mod tests {
         assert_eq!(
             action_for_key(
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                false,
                 false,
                 false,
                 false,
@@ -174,6 +190,7 @@ mod tests {
                 true,
                 false,
                 false,
+                false,
                 false
             ),
             Some(Action::FilterConfirm)
@@ -188,6 +205,7 @@ mod tests {
                 false,
                 false,
                 false,
+                false,
                 false
             ),
             Some(Action::CodexEditStart)
@@ -199,7 +217,8 @@ mod tests {
                 false,
                 false,
                 false,
-                true
+                true,
+                false
             ),
             Some(Action::CodexEditConfirm)
         );
@@ -210,7 +229,8 @@ mod tests {
                 false,
                 false,
                 false,
-                true
+                true,
+                false
             ),
             Some(Action::CodexEditToggleEnabled)
         );

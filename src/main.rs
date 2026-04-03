@@ -76,6 +76,7 @@ async fn run_loop(
             state.active_rename_mode(),
             state.codex_tab.session_picker_mode,
             state.codex_tab.edit_mode,
+            state.codex_tab.view_mode,
         )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
@@ -237,6 +238,16 @@ async fn run_loop(
             Some(input::Action::CodexEditCancel) => {
                 if state.codex_tab.edit_mode {
                     state.dismiss_codex_edit();
+                }
+            }
+            Some(input::Action::CodexViewProfile) => {
+                if state.active_tab() == ActiveTab::Codex {
+                    state.codex_tab.view_mode = true;
+                }
+            }
+            Some(input::Action::CodexDismissView) => {
+                if state.codex_tab.view_mode {
+                    state.codex_tab.view_mode = false;
                 }
             }
             Some(input::Action::Tick) | None => {}

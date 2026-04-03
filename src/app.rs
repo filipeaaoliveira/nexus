@@ -72,6 +72,7 @@ pub struct CodexTabState {
     pub edit_notes: String,
     pub edit_enabled: bool,
     pub edit_field: EditField,
+    pub view_mode: bool,
 }
 
 impl CodexTabState {
@@ -425,6 +426,8 @@ impl AppState {
         let metadata = ProfileMetadata {
             id: profile_id.clone(),
             label: Some(self.codex_tab.edit_label.clone()),
+            email: None,
+            plan: None,
             notes: if self.codex_tab.edit_notes.is_empty() {
                 None
             } else {

@@ -30,6 +30,8 @@ pub struct CodexProfile {
 pub struct ProfileMetadata {
     pub id: String,
     pub label: Option<String>,
+    pub email: Option<String>,
+    pub plan: Option<String>,
     pub notes: Option<String>,
     pub enabled: bool,
     pub created_at: Option<DateTime<Utc>>,

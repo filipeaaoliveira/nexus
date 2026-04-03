@@ -450,6 +450,8 @@ fn profile_metadata_save_load_round_trip() {
     let metadata = ProfileMetadata {
         id: "test-profile".to_string(),
         label: Some("My Label".to_string()),
+        email: Some("test@example.com".to_string()),
+        plan: Some("Pro".to_string()),
         notes: Some("Some notes".to_string()),
         enabled: false,
         created_at: None,

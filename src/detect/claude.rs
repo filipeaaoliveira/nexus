@@ -583,9 +583,7 @@ pub fn should_hydrate_session_history(
     launch: Option<&ClaudeLaunchInfo>,
     session_info: Option<&ProjectSessionInfo>,
 ) -> bool {
-    let Some(resume_session_id) = launch
-        .and_then(|info| info.resume_session_id.as_deref())
-    else {
+    let Some(resume_session_id) = launch.and_then(|info| info.resume_session_id.as_deref()) else {
         return false;
     };
 
@@ -922,11 +920,8 @@ pub async fn run_claude_detector(
                         should_mark_session_info_sent(resume_launch, historical_session_emitted);
                 }
 
-                let transcript_start_index = transcript_start_index_for_process(
-                    entries,
-                    process_started_at,
-                    resume_launch,
-                );
+                let transcript_start_index =
+                    transcript_start_index_for_process(entries, process_started_at, resume_launch);
                 if state.entry_count < transcript_start_index {
                     state.entry_count = transcript_start_index;
                 }

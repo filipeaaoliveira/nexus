@@ -597,9 +597,18 @@ fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
         started_at: None,
     });
 
-    assert!(!should_hydrate_session_history(Some(&fresh), matching_session));
-    assert!(should_hydrate_session_history(Some(&resumed), matching_session));
-    assert!(!should_hydrate_session_history(Some(&resumed), mismatched_session));
+    assert!(!should_hydrate_session_history(
+        Some(&fresh),
+        matching_session
+    ));
+    assert!(should_hydrate_session_history(
+        Some(&resumed),
+        matching_session
+    ));
+    assert!(!should_hydrate_session_history(
+        Some(&resumed),
+        mismatched_session
+    ));
     assert!(!should_hydrate_session_history(None, matching_session));
 }
 

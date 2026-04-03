@@ -146,6 +146,13 @@ async fn run_loop(
                     }
                 }
             }
+            Some(input::Action::CodexWriteToHome) => {
+                if state.active_tab() == ActiveTab::Codex {
+                    if let Err(e) = state.write_active_profile_to_codex_home() {
+                        state.codex_tab.status_message = Some(e.to_string());
+                    }
+                }
+            }
             Some(input::Action::CodexLaunchSelected) => {
                 if state.active_tab() == ActiveTab::Codex {
                     ratatui::restore();

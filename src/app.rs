@@ -494,6 +494,30 @@ impl AppState {
         self.codex_tab.active_profile_id.as_deref()
     }
 
+    pub fn write_active_profile_to_codex_home(&mut self) -> Result<()> {
+        let active_profile_id = self
+            .active_codex_profile_id()
+            .ok_or_else(|| anyhow!("no active profile"))?;
+
+        let profile_dir = self.config.codex_profiles_dir.join(active_profile_id);
+        let source_auth = profile_dir.join("auth.json");
+
+        if !source_auth.is_file() {
+            bail!("profile auth.json not found at {}", source_auth.display());
+        }
+
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory not found"))?;
+        let target_codex = home.join(".codex");
+        let target_auth = target_codex.join("auth.json");
+
+        fs::create_dir_all(&target_codex)?;
+        fs::copy(&source_auth, &target_auth)?;
+
+        self.codex_tab.status_message =
+            Some(format!("Wrote {} to ~/.codex/auth.json", active_profile_id));
+        Ok(())
+    }
+
     pub fn running_codex_sessions(&self) -> Vec<(String, Option<u32>)> {
         self.agents
             .iter()

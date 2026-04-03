@@ -36,8 +36,45 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
+    if state.codex_tab.filter_mode {
+        let line = Line::from(vec![
+            Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
+            Span::styled(
+                &state.codex_tab.filter_input,
+                theme::bar_style().fg(theme::FG_DEFAULT),
+            ),
+            Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
+        ]);
+        let footer = Paragraph::new(line).style(theme::bar_style());
+        frame.render_widget(footer, area);
+        return;
+    }
+
+    let line = shortcut_line(state);
+
+    let paragraph =
+        Paragraph::new(line).style(ratatui::style::Style::default().bg(theme::BG_HEADER));
+    frame.render_widget(paragraph, area);
+}
+
+pub fn shortcut_text(state: &AppState) -> String {
+    shortcut_line(state)
+        .spans
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
+}
+
+fn shortcut_line(state: &AppState) -> Line<'static> {
+    match state.active_tab() {
+        crate::app::ActiveTab::Overview => overview_shortcut_line(state),
+        crate::app::ActiveTab::Codex => codex_shortcut_line(),
+    }
+}
+
+fn overview_shortcut_line(state: &AppState) -> Line<'static> {
     let sort_label = state.sort_mode.as_str();
-    let line = Line::from(vec![
+    Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" navigate", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
@@ -61,9 +98,29 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::styled(" help", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" quit", theme::bar_style().fg(theme::FG_DIMMED)),
-    ]);
+    ])
+}
 
-    let paragraph =
-        Paragraph::new(line).style(ratatui::style::Style::default().bg(theme::BG_HEADER));
-    frame.render_widget(paragraph, area);
+fn codex_shortcut_line() -> Line<'static> {
+    Line::from(vec![
+        Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" profiles", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  Enter", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" launch", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  i", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" import auth", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  w", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(
+            " write to ~/.codex",
+            theme::bar_style().fg(theme::FG_DIMMED),
+        ),
+        Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" filter", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" switch", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  ?", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" help", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" quit", theme::bar_style().fg(theme::FG_DIMMED)),
+    ])
 }

@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
@@ -36,6 +36,10 @@ pub fn render(frame: &mut Frame, state: &AppState) {
     render_detail_placeholder(frame, state, main_chunks[1]);
 
     footer::render(frame, state, outer[2]);
+
+    if state.codex_tab.session_picker_mode {
+        render_session_picker(frame, state);
+    }
 }
 
 fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
@@ -119,4 +123,59 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_session_picker(frame: &mut Frame, state: &AppState) {
+    let area = frame.area();
+    let picker_width = 40;
+    let picker_height = (state.codex_tab.profile_ids.len() + 3).min(20).max(5);
+
+    let x = (area.width as usize).saturating_sub(picker_width) / 2 + area.x as usize;
+    let y = (area.height as usize).saturating_sub(picker_height) / 2 + area.y as usize;
+
+    let picker_area = Rect::new(
+        x as u16,
+        y as u16,
+        (x + picker_width) as u16,
+        (y + picker_height) as u16,
+    );
+
+    frame.render_widget(Clear, picker_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::selected_style())
+        .title(Span::styled(
+            " restart session ",
+            Style::default().fg(theme::FG_DEFAULT),
+        ))
+        .style(Style::default().bg(theme::BG_MAIN));
+
+    let items: Vec<ListItem> = state
+        .codex_tab
+        .profile_ids
+        .iter()
+        .enumerate()
+        .map(|(index, profile_id)| {
+            let is_selected = state.codex_tab.session_picker_selected == Some(index);
+            let label = if is_selected {
+                format!("> {}", profile_id)
+            } else {
+                format!("  {}", profile_id)
+            };
+            ListItem::new(Line::from(Span::styled(
+                label,
+                Style::default().fg(theme::FG_DEFAULT),
+            )))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(theme::selected_style());
+
+    let mut list_state = ListState::default();
+    list_state.select(state.codex_tab.session_picker_selected);
+
+    frame.render_stateful_widget(list, picker_area, &mut list_state);
 }

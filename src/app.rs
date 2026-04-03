@@ -54,6 +54,8 @@ pub struct CodexTabState {
     pub filter_mode: bool,
     pub filter_input: String,
     pub status_message: Option<String>,
+    pub session_picker_mode: bool,
+    pub session_picker_selected: Option<usize>,
 }
 
 impl CodexTabState {
@@ -315,6 +317,50 @@ impl AppState {
     pub fn start_codex_filter(&mut self) {
         self.codex_tab.filter_mode = true;
         self.codex_tab.filter_input.clear();
+    }
+
+    pub fn start_session_picker(&mut self) {
+        self.codex_tab.session_picker_mode = true;
+        self.codex_tab.session_picker_selected = self.codex_tab.selected_profile_index;
+    }
+
+    pub fn dismiss_session_picker(&mut self) {
+        self.codex_tab.session_picker_mode = false;
+        self.codex_tab.session_picker_selected = None;
+    }
+
+    pub fn session_picker_move_up(&mut self) {
+        let len = self.codex_tab.profile_ids.len();
+        if len == 0 {
+            self.codex_tab.session_picker_selected = None;
+            return;
+        }
+        let new_index = match self.codex_tab.session_picker_selected {
+            Some(index) => (index + len - 1) % len,
+            None => len - 1,
+        };
+        self.codex_tab.session_picker_selected = Some(new_index);
+    }
+
+    pub fn session_picker_move_down(&mut self) {
+        let len = self.codex_tab.profile_ids.len();
+        if len == 0 {
+            self.codex_tab.session_picker_selected = None;
+            return;
+        }
+        let new_index = match self.codex_tab.session_picker_selected {
+            Some(index) => (index + 1) % len,
+            None => 0,
+        };
+        self.codex_tab.session_picker_selected = Some(new_index);
+    }
+
+    pub fn confirm_session_picker(&mut self) {
+        if let Some(index) = self.codex_tab.session_picker_selected {
+            self.codex_tab.selected_profile_index = Some(index);
+            self.codex_tab.active_profile_id = self.codex_tab.profile_ids.get(index).cloned();
+        }
+        self.dismiss_session_picker();
     }
 
     pub fn filter_push_char(&mut self, c: char) {

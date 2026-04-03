@@ -74,6 +74,7 @@ async fn run_loop(
             Duration::from_millis(100),
             state.active_filter_mode(),
             state.active_rename_mode(),
+            state.codex_tab.session_picker_mode,
         )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
@@ -168,6 +169,26 @@ async fn run_loop(
                 ActiveTab::Overview => state.confirm_rename(),
                 ActiveTab::Codex => {}
             },
+            Some(input::Action::CodexSessionPickerUp) => {
+                if state.codex_tab.session_picker_mode {
+                    state.session_picker_move_up();
+                }
+            }
+            Some(input::Action::CodexSessionPickerDown) => {
+                if state.codex_tab.session_picker_mode {
+                    state.session_picker_move_down();
+                }
+            }
+            Some(input::Action::CodexSessionPickerConfirm) => {
+                if state.codex_tab.session_picker_mode {
+                    state.confirm_session_picker();
+                }
+            }
+            Some(input::Action::CodexSessionPickerCancel) => {
+                if state.codex_tab.session_picker_mode {
+                    state.dismiss_session_picker();
+                }
+            }
             Some(input::Action::Tick) | None => {}
         }
     }

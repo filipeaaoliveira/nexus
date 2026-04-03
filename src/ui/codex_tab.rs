@@ -128,7 +128,7 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
 fn render_session_picker(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     let picker_width = 40;
-    let picker_height = (state.codex_tab.profile_ids.len() + 3).min(20).max(5);
+    let picker_height = 5.max((state.codex_tab.profile_ids.len() + 3).min(20));
 
     let x = (area.width as usize).saturating_sub(picker_width) / 2 + area.x as usize;
     let y = (area.height as usize).saturating_sub(picker_height) / 2 + area.y as usize;

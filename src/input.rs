@@ -123,6 +123,7 @@ mod tests {
             action_for_key(
                 KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
                 false,
+                false,
                 false
             ),
             Some(Action::CodexImportAuth)
@@ -130,6 +131,7 @@ mod tests {
         assert_eq!(
             action_for_key(
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                false,
                 false,
                 false
             ),
@@ -143,6 +145,7 @@ mod tests {
             action_for_key(
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                 true,
+                false,
                 false
             ),
             Some(Action::FilterConfirm)

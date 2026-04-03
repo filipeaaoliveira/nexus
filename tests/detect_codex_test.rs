@@ -497,6 +497,88 @@ fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
 }
 
 #[test]
+fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
+    let registry = AgentRegistry::new();
+    let cwd = PathBuf::from("/tmp/project");
+    let now = chrono::Local::now().timestamp();
+    let first_start = now - 40;
+    let second_start = now - 14;
+    registry.register(AgentTool::Codex, cwd.clone(), 101);
+    registry.register(AgentTool::Codex, cwd.clone(), 202);
+    registry.register_codex_launch(101, ai_overview::types::from_epoch_secs(first_start));
+    registry.register_codex_launch(202, ai_overview::types::from_epoch_secs(second_start));
+
+    let threads = vec![
+        CodexThread {
+            id: "older-thread".into(),
+            title: Some("Older".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: first_start + 2,
+            updated_at: first_start + 12,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "newer-thread".into(),
+            title: Some("Newer".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: second_start + 2,
+            updated_at: second_start + 10,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "stale-thread".into(),
+            title: Some("Stale".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: 10,
+            updated_at: 20,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &[], &registry);
+    let older = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "older-thread")
+        .unwrap();
+    let newer = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "newer-thread")
+        .unwrap();
+    let stale = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "stale-thread")
+        .unwrap();
+
+    assert_eq!(older.pid, Some(101));
+    assert_eq!(newer.pid, Some(202));
+    assert_eq!(stale.pid, None);
+}
+
+#[test]
 fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
     let now = chrono::Local::now().timestamp();
     let snapshot = CodexSnapshot {

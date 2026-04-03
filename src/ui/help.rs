@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
+use crate::app::ActiveTab;
+
 use super::theme;
 
 pub fn render(frame: &mut Frame) {
@@ -25,7 +27,14 @@ pub fn render(frame: &mut Frame) {
         ))
         .style(Style::default().bg(theme::BG_SECTION));
 
-    let lines = vec![
+    let lines = help_lines(ActiveTab::Overview, true);
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, overlay);
+}
+
+pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'static>> {
+    let mut lines = vec![
         Line::from(""),
         keybind_line("Tab", "Switch workspace"),
         keybind_line("Shift-Tab", "Switch back"),
@@ -52,20 +61,27 @@ pub fn render(frame: &mut Frame) {
         )),
         keybind_line("j / ↓", "Move selected profile"),
         keybind_line("k / ↑", "Move selected profile"),
+        keybind_line("Enter", "Launch selected profile"),
+        keybind_line("i", "Import current ~/.codex/auth.json"),
         keybind_line("/", "Start profile filter"),
         Line::from(""),
         keybind_line("?", "Toggle help"),
         keybind_line("Esc", "Dismiss overlay / clear filter"),
         keybind_line("q", "Quit"),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  Press Esc or ? to close",
-            Style::default().fg(theme::FG_FADED),
-        )),
     ];
 
-    let paragraph = Paragraph::new(lines).block(block);
-    frame.render_widget(paragraph, overlay);
+    if include_close_hint {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            match active_tab {
+                ActiveTab::Overview => "  Press Esc or ? to close",
+                ActiveTab::Codex => "  Press Esc or ? to close",
+            },
+            Style::default().fg(theme::FG_FADED),
+        )));
+    }
+
+    lines
 }
 
 fn keybind_line(key: &str, desc: &str) -> Line<'static> {

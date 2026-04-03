@@ -16,12 +16,18 @@ pub struct ClaudeLaunchInfo {
     pub resume_session_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CodexLaunchInfo {
+    pub started_at: Option<DateTime<Local>>,
+}
+
 /// Shared registry of known agents, mapping (tool, cwd) → one or more pids.
 /// Populated by the process scanner, read by enrichment detectors.
 #[derive(Debug, Clone, Default)]
 pub struct AgentRegistry {
     inner: Arc<RwLock<AgentMap>>,
     codex_thread_pids: Arc<RwLock<HashMap<String, u32>>>,
+    codex_launches: Arc<RwLock<HashMap<u32, CodexLaunchInfo>>>,
     claude_launches: Arc<RwLock<HashMap<u32, ClaudeLaunchInfo>>>,
 }
 
@@ -51,6 +57,12 @@ impl AgentRegistry {
         map.insert(thread_id, pid);
     }
 
+    /// Register Codex launch metadata discovered from the process command line.
+    pub fn register_codex_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
+        let mut map = self.codex_launches.write().unwrap();
+        map.insert(pid, CodexLaunchInfo { started_at });
+    }
+
     /// Register Claude launch metadata discovered from the process command line.
     pub fn register_claude_launch(
         &self,
@@ -77,6 +89,8 @@ impl AgentRegistry {
         });
         let mut codex_map = self.codex_thread_pids.write().unwrap();
         codex_map.retain(|_, current_pid| *current_pid != pid);
+        let mut codex_launches = self.codex_launches.write().unwrap();
+        codex_launches.remove(&pid);
         let mut claude_map = self.claude_launches.write().unwrap();
         claude_map.remove(&pid);
     }
@@ -110,6 +124,12 @@ impl AgentRegistry {
     pub fn find_codex_pid_for_thread(&self, thread_id: &str) -> Option<u32> {
         let map = self.codex_thread_pids.read().unwrap();
         map.get(thread_id).copied()
+    }
+
+    /// Find launch metadata for a Codex process by pid.
+    pub fn find_codex_launch(&self, pid: u32) -> Option<CodexLaunchInfo> {
+        let map = self.codex_launches.read().unwrap();
+        map.get(&pid).cloned()
     }
 
     /// Find launch metadata for a Claude process by pid.

@@ -344,6 +344,7 @@ pub async fn run_process_scanner(
                     );
                 }
                 if proc.tool == AgentTool::Codex {
+                    registry.register_codex_launch(proc.pid, proc.started_at);
                     if let Some(thread_id) = proc.codex_thread_id.as_deref() {
                         registry.register_codex_thread(thread_id.to_string(), proc.pid);
                     }

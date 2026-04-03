@@ -33,16 +33,25 @@ fn test_help_works_without_interactive_terminal() {
 }
 
 #[test]
+fn default_codex_monitoring_uses_home_codex_dir() {
+    let config = Config::default();
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+
+    assert_eq!(config.codex_data_dir, home.join(".codex"));
+}
+
+#[test]
 fn default_codex_management_paths_are_under_ai_overview_data_root() {
     let config = Config::default();
 
-    let codex_root = config.codex_data_dir.clone();
-    assert_eq!(config.codex_profiles_dir, codex_root.join("profiles"));
-    assert_eq!(config.codex_repos_dir, codex_root.join("repos"));
-    assert_eq!(config.codex_runtime_dir, codex_root.join("runtime"));
+    let management_root = config.codex_management_dir.clone();
+    assert!(management_root.ends_with("ai-overview/codex"));
+    assert_eq!(config.codex_profiles_dir, management_root.join("profiles"));
+    assert_eq!(config.codex_repos_dir, management_root.join("repos"));
+    assert_eq!(config.codex_runtime_dir, management_root.join("runtime"));
     assert_eq!(
         config.codex_quota_cache_file,
-        codex_root.join("quota-cache.json")
+        management_root.join("quota-cache.json")
     );
 }
 

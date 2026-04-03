@@ -434,9 +434,9 @@ impl AppState {
         let profile_id = self
             .selected_codex_profile_id()
             .ok_or_else(|| anyhow!("no Codex profile selected"))?;
-        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+        let profile_dir = self.config.codex_profiles_dir.join(profile_id);
         let repo_dir = self.config.codex_repos_dir.join("current-repo");
-        let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
+        let runtime_home = self.config.codex_runtime_dir.join(profile_id);
         let working_dir =
             std::env::current_dir().context("failed to resolve current working directory")?;
         let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);

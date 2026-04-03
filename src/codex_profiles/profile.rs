@@ -26,6 +26,16 @@ pub struct CodexProfile {
     pub auth_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProfileMetadata {
+    pub id: String,
+    pub label: Option<String>,
+    pub notes: Option<String>,
+    pub enabled: bool,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
 impl CodexProfile {
     pub fn import_from_auth(
         id: &str,
@@ -87,4 +97,24 @@ pub fn extract_auth_metadata(value: &Value) -> AuthMetadata {
         .map(str::to_string);
 
     AuthMetadata { email, plan }
+}
+
+pub fn load_profile_metadata(profile_dir: &Path) -> Result<ProfileMetadata> {
+    let metadata_path = profile_dir.join("profile.json");
+    if !metadata_path.is_file() {
+        return Ok(ProfileMetadata::default());
+    }
+    let content = fs::read_to_string(&metadata_path)
+        .with_context(|| format!("failed to read {}", metadata_path.display()))?;
+    let metadata: ProfileMetadata = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", metadata_path.display()))?;
+    Ok(metadata)
+}
+
+pub fn save_profile_metadata(profile_dir: &Path, metadata: &ProfileMetadata) -> Result<()> {
+    let metadata_path = profile_dir.join("profile.json");
+    let content = serde_json::to_string_pretty(metadata)?;
+    fs::write(&metadata_path, content)
+        .with_context(|| format!("failed to write {}", metadata_path.display()))?;
+    Ok(())
 }

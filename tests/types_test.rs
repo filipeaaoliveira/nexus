@@ -1,4 +1,7 @@
-use ai_overview::codex_profiles::profile::{extract_auth_metadata, CodexProfile};
+use ai_overview::codex_profiles::profile::{
+    extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
+    ProfileMetadata,
+};
 use ai_overview::codex_profiles::quota::{parse_status_output, Confidence, LimitState, QuotaCache};
 use ai_overview::types::*;
 use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
@@ -437,4 +440,26 @@ fn codex_quota_cache_loads_malformed_file_as_error() {
 
     assert!(err.to_string().contains("failed to parse"));
     assert!(err.to_string().contains("quota-cache.json"));
+}
+
+#[test]
+fn profile_metadata_save_load_round_trip() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let profile_dir = temp_dir.path().to_path_buf();
+
+    let metadata = ProfileMetadata {
+        id: "test-profile".to_string(),
+        label: Some("My Label".to_string()),
+        notes: Some("Some notes".to_string()),
+        enabled: false,
+        created_at: None,
+        updated_at: None,
+    };
+
+    save_profile_metadata(&profile_dir, &metadata).unwrap();
+    let loaded = load_profile_metadata(&profile_dir).unwrap();
+
+    assert_eq!(loaded.label, metadata.label);
+    assert_eq!(loaded.notes, metadata.notes);
+    assert_eq!(loaded.enabled, metadata.enabled);
 }

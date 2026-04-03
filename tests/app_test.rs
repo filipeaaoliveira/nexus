@@ -1,4 +1,4 @@
-use ai_overview::app::{ActiveTab, AppState};
+use ai_overview::app::{ActiveTab, AppState, CodexTabState};
 use ai_overview::config::Config;
 use ai_overview::event::AgentEvent;
 use ai_overview::types::*;
@@ -107,6 +107,23 @@ fn test_initial_state_is_empty() {
 fn test_initial_state_starts_on_overview_tab() {
     let state = make_state();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
+}
+
+#[test]
+fn codex_tab_selection_wraps() {
+    let mut state = CodexTabState::new();
+    state.profile_ids = vec!["a".into(), "b".into()];
+    state.selected_profile_index = Some(1);
+    state.next_profile();
+    assert_eq!(state.selected_profile_index, Some(0));
+}
+
+#[test]
+fn codex_tab_next_profile_selects_first_when_unset() {
+    let mut state = CodexTabState::new();
+    state.profile_ids = vec!["a".into(), "b".into()];
+    state.next_profile();
+    assert_eq!(state.selected_profile_index, Some(0));
 }
 
 #[test]

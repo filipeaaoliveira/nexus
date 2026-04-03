@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod agent_list;
+pub mod codex_tab;
 pub mod detail;
 pub mod footer;
 pub mod header;
@@ -64,11 +65,12 @@ impl<'a> RenderData<'a> {
 }
 
 pub fn render(frame: &mut Frame, state: &AppState) {
-    let render_data = RenderData::from_state(state);
-
     match state.active_tab() {
-        ActiveTab::Overview => render_overview(frame, state, &render_data),
-        ActiveTab::Codex => render_overview(frame, state, &render_data),
+        ActiveTab::Overview => {
+            let render_data = RenderData::from_state(state);
+            render_overview(frame, state, &render_data)
+        }
+        ActiveTab::Codex => codex_tab::render(frame, state),
     }
 }
 

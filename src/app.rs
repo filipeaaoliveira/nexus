@@ -42,6 +42,47 @@ impl ActiveTab {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CodexTabState {
+    pub profile_ids: Vec<String>,
+    pub selected_profile_index: Option<usize>,
+    pub filter_mode: bool,
+    pub filter_input: String,
+    pub status_message: Option<String>,
+}
+
+impl CodexTabState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn next_profile(&mut self) {
+        let len = self.profile_ids.len();
+        if len == 0 {
+            self.selected_profile_index = None;
+            return;
+        }
+
+        self.selected_profile_index = Some(match self.selected_profile_index {
+            Some(index) => (index + 1) % len,
+            None => 0,
+        });
+    }
+
+    pub fn previous_profile(&mut self) {
+        let len = self.profile_ids.len();
+        if len == 0 {
+            self.selected_profile_index = None;
+            return;
+        }
+
+        self.selected_profile_index = Some(match self.selected_profile_index {
+            Some(index) => (index + len - 1) % len,
+            None => len - 1,
+        });
+    }
+}
+
 #[derive(Debug, Default)]
 struct VisibleAgentCache {
     version: u64,
@@ -61,6 +102,7 @@ struct SessionInfoUpdate {
 
 pub struct AppState {
     active_tab: ActiveTab,
+    pub codex_tab: CodexTabState,
     pub agents: Vec<Agent>,
     pub selected: Option<usize>,
     pub sort_mode: SortMode,
@@ -80,6 +122,7 @@ impl AppState {
     pub fn new(config: Config) -> Self {
         Self {
             active_tab: ActiveTab::Overview,
+            codex_tab: CodexTabState::default(),
             agents: Vec::new(),
             selected: None,
             sort_mode: SortMode::Name,

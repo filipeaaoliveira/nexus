@@ -5,6 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use crate::app::{AppState, EditField};
+use crate::codex_profiles::profile::load_profile_metadata;
 
 use super::{footer, header, theme, RenderData};
 
@@ -70,23 +71,32 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
         .map(|(index, profile_id)| {
             let is_selected = state.codex_tab.selected_profile_index == Some(index);
             let is_active = state.active_codex_profile_id() == Some(profile_id.as_str());
-            let label = if is_selected {
-                if is_active {
-                    format!("> {} (active)", profile_id)
+
+            let profile_dir = state.config.codex_profiles_dir.join(profile_id);
+            let (display_label, is_enabled) =
+                if let Ok(metadata) = load_profile_metadata(&profile_dir) {
+                    let label = metadata.label.unwrap_or_else(|| profile_id.clone());
+                    (label, metadata.enabled)
                 } else {
-                    format!("> {}", profile_id)
-                }
+                    (profile_id.clone(), true)
+                };
+
+            let prefix = if is_selected { ">" } else { " " };
+            let active_suffix = if is_active { " (active)" } else { "" };
+            let enabled_suffix = if is_enabled { "" } else { " [disabled]" };
+
+            let label = format!(
+                "{} {}{}{}",
+                prefix, display_label, active_suffix, enabled_suffix
+            );
+
+            let style = if is_enabled {
+                Style::default().fg(theme::FG_DEFAULT)
             } else {
-                if is_active {
-                    format!("  {} (active)", profile_id)
-                } else {
-                    format!("  {}", profile_id)
-                }
+                Style::default().fg(theme::FG_FADED)
             };
-            ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(theme::FG_DEFAULT),
-            )))
+
+            ListItem::new(Line::from(Span::styled(label, style)))
         })
         .collect();
 

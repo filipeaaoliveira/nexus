@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::AppState;
+use crate::app::{AppState, EditField};
 
 use super::{footer, header, theme, RenderData};
 
@@ -39,6 +39,16 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     if state.codex_tab.session_picker_mode {
         render_session_picker(frame, state);
+    }
+
+    if state.codex_tab.edit_mode {
+        let edit_area = Rect::new(
+            main_chunks[1].x + 5,
+            main_chunks[1].y + 2,
+            main_chunks[1].x + main_chunks[1].width - 5,
+            main_chunks[1].y + 10,
+        );
+        render_edit_mode(frame, state, edit_area);
     }
 }
 
@@ -178,4 +188,80 @@ fn render_session_picker(frame: &mut Frame, state: &AppState) {
     list_state.select(state.codex_tab.session_picker_selected);
 
     frame.render_stateful_widget(list, picker_area, &mut list_state);
+}
+
+fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::border_style())
+        .title(Span::styled(
+            " Edit Profile ",
+            Style::default().fg(theme::FG_COMMENT),
+        ))
+        .style(Style::default().bg(theme::BG_MAIN));
+
+    let mut lines = Vec::new();
+
+    let label_prefix = if state.codex_tab.edit_field == EditField::Label {
+        "> "
+    } else {
+        "  "
+    };
+    lines.push(Line::from(vec![
+        Span::raw(label_prefix),
+        Span::styled("label: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(
+            &state.codex_tab.edit_label,
+            Style::default().fg(theme::FG_DEFAULT),
+        ),
+    ]));
+
+    let notes_prefix = if state.codex_tab.edit_field == EditField::Notes {
+        "> "
+    } else {
+        "  "
+    };
+    lines.push(Line::from(vec![
+        Span::raw(notes_prefix),
+        Span::styled("notes: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(
+            &state.codex_tab.edit_notes,
+            Style::default().fg(theme::FG_DEFAULT),
+        ),
+    ]));
+
+    let enabled_prefix = if state.codex_tab.edit_field == EditField::Enabled {
+        "> "
+    } else {
+        "  "
+    };
+    let enabled_status = if state.codex_tab.edit_enabled {
+        "enabled"
+    } else {
+        "disabled"
+    };
+    let enabled_style = if state.codex_tab.edit_enabled {
+        Style::default().fg(theme::STATUS_RUNNING)
+    } else {
+        Style::default().fg(theme::STATUS_EXITED)
+    };
+    lines.push(Line::from(vec![
+        Span::raw(enabled_prefix),
+        Span::styled("enabled: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(enabled_status, enabled_style),
+    ]));
+
+    lines.push(Line::from(Span::raw("")));
+    lines.push(Line::from(vec![
+        Span::styled("Enter", Style::default().fg(theme::FG_COMMENT)),
+        Span::raw(" save | "),
+        Span::styled("Esc", Style::default().fg(theme::FG_COMMENT)),
+        Span::raw(" cancel | "),
+        Span::styled("Space", Style::default().fg(theme::FG_COMMENT)),
+        Span::raw(" toggle | "),
+        Span::styled("Tab", Style::default().fg(theme::FG_COMMENT)),
+        Span::raw(" next field"),
+    ]));
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }

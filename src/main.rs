@@ -229,7 +229,9 @@ async fn run_loop(
             }
             Some(input::Action::CodexEditConfirm) => {
                 if state.codex_tab.edit_mode {
-                    state.confirm_codex_edit();
+                    if let Err(e) = state.confirm_codex_edit() {
+                        state.codex_tab.status_message = Some(e.to_string());
+                    }
                 }
             }
             Some(input::Action::CodexEditCancel) => {

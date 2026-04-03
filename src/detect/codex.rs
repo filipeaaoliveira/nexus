@@ -689,13 +689,15 @@ pub fn build_codex_snapshot(
             )
         })
         .collect::<Vec<_>>();
-    let mut top_level_thread_count_by_cwd: HashMap<String, usize> = HashMap::new();
+    let mut top_level_bindable_thread_count_by_cwd: HashMap<String, usize> = HashMap::new();
     for (thread, classification) in &classified_threads {
         if matches!(classification, CodexThreadClassification::TopLevel) {
-            if let Some(cwd) = thread.cwd.as_deref() {
-                *top_level_thread_count_by_cwd
+            if thread_is_recent_enough_for_pid_binding(thread) {
+                if let Some(cwd) = thread.cwd.as_deref() {
+                    *top_level_bindable_thread_count_by_cwd
                     .entry(cwd.to_string())
-                    .or_default() += 1;
+                        .or_default() += 1;
+                }
             }
         }
     }
@@ -710,7 +712,7 @@ pub fn build_codex_snapshot(
                         .then_some(())
                         .and(thread.cwd.as_deref())
                         .and_then(|cwd| {
-                            (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
+                            (top_level_bindable_thread_count_by_cwd.get(cwd) == Some(&1))
                                 .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
                                 .flatten()
                         })

@@ -442,6 +442,61 @@ fn test_build_codex_snapshot_binds_pid_from_exact_thread_mapping_even_when_stale
 }
 
 #[test]
+fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
+    let registry = AgentRegistry::new();
+    registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
+    let now = chrono::Local::now().timestamp();
+
+    let threads = vec![
+        CodexThread {
+            id: "fresh-thread".into(),
+            title: Some("Fresh".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: now - 15,
+            updated_at: now - 5,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "stale-thread".into(),
+            title: Some("Stale".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: now - 3_600,
+            updated_at: now - 3_000,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &[], &registry);
+    let fresh = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "fresh-thread")
+        .unwrap();
+    let stale = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "stale-thread")
+        .unwrap();
+
+    assert_eq!(fresh.pid, Some(44));
+    assert_eq!(stale.pid, None);
+}
+
+#[test]
 fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
     let now = chrono::Local::now().timestamp();
     let snapshot = CodexSnapshot {

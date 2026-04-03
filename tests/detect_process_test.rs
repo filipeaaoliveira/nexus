@@ -79,6 +79,21 @@ fn test_matches_codex_with_args() {
     assert_eq!(procs.len(), 1);
     assert_eq!(procs[0].pid, 55555);
     assert_eq!(procs[0].tool, AgentTool::Codex);
+    assert_eq!(procs[0].codex_thread_id, None);
+}
+
+#[test]
+fn test_parse_ps_output_extracts_codex_resume_thread_id() {
+    let output =
+        "  PID COMMAND\n15642 codex resume 019d4ffb-ca93-7c83-9cb5-72695ed739e0 --dangerously-bypass-approvals-and-sandbox\n";
+    let procs = parse_ps_output(output);
+    assert_eq!(procs.len(), 1);
+    assert_eq!(procs[0].pid, 15642);
+    assert_eq!(procs[0].tool, AgentTool::Codex);
+    assert_eq!(
+        procs[0].codex_thread_id.as_deref(),
+        Some("019d4ffb-ca93-7c83-9cb5-72695ed739e0")
+    );
 }
 
 #[test]

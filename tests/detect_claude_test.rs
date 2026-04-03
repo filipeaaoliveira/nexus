@@ -1,5 +1,7 @@
 use ai_overview::detect::claude::*;
-use ai_overview::types::{Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus};
+use ai_overview::types::{
+    Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
+};
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -98,7 +100,8 @@ fn test_infer_status_from_empty() {
 fn test_normalize_claude_review_text_maps_to_needs_input_review() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
-        content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
+        content: "### Issues\n#### Critical\n- The implementation is missing error handling."
+            .to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, false);
@@ -167,7 +170,8 @@ fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
 fn test_normalize_claude_stale_review_still_maps_to_needs_input_review() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
-        content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
+        content: "### Issues\n#### Critical\n- The implementation is missing error handling."
+            .to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, true);
@@ -186,10 +190,7 @@ fn test_normalize_claude_stale_done_still_maps_to_ready_for_next_task() {
     let normalized = normalize_claude_state(&entries, true);
 
     assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(
-        normalized.reason,
-        Some(NormalizedReason::ReadyForNextTask)
-    );
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -248,7 +249,8 @@ fn test_normalize_claude_retrospective_could_not_complete_does_not_map_to_blocke
 fn test_normalize_claude_retrospective_unable_to_continue_does_not_map_to_blocked() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
-        content: "The previous attempt was unable to continue, but the fix is in place now.".to_string(),
+        content: "The previous attempt was unable to continue, but the fix is in place now."
+            .to_string(),
     }];
 
     let normalized = normalize_claude_state(&entries, false);
@@ -300,10 +302,7 @@ fn test_normalize_claude_completed_work_maps_to_done_ready_for_next_task() {
     let normalized = normalize_claude_state(&entries, false);
 
     assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(
-        normalized.reason,
-        Some(NormalizedReason::ReadyForNextTask)
-    );
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -316,10 +315,7 @@ fn test_normalize_claude_requested_changes_completion_stays_done() {
     let normalized = normalize_claude_state(&entries, false);
 
     assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(
-        normalized.reason,
-        Some(NormalizedReason::ReadyForNextTask)
-    );
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -327,7 +323,8 @@ fn test_normalize_claude_newer_user_overrides_older_assistant_review() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling."
+                .to_string(),
         },
         TranscriptEntry::User {
             timestamp: "2026-04-02T10:01:00Z".to_string(),
@@ -346,7 +343,8 @@ fn test_normalize_claude_newer_tool_result_overrides_older_assistant_review() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling."
+                .to_string(),
         },
         TranscriptEntry::ToolResult {
             timestamp: "2026-04-02T10:01:00Z".to_string(),
@@ -392,7 +390,8 @@ fn test_normalize_claude_stale_generic_assistant_after_older_review_does_not_rev
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
-            content: "### Issues\n#### Critical\n- The implementation is missing error handling.".to_string(),
+            content: "### Issues\n#### Critical\n- The implementation is missing error handling."
+                .to_string(),
         },
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:01:00Z".to_string(),

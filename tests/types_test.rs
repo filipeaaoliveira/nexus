@@ -13,7 +13,10 @@ fn test_normalized_status_labels() {
 
     assert_eq!(NormalizedReason::Subagent.as_str(), "subagent");
     assert_eq!(NormalizedReason::Review.as_str(), "review");
-    assert_eq!(NormalizedReason::ReadyForNextTask.as_str(), "ready for next task");
+    assert_eq!(
+        NormalizedReason::ReadyForNextTask.as_str(),
+        "ready for next task"
+    );
 }
 
 #[test]
@@ -28,7 +31,7 @@ fn test_normalized_status_precedence_order() {
 
 #[test]
 fn test_normalized_state_without_reason() {
-    use ai_overview::types::{NormalizedStatus, NormalizedState};
+    use ai_overview::types::{NormalizedState, NormalizedStatus};
 
     let state = NormalizedState::new(NormalizedStatus::Working, None);
 
@@ -38,7 +41,7 @@ fn test_normalized_state_without_reason() {
 
 #[test]
 fn test_normalized_state_with_reason() {
-    use ai_overview::types::{NormalizedReason, NormalizedStatus, NormalizedState};
+    use ai_overview::types::{NormalizedReason, NormalizedState, NormalizedStatus};
 
     let state = NormalizedState::new(
         NormalizedStatus::Done,

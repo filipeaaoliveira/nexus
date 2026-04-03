@@ -504,10 +504,7 @@ fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() 
 
 #[test]
 fn test_observed_session_state_maps_running_to_busy() {
-    assert_eq!(
-        observed_session_state(PrimaryStatus::Running),
-        Some("busy")
-    );
+    assert_eq!(observed_session_state(PrimaryStatus::Running), Some("busy"));
 }
 
 #[test]
@@ -933,7 +930,12 @@ fn test_collect_subagent_events_known_active_subagent_emits_nothing() {
     let sub = make_subagent("sub-1", "Do task (@explore subagent)", false);
 
     // First poll: spawned
-    collect_subagent_events(&[sub.clone()], &mut state, AgentTool::OpenCode, 42);
+    collect_subagent_events(
+        std::slice::from_ref(&sub),
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+    );
     // Second poll: still active, should emit nothing
     let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42);
 
@@ -952,7 +954,12 @@ fn test_collect_subagent_events_completed_emitted_only_once() {
     // Poll 1: spawned
     collect_subagent_events(&[active], &mut state, AgentTool::OpenCode, 42);
     // Poll 2: archived → SubagentCompleted
-    let events2 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    let events2 = collect_subagent_events(
+        std::slice::from_ref(&archived),
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+    );
     assert_eq!(events2.len(), 1, "poll 2 should emit SubagentCompleted");
     assert!(matches!(&events2[0], AgentEvent::SubagentCompleted { .. }));
 
@@ -972,12 +979,22 @@ fn test_collect_subagent_events_already_archived_on_first_sight_emits_spawned_an
     let mut state = SessionEmitState::default();
     let archived = make_subagent("sub-1", "Do task (@explore subagent)", true);
 
-    let events1 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    let events1 = collect_subagent_events(
+        std::slice::from_ref(&archived),
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+    );
     assert_eq!(events1.len(), 1);
     assert!(matches!(&events1[0], AgentEvent::SubagentSpawned { .. }));
 
     // Second poll: still archived, but no completion event should be emitted.
-    let events2 = collect_subagent_events(&[archived.clone()], &mut state, AgentTool::OpenCode, 42);
+    let events2 = collect_subagent_events(
+        std::slice::from_ref(&archived),
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+    );
     assert!(events2.is_empty());
 
     // Third poll: no more events

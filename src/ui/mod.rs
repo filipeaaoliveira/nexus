@@ -47,7 +47,10 @@ impl<'a> RenderData<'a> {
             error: count_visible_with_status(PrimaryStatus::Error),
             done: count_visible_with_status(PrimaryStatus::Done),
             exited: count_visible_with_status(PrimaryStatus::Exited),
-            subagent_count: visible_agents.iter().map(|agent| agent.subagents.len()).sum(),
+            subagent_count: visible_agents
+                .iter()
+                .map(|agent| agent.subagents.len())
+                .sum(),
         };
 
         Self {
@@ -55,6 +58,58 @@ impl<'a> RenderData<'a> {
             selected_agent,
             header,
         }
+    }
+}
+
+pub fn render(frame: &mut Frame, state: &AppState) {
+    let render_data = RenderData::from_state(state);
+
+    // Fill background
+    frame.render_widget(
+        ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),
+        frame.area(),
+    );
+
+    // Top-level vertical layout: header, main, footer
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // header
+            Constraint::Min(0),    // main
+            Constraint::Length(1), // footer
+        ])
+        .split(frame.area());
+
+    // Header
+    header::render(frame, state, &render_data, outer[0]);
+
+    // Main: split horizontally into agent list (35%) and right pane (65%)
+    let main_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .split(outer[1]);
+
+    // Agent list (left)
+    agent_list::render(frame, state, &render_data, main_chunks[0]);
+
+    // Right pane: split vertically into detail (40%) and activity (60%)
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(main_chunks[1]);
+
+    // Detail (right top)
+    detail::render(frame, &render_data, right_chunks[0]);
+
+    // Activity (right bottom)
+    activity::render(frame, &render_data, right_chunks[1]);
+
+    // Footer
+    footer::render(frame, state, outer[2]);
+
+    // Help overlay
+    if state.show_help {
+        help::render(frame);
     }
 }
 
@@ -125,57 +180,5 @@ mod tests {
         assert_eq!(render_data.header.total, 1);
         assert_eq!(render_data.header.running, 1);
         assert_eq!(render_data.header.waiting, 0);
-    }
-}
-
-pub fn render(frame: &mut Frame, state: &AppState) {
-    let render_data = RenderData::from_state(state);
-
-    // Fill background
-    frame.render_widget(
-        ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),
-        frame.area(),
-    );
-
-    // Top-level vertical layout: header, main, footer
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // header
-            Constraint::Min(0),    // main
-            Constraint::Length(1), // footer
-        ])
-        .split(frame.area());
-
-    // Header
-    header::render(frame, state, &render_data, outer[0]);
-
-    // Main: split horizontally into agent list (35%) and right pane (65%)
-    let main_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(outer[1]);
-
-    // Agent list (left)
-    agent_list::render(frame, state, &render_data, main_chunks[0]);
-
-    // Right pane: split vertically into detail (40%) and activity (60%)
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(main_chunks[1]);
-
-    // Detail (right top)
-    detail::render(frame, &render_data, right_chunks[0]);
-
-    // Activity (right bottom)
-    activity::render(frame, &render_data, right_chunks[1]);
-
-    // Footer
-    footer::render(frame, state, outer[2]);
-
-    // Help overlay
-    if state.show_help {
-        help::render(frame);
     }
 }

@@ -4,11 +4,16 @@ use std::sync::{Arc, RwLock};
 
 use crate::types::AgentTool;
 
+type AgentKey = (AgentTool, PathBuf);
+type PidList = Vec<u32>;
+type AgentMap = HashMap<AgentKey, PidList>;
+
 /// Shared registry of known agents, mapping (tool, cwd) → one or more pids.
 /// Populated by the process scanner, read by enrichment detectors.
 #[derive(Debug, Clone, Default)]
 pub struct AgentRegistry {
-    inner: Arc<RwLock<HashMap<(AgentTool, PathBuf), Vec<u32>>>>,
+    inner: Arc<RwLock<AgentMap>>,
+    codex_thread_pids: Arc<RwLock<HashMap<String, u32>>>,
 }
 
 impl AgentRegistry {
@@ -30,6 +35,13 @@ impl AgentRegistry {
         }
     }
 
+    /// Register an exact Codex thread → pid binding discovered from the
+    /// process command line (for example `codex resume <thread-id>`).
+    pub fn register_codex_thread(&self, thread_id: String, pid: u32) {
+        let mut map = self.codex_thread_pids.write().unwrap();
+        map.insert(thread_id, pid);
+    }
+
     /// Remove an agent by pid. Called when process exits.
     pub fn remove(&self, pid: u32) {
         let mut map = self.inner.write().unwrap();
@@ -37,6 +49,8 @@ impl AgentRegistry {
             pids.retain(|current_pid| *current_pid != pid);
             !pids.is_empty()
         });
+        let mut codex_map = self.codex_thread_pids.write().unwrap();
+        codex_map.retain(|_, current_pid| *current_pid != pid);
     }
 
     /// Find a PID by tool and CWD. Used by enrichment detectors.
@@ -62,6 +76,12 @@ impl AgentRegistry {
         map.get(&(tool, cwd.to_path_buf()))
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Find an exact pid for a known Codex thread id.
+    pub fn find_codex_pid_for_thread(&self, thread_id: &str) -> Option<u32> {
+        let map = self.codex_thread_pids.read().unwrap();
+        map.get(thread_id).copied()
     }
 
     /// Get all registered agents for a given tool.

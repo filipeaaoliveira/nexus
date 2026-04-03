@@ -1,42 +1,26 @@
 use ai_overview::app::AppState;
 use ai_overview::config::{Cli, Config};
 use ai_overview::detect;
-use ai_overview::detect::worktree;
 use ai_overview::event::AgentEvent;
 use ai_overview::input;
 use clap::Parser;
 use std::io::{stdout, IsTerminal};
 use std::time::Duration;
-use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing — log to a file so debug output doesn't corrupt the TUI.
-    // Use RUST_LOG env var to control level (default: warn).
-    // Logs go to /tmp/ai-overview.log when enabled.
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/tmp/ai-overview.log")?;
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(log_file)
-        .with_ansi(false)
-        .init();
+    let cli = Cli::parse();
+    let config = Config::from_cli(&cli);
+    initialize_tracing(&config)?;
 
-    // Check that we're running in a real terminal (like Codex CLI does).
+    // Let clap handle non-interactive help/version output before enforcing TUI startup.
     if !std::io::stdin().is_terminal() {
         anyhow::bail!("stdin is not a terminal — ai-overview must run in an interactive terminal");
     }
     if !stdout().is_terminal() {
         anyhow::bail!("stdout is not a terminal — ai-overview must run in an interactive terminal");
     }
-
-    let cli = Cli::parse();
-    let config = Config::from_cli(&cli);
 
     let mut rx = detect::spawn_detectors(&config);
     let mut state = AppState::new(config);
@@ -50,31 +34,34 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
+fn initialize_tracing(config: &Config) -> anyhow::Result<()> {
+    // Initialize tracing to a file so debug output does not corrupt the TUI.
+    // Use RUST_LOG to control level (default: warn).
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
+    if let Some(parent) = config.log_file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&config.log_file)?;
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(log_file)
+        .with_ansi(false)
+        .init();
+    Ok(())
+}
+
 async fn run_loop(
     terminal: &mut ratatui::DefaultTerminal,
     state: &mut AppState,
-    rx: &mut mpsc::Receiver<AgentEvent>,
+    rx: &mut tokio::sync::mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {
     loop {
         // Drain all pending events
         while let Ok(event) = rx.try_recv() {
-            if let AgentEvent::Discovered { ref id, ref pid, ref cwd, .. } = event
-            {
-                let cwd_clone = cwd.clone();
-                let id_clone = id.clone();
-                let pid_clone = *pid;
-                state.handle_event(event);
-                let (branch, is_wt) = worktree::lookup_branch_info(&cwd_clone).await;
-                state.handle_event(AgentEvent::SessionInfo {
-                    id: id_clone,
-                    pid: pid_clone,
-                    session_id: String::new(),
-                    branch,
-                    is_worktree: is_wt,
-                    started_at: None,
-                });
-                continue;
-            }
             state.handle_event(event);
         }
 

@@ -3,13 +3,116 @@ pub mod codex;
 pub mod opencode;
 pub mod process;
 pub mod registry;
-pub mod worktree;
+pub(crate) mod worktree;
 
 use crate::config::Config;
 use crate::event::AgentEvent;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tracing::error;
+
+#[derive(Debug, Clone)]
+struct CachedWorktreeInfo {
+    branch: Option<String>,
+    is_worktree: bool,
+    cached_at: std::time::Instant,
+}
+
+type WorktreeCache = Arc<Mutex<HashMap<PathBuf, CachedWorktreeInfo>>>;
+
+async fn lookup_branch_info_cached(
+    cwd: PathBuf,
+    cache_ttl: Duration,
+    cache: WorktreeCache,
+) -> (Option<String>, bool) {
+    {
+        let cache_guard = cache.lock().await;
+        if let Some(entry) = cache_guard.get(&cwd) {
+            if entry.cached_at.elapsed() <= cache_ttl {
+                return (entry.branch.clone(), entry.is_worktree);
+            }
+        }
+    }
+
+    let (branch, is_worktree) = worktree::lookup_branch_info(&cwd).await;
+    let mut cache_guard = cache.lock().await;
+    cache_guard.insert(
+        cwd,
+        CachedWorktreeInfo {
+            branch: branch.clone(),
+            is_worktree,
+            cached_at: std::time::Instant::now(),
+        },
+    );
+    (branch, is_worktree)
+}
+
+async fn emit_enriched_session_info(
+    tx: mpsc::Sender<AgentEvent>,
+    cache: WorktreeCache,
+    cache_ttl: Duration,
+    id: crate::types::AgentId,
+    pid: Option<u32>,
+    cwd: PathBuf,
+    started_at: Option<chrono::DateTime<chrono::Local>>,
+) {
+    let (branch, is_worktree) = lookup_branch_info_cached(cwd, cache_ttl, cache).await;
+    let _ = tx
+        .send(AgentEvent::SessionInfo {
+            id,
+            pid,
+            session_id: String::new(),
+            branch,
+            is_worktree,
+            started_at,
+        })
+        .await;
+}
+
+async fn forward_agent_events(
+    mut rx: mpsc::Receiver<AgentEvent>,
+    tx: mpsc::Sender<AgentEvent>,
+    cache_ttl: Duration,
+) {
+    let worktree_cache: WorktreeCache = Arc::new(Mutex::new(HashMap::new()));
+
+    while let Some(event) = rx.recv().await {
+        if let AgentEvent::Discovered {
+            id,
+            pid,
+            cwd,
+            started_at,
+        } = &event
+        {
+            let enrichment_tx = tx.clone();
+            let enrichment_cache = worktree_cache.clone();
+            let id = id.clone();
+            let cwd = cwd.clone();
+            let started_at = *started_at;
+            let pid = *pid;
+            tokio::spawn(async move {
+                emit_enriched_session_info(
+                    enrichment_tx,
+                    enrichment_cache,
+                    cache_ttl,
+                    id,
+                    pid,
+                    cwd,
+                    started_at,
+                )
+                .await;
+            });
+        }
+
+        if tx.send(event).await.is_err() {
+            break;
+        }
+    }
+}
 
 /// Run a detector in a loop with exponential backoff on failure.
 async fn run_with_restart<F, Fut>(name: &str, mut make_future: F)
@@ -33,12 +136,16 @@ where
 
 /// Spawn all detector tasks. Returns the receiver end of the event channel.
 pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
+    let (raw_tx, raw_rx) = mpsc::channel::<AgentEvent>(512);
     let (tx, rx) = mpsc::channel::<AgentEvent>(512);
     let poll = Duration::from_secs(config.poll_interval_secs);
+    let worktree_cache_ttl = Duration::from_secs(config.worktree_scan_interval_secs);
     let registry = registry::AgentRegistry::new();
 
+    tokio::spawn(forward_agent_events(raw_rx, tx.clone(), worktree_cache_ttl));
+
     // Process scanner — pass registry so it registers discovered agents
-    let process_tx = tx.clone();
+    let process_tx = raw_tx.clone();
     let process_registry = registry.clone();
     tokio::spawn(async move {
         run_with_restart("Process scanner", || {
@@ -48,7 +155,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     });
 
     // Claude detector — pass registry so it can resolve CWD→PID
-    let claude_tx = tx.clone();
+    let claude_tx = raw_tx.clone();
     let claude_dir = config.claude_data_dir.clone();
     let claude_registry = registry.clone();
     tokio::spawn(async move {
@@ -64,7 +171,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     });
 
     // OpenCode detector
-    let oc_tx = tx.clone();
+    let oc_tx = raw_tx.clone();
     let oc_dir = config.opencode_data_dir.clone();
     let oc_registry = registry.clone();
     tokio::spawn(async move {
@@ -80,7 +187,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     });
 
     // Codex detector
-    let codex_tx = tx.clone();
+    let codex_tx = raw_tx.clone();
     let codex_dir = config.codex_data_dir.clone();
     let codex_registry = registry.clone();
     tokio::spawn(async move {
@@ -96,4 +203,53 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     });
 
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::forward_agent_events;
+    use crate::event::AgentEvent;
+    use crate::types::{AgentId, AgentTool};
+    use chrono::Local;
+    use std::path::PathBuf;
+    use std::time::Duration;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn test_forward_agent_events_preserves_discovered_and_emits_session_info() {
+        let (input_tx, input_rx) = mpsc::channel(8);
+        let (output_tx, mut output_rx) = mpsc::channel(8);
+
+        tokio::spawn(forward_agent_events(
+            input_rx,
+            output_tx,
+            Duration::from_secs(60),
+        ));
+
+        let event = AgentEvent::Discovered {
+            id: AgentId::session(AgentTool::Codex, "thread-1"),
+            pid: Some(42),
+            cwd: PathBuf::from("/definitely/not/a/repo"),
+            started_at: Some(Local::now()),
+        };
+        input_tx.send(event.clone()).await.expect("send discovered");
+        drop(input_tx);
+
+        let first = output_rx.recv().await.expect("first event");
+        let second = output_rx.recv().await.expect("second event");
+        let events = [first, second];
+
+        assert!(
+            events
+                .iter()
+                .any(|item| matches!(item, AgentEvent::Discovered { .. })),
+            "expected original discovered event"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|item| matches!(item, AgentEvent::SessionInfo { .. })),
+            "expected detector-side session enrichment"
+        );
+    }
 }

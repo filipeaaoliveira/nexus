@@ -210,8 +210,7 @@ fn last_non_assistant_entry(entries: &[TranscriptEntry]) -> Option<&TranscriptEn
 
 fn contains_review_section_marker(text: &str, marker: &str) -> bool {
     text.lines().map(str::trim_start).any(|line| {
-        let line =
-            line.trim_start_matches(|ch: char| matches!(ch, '#' | '>' | '-' | '*' | ' ' | '\t'));
+        let line = line.trim_start_matches(['#', '>', '-', '*', ' ', '\t']);
         let lower = line.to_ascii_lowercase();
 
         lower == marker
@@ -242,11 +241,9 @@ fn looks_like_review_output(text: &str) -> bool {
         return true;
     }
 
-    [
-        "requested changes",
-    ]
-    .iter()
-    .any(|marker| contains_review_section_marker(trimmed, marker))
+    ["requested changes"]
+        .iter()
+        .any(|marker| contains_review_section_marker(trimmed, marker))
 }
 
 fn looks_like_terminal_failure_output(text: &str) -> bool {
@@ -335,9 +332,8 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
                     if trimmed.is_empty() {
                         continue;
                     }
-                    return classify_assistant(trimmed).unwrap_or_else(|| {
-                        NormalizedState::new(NormalizedStatus::Unknown, None)
-                    });
+                    return classify_assistant(trimmed)
+                        .unwrap_or_else(|| NormalizedState::new(NormalizedStatus::Unknown, None));
                 }
             }
         }
@@ -689,9 +685,7 @@ pub async fn run_claude_detector(
                                 if known_mtimes.get(&file_path).copied() == Some(mtime) {
                                     // Mtime unchanged — use cached value.
                                     unchanged.push(file_path);
-                                } else if let Ok(content) =
-                                    std::fs::read_to_string(&file_path)
-                                {
+                                } else if let Ok(content) = std::fs::read_to_string(&file_path) {
                                     changed.push((file_path, mtime, content));
                                 }
                             }
@@ -722,7 +716,9 @@ pub async fn run_claude_detector(
             // Also include the newly-read changed entries.
             for (_, info) in project_file_cache.values() {
                 if let Some(ref cwd) = info.cwd {
-                    cwd_to_session.entry(cwd.clone()).or_insert_with(|| info.clone());
+                    cwd_to_session
+                        .entry(cwd.clone())
+                        .or_insert_with(|| info.clone());
                 }
             }
         }

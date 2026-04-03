@@ -384,8 +384,7 @@ pub fn query_latest_assistant_message_text_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
 ) -> anyhow::Result<Option<String>> {
-    Ok(query_latest_assistant_message_data_conn(conn, session_id)?
-        .and_then(|data| data.text))
+    Ok(query_latest_assistant_message_data_conn(conn, session_id)?.and_then(|data| data.text))
 }
 
 /// Query the latest assistant message data for a session.
@@ -410,8 +409,7 @@ pub fn query_latest_assistant_message_data_conn(
 
 fn contains_review_section_marker(text: &str, marker: &str) -> bool {
     text.lines().map(str::trim_start).any(|line| {
-        let line =
-            line.trim_start_matches(|ch: char| matches!(ch, '#' | '>' | '-' | '*' | ' ' | '\t'));
+        let line = line.trim_start_matches(['#', '>', '-', '*', ' ', '\t']);
         let lower = line.to_ascii_lowercase();
 
         lower == marker
@@ -458,20 +456,14 @@ pub fn normalize_opencode_state(
             .iter()
             .any(|part| matches!(part.part_type.as_str(), "retry" | "retrying"))
     {
-        return NormalizedState::new(
-            NormalizedStatus::Working,
-            Some(NormalizedReason::Retrying),
-        );
+        return NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::Retrying));
     }
 
     if parts
         .iter()
         .any(|part| matches!(part.tool_status.as_deref(), Some("running" | "pending")))
     {
-        return NormalizedState::new(
-            NormalizedStatus::Working,
-            Some(NormalizedReason::ToolCall),
-        );
+        return NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::ToolCall));
     }
 
     if matches!(session_state, Some("busy" | "working" | "running")) {
@@ -479,17 +471,11 @@ pub fn normalize_opencode_state(
     }
 
     if latest_assistant_error.is_some_and(|error| !error.trim().is_empty()) {
-        return NormalizedState::new(
-            NormalizedStatus::Blocked,
-            Some(NormalizedReason::Error),
-        );
+        return NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Error));
     }
 
     if latest_assistant_message.is_some_and(looks_like_review_output) {
-        return NormalizedState::new(
-            NormalizedStatus::NeedsInput,
-            Some(NormalizedReason::Review),
-        );
+        return NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review));
     }
 
     if assistant_turn_completed {
@@ -692,9 +678,7 @@ pub fn collect_subagent_events(
     for sub in subagents {
         if state.emitted_subagent_ids.contains(&sub.id) {
             // Already announced — check for first-time completion.
-            if sub.time_archived.is_some()
-                && !state.completed_subagent_ids.contains(&sub.id)
-            {
+            if sub.time_archived.is_some() && !state.completed_subagent_ids.contains(&sub.id) {
                 let name = sub
                     .title
                     .as_deref()
@@ -763,12 +747,12 @@ pub async fn run_opencode_detector(
             let registry2 = registry.clone();
             type SessionData = (
                 OpenCodeSession,
-                u32,             // pid
-                Vec<PartData>,   // recent parts
-                bool,            // assistant_turn_completed
+                u32,                          // pid
+                Vec<PartData>,                // recent parts
+                bool,                         // assistant_turn_completed
                 Option<AssistantMessageData>, // latest assistant message data
-                Vec<TodoItem>,   // todos
-                Vec<OpenCodeSession>, // subagent sessions
+                Vec<TodoItem>,                // todos
+                Vec<OpenCodeSession>,         // subagent sessions
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
             let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<PollData> {
@@ -850,8 +834,7 @@ pub async fn run_opencode_detector(
                         latest_assistant_message_data,
                         todos,
                         subs,
-                    ) in
-                        session_data
+                    ) in session_data
                     {
                         let state = session_states.entry(session.id.clone()).or_default();
 
@@ -872,8 +855,7 @@ pub async fn run_opencode_detector(
                         }
 
                         // ── Parts / status / activity ──────────────────────────────
-                        let newest_time =
-                            parts.first().map(|p| p.time_created).unwrap_or(0);
+                        let newest_time = parts.first().map(|p| p.time_created).unwrap_or(0);
                         let has_new_parts = newest_time > state.last_part_time;
                         if has_new_parts {
                             state.last_part_time = newest_time;
@@ -936,30 +918,21 @@ pub async fn run_opencode_detector(
 
                         if has_new_parts {
                             for part in &parts {
-                                if part.part_type == "tool"
-                                    || part.part_type == "tool-invocation"
-                                {
+                                if part.part_type == "tool" || part.part_type == "tool-invocation" {
                                     if let Some(ref tool_name) = part.tool_name {
                                         let key = format!(
                                             "{}:{}:{}",
                                             tool_name,
-                                            part.tool_input_summary
-                                                .as_deref()
-                                                .unwrap_or(""),
+                                            part.tool_input_summary.as_deref().unwrap_or(""),
                                             part.time_created,
                                         );
                                         if state.last_tool_call.as_deref() != Some(&key) {
                                             let _ = tx
                                                 .send(AgentEvent::ToolCallStarted {
-                                                    id: AgentId::new(
-                                                        AgentTool::OpenCode,
-                                                        pid,
-                                                    ),
+                                                    id: AgentId::new(AgentTool::OpenCode, pid),
                                                     pid: Some(pid),
                                                     tool_name: tool_name.clone(),
-                                                    args_summary: part
-                                                        .tool_input_summary
-                                                        .clone(),
+                                                    args_summary: part.tool_input_summary.clone(),
                                                 })
                                                 .await;
                                             state.last_tool_call = Some(key);
@@ -971,8 +944,7 @@ pub async fn run_opencode_detector(
                         }
 
                         // ── Subagents ──────────────────────────────────────────────
-                        for event in
-                            collect_subagent_events(&subs, state, AgentTool::OpenCode, pid)
+                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid)
                         {
                             let _ = tx.send(event).await;
                         }

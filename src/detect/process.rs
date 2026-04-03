@@ -15,6 +15,31 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub tool: AgentTool,
     pub started_at: Option<DateTime<Local>>,
+    pub codex_thread_id: Option<String>,
+}
+
+fn extract_codex_thread_id(cmd: &str) -> Option<String> {
+    let tokens = cmd.split_whitespace().collect::<Vec<_>>();
+    for window in tokens.windows(3) {
+        if window[0]
+            .rsplit('/')
+            .next()
+            .unwrap_or(window[0])
+            .eq_ignore_ascii_case("codex")
+            && window[1] == "resume"
+        {
+            let candidate = window[2];
+            let valid = candidate.len() == 36
+                && candidate
+                    .chars()
+                    .all(|ch| ch.is_ascii_hexdigit() || ch == '-');
+            if valid {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
@@ -50,10 +75,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                 Ok(p) => p,
                 Err(_) => continue,
             };
-            // lstart is exactly 24 characters: "Thu Mar 27 14:30:00 2026"
-            // TODO: This 24-char assumption is locale-dependent. On non-English
-            // locales, day/month names may be longer, causing silent fallback to
-            // started_at=None. Consider parsing by year-pattern or column offsets.
+            // `ps -o lstart` uses a fixed-width English-like representation on the
+            // platforms we currently support. Keep the locale-sensitive assumption
+            // isolated here so the rest of process detection can stay platform-agnostic.
             if rest.len() < 24 {
                 continue;
             }
@@ -78,6 +102,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     pid,
                     tool,
                     started_at,
+                    codex_thread_id: (tool == AgentTool::Codex)
+                        .then(|| extract_codex_thread_id(cmd))
+                        .flatten(),
                 });
             }
         } else {
@@ -100,6 +127,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     pid,
                     tool,
                     started_at: None,
+                    codex_thread_id: (tool == AgentTool::Codex)
+                        .then(|| extract_codex_thread_id(cmd))
+                        .flatten(),
                 });
             }
         }
@@ -279,6 +309,11 @@ pub async fn run_process_scanner(
             if !known_pids.contains(&key) {
                 debug!("Discovered {} pid={}", proc.tool.as_str(), proc.pid);
                 registry.register(proc.tool, cwd.clone(), proc.pid);
+                if proc.tool == AgentTool::Codex {
+                    if let Some(thread_id) = proc.codex_thread_id.as_deref() {
+                        registry.register_codex_thread(thread_id.to_string(), proc.pid);
+                    }
+                }
                 let _ = tx
                     .send(AgentEvent::Discovered {
                         id: AgentId::new(proc.tool, proc.pid),

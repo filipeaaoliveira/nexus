@@ -11,7 +11,7 @@ use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::{
     from_epoch_secs, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
-    PrimaryStatus,
+    PrimaryStatus, TodoItem, TodoPriority, TodoStatus,
 };
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
@@ -58,6 +58,7 @@ pub enum CodexInferredStatus {
     Running,
     Done,
     Error,
+    Aborted,
     Unknown,
 }
 
@@ -154,6 +155,7 @@ pub struct ObservedCodexSession {
     pub status: PrimaryStatus,
     pub final_output: Option<String>,
     pub latest_tool_call: Option<ObservedToolCall>,
+    pub todos: Vec<TodoItem>,
     pub subagents: Vec<ObservedCodexSubagent>,
 }
 
@@ -168,6 +170,7 @@ struct RolloutThreadSummary {
     status: PrimaryStatus,
     final_output: Option<String>,
     latest_tool_call: Option<ObservedToolCall>,
+    todos: Vec<TodoItem>,
     spawned_subagents: Vec<ObservedCodexSubagent>,
 }
 
@@ -347,43 +350,101 @@ pub fn extract_tool_calls(events: &[RolloutEvent]) -> Vec<ToolCallInfo> {
         .collect()
 }
 
+pub fn extract_plan_todos(events: &[RolloutEvent]) -> Vec<TodoItem> {
+    events
+        .iter()
+        .rev()
+        .find_map(|event| {
+            if event.event_type != "response_item" {
+                return None;
+            }
+
+            let payload = &event.payload;
+            if payload.get("type").and_then(|v| v.as_str()) != Some("function_call")
+                || payload.get("name").and_then(|v| v.as_str()) != Some("update_plan")
+            {
+                return None;
+            }
+
+            let arguments = payload.get("arguments").and_then(|v| v.as_str())?;
+            let value: Value = serde_json::from_str(arguments).ok()?;
+            let plan = value.get("plan")?.as_array()?;
+
+            Some(
+                plan.iter()
+                    .filter_map(|item| {
+                        let content = item
+                            .get("step")
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())?
+                            .to_string();
+                        let status = item
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .map(TodoStatus::parse_str)
+                            .unwrap_or(TodoStatus::Pending);
+
+                        Some(TodoItem {
+                            content,
+                            status,
+                            priority: TodoPriority::Medium,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn is_running_rollout_event(event: &RolloutEvent) -> bool {
+    if event.event_type == "event_msg"
+        && event.payload.get("type").and_then(|v| v.as_str()) == Some("task_started")
+    {
+        return true;
+    }
+
+    event.event_type == "response_item"
+        && event.payload.get("type").and_then(|v| v.as_str()) == Some("function_call")
+}
+
 // ── Status Inference ──────────────────────────────────────────────
 
 /// Infer the status of a Codex rollout from its events.
 ///
-/// - `task_complete` present → Done
+/// - The latest relevant event wins
+/// - `task_complete` → Done
+/// - `turn_aborted` → Aborted
 /// - Any event_msg with type containing "error" → Error
-/// - `task_started` present but no `task_complete` → Running
+/// - `task_started` or `function_call` → Running
 /// - Otherwise → Unknown
 pub fn infer_rollout_status(events: &[RolloutEvent]) -> CodexInferredStatus {
-    let has_task_complete = events.iter().any(|e| {
-        e.event_type == "event_msg"
-            && e.payload.get("type").and_then(|v| v.as_str()) == Some("task_complete")
-    });
+    for event in events.iter().rev() {
+        if event.event_type == "event_msg"
+            && event.payload.get("type").and_then(|v| v.as_str()) == Some("turn_aborted")
+        {
+            return CodexInferredStatus::Aborted;
+        }
 
-    if has_task_complete {
-        return CodexInferredStatus::Done;
-    }
-
-    let has_error = events.iter().any(|e| {
-        e.event_type == "event_msg"
-            && e.payload
+        if event.event_type == "event_msg"
+            && event
+                .payload
                 .get("type")
                 .and_then(|v| v.as_str())
                 .is_some_and(|t| t.contains("error"))
-    });
+        {
+            return CodexInferredStatus::Error;
+        }
 
-    if has_error {
-        return CodexInferredStatus::Error;
-    }
+        if event.event_type == "event_msg"
+            && event.payload.get("type").and_then(|v| v.as_str()) == Some("task_complete")
+        {
+            return CodexInferredStatus::Done;
+        }
 
-    let has_task_started = events.iter().any(|e| {
-        e.event_type == "event_msg"
-            && e.payload.get("type").and_then(|v| v.as_str()) == Some("task_started")
-    });
-
-    if has_task_started {
-        return CodexInferredStatus::Running;
+        if is_running_rollout_event(event) {
+            return CodexInferredStatus::Running;
+        }
     }
 
     CodexInferredStatus::Unknown
@@ -551,6 +612,7 @@ fn codex_to_primary(status: CodexInferredStatus) -> PrimaryStatus {
         CodexInferredStatus::Running => PrimaryStatus::Running,
         CodexInferredStatus::Done => PrimaryStatus::Done,
         CodexInferredStatus::Error => PrimaryStatus::Error,
+        CodexInferredStatus::Aborted => PrimaryStatus::Waiting,
         CodexInferredStatus::Unknown => PrimaryStatus::Running,
     }
 }
@@ -560,6 +622,10 @@ fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
         [pid] => Some(*pid),
         _ => None,
     }
+}
+
+fn codex_pid_for_exact_thread(registry: &AgentRegistry, thread_id: &str) -> Option<u32> {
+    registry.find_codex_pid_for_thread(thread_id)
 }
 
 fn thread_is_recent_enough_for_pid_binding(thread: &CodexThread) -> bool {
@@ -638,16 +704,18 @@ pub fn build_codex_snapshot(
 
     for (thread, classification) in classified_threads {
         let pid = match &classification {
-            CodexThreadClassification::TopLevel if thread_is_recent_enough_for_pid_binding(&thread) => thread
-                .cwd
-                .as_deref()
-                .and_then(|cwd| {
-                    (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
-                        .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
-                        .flatten()
+            CodexThreadClassification::TopLevel => codex_pid_for_exact_thread(registry, &thread.id)
+                .or_else(|| {
+                    thread_is_recent_enough_for_pid_binding(&thread)
+                        .then_some(())
+                        .and(thread.cwd.as_deref())
+                        .and_then(|cwd| {
+                            (top_level_thread_count_by_cwd.get(cwd) == Some(&1))
+                                .then(|| codex_pid_for_thread(registry, Path::new(cwd)))
+                                .flatten()
+                        })
                 }),
             CodexThreadClassification::Child { .. } => None,
-            CodexThreadClassification::TopLevel => None,
         };
         let observed = ObservedCodexThread {
             agent_id: AgentId::session(AgentTool::Codex, thread.id.clone()),
@@ -706,11 +774,19 @@ fn summarize_tool_arguments(arguments: &str) -> Option<String> {
 }
 
 fn extract_final_output_text(events: &[RolloutEvent]) -> Option<String> {
-    if let Some(task_complete) = events.iter().rev().find(|event| {
+    if let Some(task_complete_index) = events.iter().rposition(|event| {
         event.event_type == "event_msg"
             && event.payload.get("type").and_then(|value| value.as_str()) == Some("task_complete")
     }) {
-        return task_complete
+        let has_newer_activity = events
+            .iter()
+            .skip(task_complete_index + 1)
+            .any(is_running_rollout_event);
+        if has_newer_activity {
+            return None;
+        }
+
+        return events[task_complete_index]
             .payload
             .get("last_agent_message")
             .and_then(|value| value.as_str())
@@ -719,36 +795,32 @@ fn extract_final_output_text(events: &[RolloutEvent]) -> Option<String> {
             .map(str::to_string);
     }
 
-    events
-        .iter()
-        .rev()
-        .find_map(|event| {
-            if event.event_type != "response_item" {
-                return None;
-            }
+    events.iter().rev().find_map(|event| {
+        if event.event_type != "response_item" {
+            return None;
+        }
 
-            let payload = &event.payload;
-            if payload.get("type").and_then(|value| value.as_str()) != Some("message") {
-                return None;
-            }
+        let payload = &event.payload;
+        if payload.get("type").and_then(|value| value.as_str()) != Some("message") {
+            return None;
+        }
 
-            payload
-                .get("content")
-                .and_then(|value| value.as_array())
-                .and_then(|content| {
-                    let parts = content
-                        .iter()
-                        .filter(|item| {
-                            item.get("type").and_then(|value| value.as_str())
-                                == Some("output_text")
-                        })
-                        .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
-                        .map(str::trim)
-                        .filter(|text| !text.is_empty())
-                        .collect::<Vec<_>>();
-                    (!parts.is_empty()).then(|| parts.join("\n"))
-                })
-        })
+        payload
+            .get("content")
+            .and_then(|value| value.as_array())
+            .and_then(|content| {
+                let parts = content
+                    .iter()
+                    .filter(|item| {
+                        item.get("type").and_then(|value| value.as_str()) == Some("output_text")
+                    })
+                    .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .collect::<Vec<_>>();
+                (!parts.is_empty()).then(|| parts.join("\n"))
+            })
+    })
 }
 
 fn looks_like_review_output(text: &str) -> bool {
@@ -770,18 +842,14 @@ fn looks_like_review_output(text: &str) -> bool {
         return true;
     }
 
-    [
-        "requested changes",
-        "review findings",
-        "audit findings",
-    ]
-    .iter()
-    .any(|marker| contains_review_section_marker(trimmed, marker))
+    ["requested changes", "review findings", "audit findings"]
+        .iter()
+        .any(|marker| contains_review_section_marker(trimmed, marker))
 }
 
 fn contains_review_section_marker(text: &str, marker: &str) -> bool {
     text.lines().map(str::trim_start).any(|line| {
-        let line = line.trim_start_matches(|ch: char| matches!(ch, '#' | '>' | '-' | '*' | ' ' | '\t'));
+        let line = line.trim_start_matches(['#', '>', '-', '*', ' ', '\t']);
         let lower = line.to_ascii_lowercase();
 
         lower == marker
@@ -789,6 +857,56 @@ fn contains_review_section_marker(text: &str, marker: &str) -> bool {
             || lower.starts_with(&format!("{marker} -"))
             || lower.starts_with(&format!("{marker} "))
     })
+}
+
+fn looks_like_input_request_output(text: &str) -> Option<NormalizedReason> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+
+    if [
+        "need your approval",
+        "awaiting your approval",
+        "waiting for your approval",
+        "please approve",
+        "can you approve",
+        "do you approve",
+        "please confirm",
+        "can you confirm",
+        "confirm before i continue",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return Some(NormalizedReason::Approval);
+    }
+
+    if trimmed.contains('?')
+        && [
+            "which option",
+            "which approach",
+            "which direction",
+            "which one",
+            "what do you want",
+            "how would you like",
+            "do you want me to",
+            "would you like me to",
+            "should i",
+            "let me know",
+            "waiting on your input",
+            "need your input",
+            "need your decision",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return Some(NormalizedReason::Decision);
+    }
+
+    None
 }
 
 pub fn normalize_codex_session(
@@ -800,47 +918,54 @@ pub fn normalize_codex_session(
         .is_some_and(|output| !output.is_empty());
 
     if session.status == PrimaryStatus::Done && final_output.is_some_and(looks_like_review_output) {
-        return NormalizedState::new(
-            NormalizedStatus::NeedsInput,
-            Some(NormalizedReason::Review),
-        );
-    }
-
-    if session
-        .subagents
-        .iter()
-        .any(|subagent| subagent.status == PrimaryStatus::Running)
-    {
-        return NormalizedState::new(
-            NormalizedStatus::Working,
-            Some(NormalizedReason::Subagent),
-        );
+        return NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review));
     }
 
     match session.status {
         PrimaryStatus::Error => {
             NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Error))
         }
-        PrimaryStatus::Done if has_meaningful_final_output => NormalizedState::new(
-            NormalizedStatus::Done,
-            Some(NormalizedReason::ReadyForNextTask),
-        ),
-        PrimaryStatus::Done => NormalizedState::new(NormalizedStatus::Unknown, None),
         PrimaryStatus::Running => {
             if session.latest_tool_call.is_some() {
-                NormalizedState::new(
-                    NormalizedStatus::Working,
-                    Some(NormalizedReason::ToolCall),
-                )
+                NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::ToolCall))
+            } else if session
+                .subagents
+                .iter()
+                .any(|subagent| subagent.status == PrimaryStatus::Running)
+            {
+                NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::Subagent))
             } else {
                 NormalizedState::new(NormalizedStatus::Working, None)
             }
         }
         PrimaryStatus::Waiting => {
-            if session.latest_tool_call.is_some() {
+            if let Some(reason) = final_output.and_then(looks_like_input_request_output) {
+                NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
+            } else if session
+                .subagents
+                .iter()
+                .any(|subagent| subagent.status == PrimaryStatus::Running)
+            {
+                NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::Subagent))
+            } else if session.latest_tool_call.is_some() {
+                NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::ToolCall))
+            } else {
+                NormalizedState::new(NormalizedStatus::Unknown, None)
+            }
+        }
+        PrimaryStatus::Done => {
+            if let Some(reason) = final_output.and_then(looks_like_input_request_output) {
+                NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
+            } else if session
+                .subagents
+                .iter()
+                .any(|subagent| subagent.status == PrimaryStatus::Running)
+            {
+                NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::Subagent))
+            } else if has_meaningful_final_output {
                 NormalizedState::new(
-                    NormalizedStatus::Working,
-                    Some(NormalizedReason::ToolCall),
+                    NormalizedStatus::Done,
+                    Some(NormalizedReason::ReadyForNextTask),
                 )
             } else {
                 NormalizedState::new(NormalizedStatus::Unknown, None)
@@ -855,6 +980,7 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
         status: PrimaryStatus::Waiting,
         final_output: None,
         latest_tool_call: None,
+        todos: Vec::new(),
         spawned_subagents: Vec::new(),
     };
 
@@ -872,6 +998,7 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
                             name: tool.name.clone(),
                             args_summary: summarize_tool_arguments(&tool.arguments),
                         });
+                summary.todos = extract_plan_todos(&events);
                 summary.spawned_subagents = extract_subagent_spawns(&events)
                     .into_iter()
                     .map(|spawn| {
@@ -880,7 +1007,7 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
                             name: spawn.nickname,
                             thread_id: thread_id.clone(),
                             description: Some(thread_id),
-                            status: PrimaryStatus::Running,
+                            status: PrimaryStatus::Waiting,
                         }
                     })
                     .collect();
@@ -914,21 +1041,28 @@ fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Optio
 }
 
 fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -> PrimaryStatus {
+    let edge_indicates_closed = matches!(edge_status, Some("completed" | "closed"));
+
     if let Some(ref rollout_path) = child.thread.rollout_path {
         let rp = PathBuf::from(rollout_path);
         if rp.exists() {
             if let Ok(content) = std::fs::read_to_string(&rp) {
-                let inferred = codex_to_primary(infer_rollout_status(&parse_rollout(&content)));
-                if inferred == PrimaryStatus::Done {
-                    return PrimaryStatus::Done;
-                }
+                return match infer_rollout_status(&parse_rollout(&content)) {
+                    CodexInferredStatus::Running => PrimaryStatus::Running,
+                    CodexInferredStatus::Done => PrimaryStatus::Done,
+                    CodexInferredStatus::Error => PrimaryStatus::Error,
+                    CodexInferredStatus::Aborted if edge_indicates_closed => PrimaryStatus::Done,
+                    CodexInferredStatus::Aborted => PrimaryStatus::Waiting,
+                    CodexInferredStatus::Unknown if edge_indicates_closed => PrimaryStatus::Done,
+                    CodexInferredStatus::Unknown => PrimaryStatus::Waiting,
+                };
             }
         }
     }
 
     match edge_status {
-        Some("completed") => PrimaryStatus::Done,
-        _ => PrimaryStatus::Running,
+        Some("completed" | "closed") => PrimaryStatus::Done,
+        _ => PrimaryStatus::Waiting,
     }
 }
 
@@ -1001,6 +1135,7 @@ pub fn build_codex_event_snapshot(
                 status: rollout_summary.status,
                 final_output: rollout_summary.final_output,
                 latest_tool_call: rollout_summary.latest_tool_call,
+                todos: rollout_summary.todos,
                 subagents: observed_subagents_for_parent(
                     observed,
                     &child_threads_by_parent,
@@ -1069,17 +1204,24 @@ pub fn reconcile_codex_snapshots(
             });
         }
 
-        let normalized_state =
-            normalize_codex_session(session, session.final_output.as_deref());
-        let previous_normalized_state = previous_session
-            .map(|previous_session| {
-                normalize_codex_session(previous_session, previous_session.final_output.as_deref())
-            });
+        let normalized_state = normalize_codex_session(session, session.final_output.as_deref());
+        let previous_normalized_state = previous_session.map(|previous_session| {
+            normalize_codex_session(previous_session, previous_session.final_output.as_deref())
+        });
         if previous_normalized_state.as_ref() != Some(&normalized_state) {
             events.push(AgentEvent::NormalizedStateChanged {
                 id: session.agent_id.clone(),
                 pid: session.pid,
                 state: normalized_state,
+            });
+        }
+
+        let previous_todos = previous_session.map(|session| &session.todos);
+        if previous_todos != Some(&session.todos) {
+            events.push(AgentEvent::TodosUpdated {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                todos: session.todos.clone(),
             });
         }
 
@@ -1395,6 +1537,7 @@ mod tests {
                 status: PrimaryStatus::Running,
                 final_output: None,
                 latest_tool_call: None,
+                todos: Vec::new(),
                 subagents: vec![ObservedCodexSubagent {
                     thread_id: "child-a".into(),
                     name: "child-a".into(),

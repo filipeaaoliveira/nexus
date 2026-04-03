@@ -55,11 +55,7 @@ fn status_changed(tool: AgentTool, pid: u32, old: PrimaryStatus, new: PrimarySta
     }
 }
 
-fn normalized_state_changed(
-    tool: AgentTool,
-    pid: u32,
-    state: NormalizedState,
-) -> AgentEvent {
+fn normalized_state_changed(tool: AgentTool, pid: u32, state: NormalizedState) -> AgentEvent {
     AgentEvent::NormalizedStateChanged {
         id: AgentId::new(tool, pid),
         pid: Some(pid),
@@ -163,12 +159,12 @@ fn test_status_change() {
 fn test_process_exited() {
     let mut state = make_state();
     state.handle_event(discovered(
-        AgentTool::Codex,
+        AgentTool::Claude,
         9999,
         PathBuf::from("/tmp/cx"),
         None,
     ));
-    state.handle_event(process_exited(AgentTool::Codex, 9999));
+    state.handle_event(process_exited(AgentTool::Claude, 9999));
     assert_eq!(state.agents[0].status, PrimaryStatus::Exited);
 }
 
@@ -324,7 +320,10 @@ fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
     for (pid, normalized) in [
         (
             1,
-            NormalizedState::new(NormalizedStatus::Done, Some(NormalizedReason::ReadyForNextTask)),
+            NormalizedState::new(
+                NormalizedStatus::Done,
+                Some(NormalizedReason::ReadyForNextTask),
+            ),
         ),
         (
             2,
@@ -948,7 +947,7 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
     assert_eq!(session_agents.len(), 2);
     assert!(session_agents
         .iter()
-        .all(|a| a.cwd == PathBuf::from("/tmp/ambiguous")));
+        .all(|a| a.cwd == std::path::Path::new("/tmp/ambiguous")));
     assert!(state
         .agents
         .iter()
@@ -983,6 +982,25 @@ fn test_codex_process_exit_retires_all_session_rows_sharing_pid() {
         .agents
         .iter()
         .all(|a| a.status == PrimaryStatus::Exited && a.pid == Some(44)));
+}
+
+#[test]
+fn test_codex_process_only_row_is_removed_on_exit() {
+    let mut state = make_state();
+
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        45337,
+        PathBuf::from("/tmp/ai-overview"),
+        None,
+    ));
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_process());
+
+    state.handle_event(process_exited(AgentTool::Codex, 45337));
+
+    assert!(state.agents.is_empty());
+    assert!(state.visible_agents().is_empty());
 }
 
 #[test]
@@ -1056,6 +1074,38 @@ fn test_codex_session_info_preserves_terminal_status() {
     assert!(state.agents[0].id.is_session());
     assert_eq!(state.agents[0].status, PrimaryStatus::Done);
     assert_eq!(state.agents[0].pid, Some(55));
+}
+
+#[test]
+fn test_codex_process_discovery_does_not_revive_done_session() {
+    let mut state = make_state();
+
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        15642,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(AgentEvent::StatusChanged {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: Some(15642),
+        old: PrimaryStatus::Running,
+        new: PrimaryStatus::Done,
+    });
+
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        15642,
+        PathBuf::from("/tmp/project"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_session());
+    assert_eq!(state.agents[0].status, PrimaryStatus::Done);
+    assert_eq!(state.agents[0].pid, Some(15642));
 }
 
 #[test]
@@ -1160,13 +1210,13 @@ fn test_normalized_state_changed_updates_agent_normalized_state() {
     state.handle_event(AgentEvent::NormalizedStateChanged {
         id,
         pid: Some(42),
-        state: NormalizedState::new(
-            NormalizedStatus::NeedsInput,
-            Some(NormalizedReason::Review),
-        ),
+        state: NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
     });
 
-    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(
+        state.agents[0].normalized.status,
+        NormalizedStatus::NeedsInput
+    );
     assert_eq!(
         state.agents[0].normalized.reason,
         Some(NormalizedReason::Review)

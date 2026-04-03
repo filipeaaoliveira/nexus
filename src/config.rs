@@ -25,21 +25,36 @@ pub struct Config {
     pub opencode_api_url: Option<String>,
     pub claude_data_dir: PathBuf,
     pub codex_data_dir: PathBuf,
+    pub codex_binary: Option<PathBuf>,
+    pub codex_launch_args: Vec<String>,
+    pub codex_profiles_dir: PathBuf,
+    pub codex_repos_dir: PathBuf,
+    pub codex_runtime_dir: PathBuf,
+    pub codex_quota_cache_file: PathBuf,
     pub opencode_data_dir: PathBuf,
 }
 
 impl Default for Config {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+        let data_dir = dirs::data_dir().unwrap_or_else(|| home.join(".local/share"));
         let cache_dir = dirs::cache_dir().unwrap_or_else(|| home.join(".cache"));
+        let codex_data_dir = data_dir.join("ai-overview").join("codex");
+        let opencode_data_dir = data_dir.join("ai-overview").join("opencode");
         Self {
             poll_interval_secs: 2,
             worktree_scan_interval_secs: 10,
             log_file: cache_dir.join("ai-overview").join("ai-overview.log"),
             opencode_api_url: None,
             claude_data_dir: home.join(".claude"),
-            codex_data_dir: home.join(".codex"),
-            opencode_data_dir: home.join(".local/share/opencode"),
+            codex_data_dir: codex_data_dir.clone(),
+            codex_binary: None,
+            codex_launch_args: Vec::new(),
+            codex_profiles_dir: codex_data_dir.join("profiles"),
+            codex_repos_dir: codex_data_dir.join("repos"),
+            codex_runtime_dir: codex_data_dir.join("runtime"),
+            codex_quota_cache_file: codex_data_dir.join("quota-cache.json"),
+            opencode_data_dir,
         }
     }
 }

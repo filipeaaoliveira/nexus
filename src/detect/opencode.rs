@@ -720,7 +720,7 @@ pub fn collect_subagent_events(
                         crate::types::PrimaryStatus::Running
                     },
                     description: sub.title.clone(),
-                    started_at: crate::types::from_epoch_millis(sub.time_created)
+                    started_at: from_epoch_millis(sub.time_created)
                         .unwrap_or_else(chrono::Local::now),
                     ended_at: None,
                 },

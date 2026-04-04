@@ -13,6 +13,7 @@ use tracing::{debug, warn};
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: u32,
+    pub ppid: Option<u32>,
     pub tool: AgentTool,
     pub started_at: Option<DateTime<Local>>,
     pub codex_thread_id: Option<String>,
@@ -71,9 +72,9 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
         None => return results,
     };
 
-    // Detect if lstart is present by checking for STARTED column.
-    // lstart format: "Thu Mar 27 14:30:00 2026" (24 chars).
-    let has_lstart = header.contains("STARTED");
+    // Detect format by checking for specific columns
+    let has_start = header.contains("STARTED");
+    let has_ppid = header.contains("PPID");
 
     for line in lines {
         let line = line.trim();
@@ -81,29 +82,33 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
             continue;
         }
 
-        if has_lstart {
-            // Format: "PID <24-char lstart> COMMAND"
-            let mut parts = line.splitn(2, char::is_whitespace);
+        if has_start && has_ppid {
+            // Format: "PID PPID <24-char lstart> COMMAND"
+            // Need to handle variable whitespace between columns
+            let mut parts = line.split_whitespace();
             let pid_str = match parts.next() {
-                Some(s) => s.trim(),
+                Some(s) => s,
                 None => continue,
             };
-            let rest = match parts.next() {
-                Some(s) => s.trim_start(),
+            let ppid_str = match parts.next() {
+                Some(s) => s,
                 None => continue,
             };
+            let remaining: String = parts.collect::<Vec<_>>().join(" ");
+            
             let pid: u32 = match pid_str.parse() {
                 Ok(p) => p,
                 Err(_) => continue,
             };
+            let ppid: Option<u32> = ppid_str.parse().ok();
             // `ps -o lstart` uses a fixed-width English-like representation on the
             // platforms we currently support. Keep the locale-sensitive assumption
             // isolated here so the rest of process detection can stay platform-agnostic.
-            if rest.len() < 24 {
+            if remaining.len() < 24 {
                 continue;
             }
-            let lstart_str = &rest[..24];
-            let cmd = rest[24..].trim();
+            let lstart_str = &remaining[..24];
+            let cmd = remaining[24..].trim();
             let started_at =
                 NaiveDateTime::parse_from_str(lstart_str.trim(), "%a %b %d %H:%M:%S %Y")
                     .or_else(|_| {
@@ -121,6 +126,7 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
             if let Some(tool) = detect_tool_from_command(cmd) {
                 results.push(ProcessInfo {
                     pid,
+                    ppid,
                     tool,
                     started_at,
                     codex_thread_id: (tool == AgentTool::Codex)
@@ -131,8 +137,42 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                         .flatten(),
                 });
             }
+        } else if has_ppid {
+            // Format: "PID PPID COMMAND" (no STARTED column)
+            let mut parts = line.splitn(3, char::is_whitespace);
+            let pid_str = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let ppid_str = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let cmd = match parts.next() {
+                Some(s) => s.trim(),
+                None => continue,
+            };
+            let pid: u32 = match pid_str.parse() {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let ppid: Option<u32> = ppid_str.parse().ok();
+            if let Some(tool) = detect_tool_from_command(cmd) {
+                results.push(ProcessInfo {
+                    pid,
+                    ppid,
+                    tool,
+                    started_at: None,
+                    codex_thread_id: (tool == AgentTool::Codex)
+                        .then(|| extract_codex_thread_id(cmd))
+                        .flatten(),
+                    claude_resume_session_id: (tool == AgentTool::Claude)
+                        .then(|| extract_claude_resume_session(cmd))
+                        .flatten(),
+                });
+            }
         } else {
-            // Fallback: no lstart column, original format "PID COMMAND"
+            // Original fallback: "PID COMMAND"
             let mut parts = line.splitn(2, char::is_whitespace);
             let pid_str = match parts.next() {
                 Some(s) => s.trim(),
@@ -149,6 +189,7 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
             if let Some(tool) = detect_tool_from_command(cmd) {
                 results.push(ProcessInfo {
                     pid,
+                    ppid: None,
                     tool,
                     started_at: None,
                     codex_thread_id: (tool == AgentTool::Codex)
@@ -291,7 +332,7 @@ pub async fn batch_get_cwds(pids: &[u32]) -> std::collections::HashMap<u32, Path
 
 pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     let output = match Command::new("ps")
-        .args(["-eo", "pid,lstart,command"])
+        .args(["-eo", "pid,ppid,lstart,command"])
         .output()
         .await
     {
@@ -306,19 +347,60 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
 
     // Resolve CWDs for all discovered processes in a single lsof call.
     let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
-    let mut cwd_map = batch_get_cwds(&pids).await;
+    let cwd_map = batch_get_cwds(&pids).await;
 
-    procs
+    // Build a map of PID -> (tool, ppid, cwd) for parent lookup
+    let mut pid_info: std::collections::HashMap<u32, (AgentTool, Option<u32>)> = std::collections::HashMap::new();
+    for p in &procs {
+        pid_info.insert(p.pid, (p.tool, p.ppid));
+    }
+
+    // Also create a map of PID -> CWD from the batch results BEFORE filtering
+    let mut pid_cwd: std::collections::HashMap<u32, PathBuf> = std::collections::HashMap::new();
+    for proc in &procs {
+        if let Some(cwd) = cwd_map.get(&proc.pid) {
+            pid_cwd.insert(proc.pid, cwd.clone());
+        }
+    }
+
+    // Filter out child processes that have the same tool as their parent
+    // This prevents duplicate detection when a tool spawns a child process
+    // with the same command (like opencode's node wrapper)
+    let results: Vec<(ProcessInfo, PathBuf)> = procs
         .into_iter()
         .filter_map(|proc| {
-            if let Some(cwd) = cwd_map.remove(&proc.pid) {
-                Some((proc, cwd))
-            } else {
-                debug!("Could not get CWD for pid {}", proc.pid);
-                None
+            let cwd = match pid_cwd.remove(&proc.pid) {
+                Some(c) => c,
+                None => {
+                    debug!("Could not get CWD for pid {}", proc.pid);
+                    return None;
+                }
+            };
+            
+            // Check if this process has a child with same tool and same CWD
+            // If so, skip this parent (keep the child which is the actual binary)
+            // This handles cases like opencode where node wrapper spawns the actual binary
+            let has_same_tool_child_with_same_cwd = proc.ppid.is_some() && {
+                // Check if this process's parent also has same tool
+                proc.ppid.and_then(|ppid| pid_info.get(&ppid))
+                    .map(|(parent_tool, _)| *parent_tool == proc.tool)
+                    .unwrap_or(false)
+            };
+            
+            if has_same_tool_child_with_same_cwd {
+                if let Some(parent_cwd) = cwd_map.get(&proc.ppid.unwrap()) {
+                    if parent_cwd == &cwd {
+                        debug!("Skipping parent process {} (child has same tool/CWD)", proc.pid);
+                        return None;
+                    }
+                }
             }
+            
+            Some((proc, cwd))
         })
-        .collect()
+        .collect();
+
+    results
 }
 
 pub async fn run_process_scanner(
@@ -348,6 +430,9 @@ pub async fn run_process_scanner(
                     if let Some(thread_id) = proc.codex_thread_id.as_deref() {
                         registry.register_codex_thread(thread_id.to_string(), proc.pid);
                     }
+                }
+                if proc.tool == AgentTool::OpenCode {
+                    registry.register_opencode_launch(proc.pid, proc.started_at);
                 }
                 let _ = tx
                     .send(AgentEvent::Discovered {

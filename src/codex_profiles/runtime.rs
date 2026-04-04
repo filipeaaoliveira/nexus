@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
+use crate::codex_profiles::quota::{parse_status_output, QuotaSnapshot};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePlan {
     pub profile_dir: PathBuf,
@@ -173,4 +175,21 @@ fn create_dir_symlink(target: &Path, link: &Path) -> Result<()> {
 fn create_dir_symlink(target: &Path, link: &Path) -> Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
         .with_context(|| format!("failed to create directory symlink {}", link.display()))
+}
+
+pub fn get_codex_quota(codex_bin: &Path, runtime: &RuntimePlan) -> Result<Option<QuotaSnapshot>> {
+    let output = Command::new(codex_bin)
+        .arg("-c")
+        .arg(format!("sqlite_home={}", runtime.sqlite_home.display()))
+        .arg("status")
+        .env("CODEX_HOME", &runtime.runtime_home)
+        .output()
+        .context("failed to run codex status")?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_status_output(&stdout))
 }

@@ -1,6 +1,6 @@
-  PID                          STARTED COMMAND
-12345 Fri Mar 27 14:30:00 2026         /Users/dev/.local/bin/opencode
-23456 Sat Mar 28 09:15:30 2026         /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude
-34567 Sun Mar 29 11:00:00 2026         /Users/dev/.cargo/bin/codex
-45678 Tue Mar 31 08:00:00 2026         /bin/bash
-99999 Mon Mar 30 16:45:00 2026         /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude
+  PID  PPID                          STARTED COMMAND
+12345 12344 Fri Mar 27 14:30:00 2026         /Users/dev/.local/bin/opencode
+23456 23455 Sat Mar 28 09:15:30 2026         /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude
+34567 34566 Sun Mar 29 11:00:00 2026         /Users/dev/.cargo/bin/codex
+45678     0 Tue Mar 31 08:00:00 2026         /bin/bash
+99999 99998 Mon Mar 30 16:45:00 2026         /Users/dev/.npm/_npx/node /Users/dev/.claude/local/claude

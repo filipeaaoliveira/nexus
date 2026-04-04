@@ -42,7 +42,7 @@ impl Default for Config {
         let cache_dir = dirs::cache_dir().unwrap_or_else(|| home.join(".cache"));
         let codex_data_dir = home.join(".codex");
         let codex_management_dir = data_dir.join("ai-overview").join("codex");
-        let opencode_data_dir = data_dir.join("ai-overview").join("opencode");
+        let opencode_data_dir = home.join(".local/share/opencode");
         Self {
             poll_interval_secs: 2,
             worktree_scan_interval_secs: 10,

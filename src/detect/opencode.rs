@@ -792,7 +792,11 @@ pub async fn run_opencode_detector(
                         Some(d) => d.clone(),
                         None => continue,
                     };
-                    tracing::debug!("OpenCode: checking session {} dir={}", session.id, cwd.display());
+                    tracing::debug!(
+                        "OpenCode: checking session {} dir={}",
+                        session.id,
+                        cwd.display()
+                    );
                     let pid = match registry2.find_pid_prefix(AgentTool::OpenCode, &cwd) {
                         Some(p) => p,
                         None => {
@@ -965,8 +969,13 @@ pub async fn run_opencode_detector(
                         }
 
                         // ── Subagents ──────────────────────────────────────────────
-                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid, process_started_at)
-                        {
+                        for event in collect_subagent_events(
+                            &subs,
+                            state,
+                            AgentTool::OpenCode,
+                            pid,
+                            process_started_at,
+                        ) {
                             let _ = tx.send(event).await;
                         }
 

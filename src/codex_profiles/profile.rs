@@ -87,16 +87,48 @@ impl CodexProfile {
     }
 }
 
+fn decode_jwt_payload(token: &str) -> Option<Value> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let payload = parts[1];
+    let padding = (4 - payload.len() % 4) % 4;
+    let padded = format!("{}{}", payload, "=".repeat(padding));
+
+    use base64::Engine;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&padded)
+        .ok()?;
+
+    serde_json::from_slice(&decoded).ok()
+}
+
 pub fn extract_auth_metadata(value: &Value) -> AuthMetadata {
     let email = value
         .get("email")
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| {
+            let tokens = value.get("tokens")?;
+            let id_token = tokens.get("id_token")?.as_str()?;
+            let payload = decode_jwt_payload(id_token)?;
+            payload.get("email")?.as_str().map(str::to_string)
+        });
+
     let plan = value
         .get("plan")
         .or_else(|| value.get("subscription"))
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::to_string)
+        .or_else(|| {
+            let tokens = value.get("tokens")?;
+            let id_token = tokens.get("id_token")?.as_str()?;
+            let payload = decode_jwt_payload(id_token)?;
+            let auth = payload.get("https://api.openai.com/auth")?;
+            auth.get("chatgpt_plan_type")?.as_str().map(str::to_string)
+        });
 
     AuthMetadata { email, plan }
 }

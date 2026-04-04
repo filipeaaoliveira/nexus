@@ -127,3 +127,11 @@ impl QuotaCache {
         Ok(())
     }
 }
+
+pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
+    QuotaCache::load(path)
+}
+
+pub fn save_quota_cache(cache: &QuotaCache, path: &Path) -> Result<()> {
+    cache.save(path)
+}

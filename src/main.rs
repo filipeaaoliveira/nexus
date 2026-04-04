@@ -37,9 +37,9 @@ async fn main() -> anyhow::Result<()> {
 
 fn initialize_tracing(config: &Config) -> anyhow::Result<()> {
     // Initialize tracing to a file so debug output does not corrupt the TUI.
-    // Use RUST_LOG to control level (default: warn).
+    // Use RUST_LOG to control level (default: info).
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=warn"));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=info"));
     if let Some(parent) = config.log_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -76,7 +76,7 @@ async fn run_loop(
             state.active_rename_mode(),
             state.codex_tab.session_picker_mode,
             state.codex_tab.edit_mode,
-            state.codex_tab.view_mode,
+            state.codex_tab.quota_edit_mode,
         )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
@@ -86,9 +86,8 @@ async fn run_loop(
                     state.handle_codex_move_down();
                     let new_active = state.active_codex_profile_id().map(String::from);
                     if previous_active.as_deref() != new_active.as_deref() {
-                        if let Err(e) = state.restart_running_codex_with_profile() {
-                            state.codex_tab.status_message = Some(e.to_string());
-                        }
+                        // Profile switch - skip automatic session restart for now
+                        // as it causes issues with sessions from different runtimes
                     }
                 }
             },
@@ -99,9 +98,8 @@ async fn run_loop(
                     state.handle_codex_move_up();
                     let new_active = state.active_codex_profile_id().map(String::from);
                     if previous_active.as_deref() != new_active.as_deref() {
-                        if let Err(e) = state.restart_running_codex_with_profile() {
-                            state.codex_tab.status_message = Some(e.to_string());
-                        }
+                        // Profile switch - skip automatic session restart for now
+                        // as it causes issues with sessions from different runtimes
                     }
                 }
             },
@@ -111,7 +109,11 @@ async fn run_loop(
             Some(input::Action::ShowHelp) => state.toggle_help(),
             Some(input::Action::RemoveAgent) => match state.active_tab() {
                 ActiveTab::Overview => state.remove_selected(),
-                ActiveTab::Codex => {}
+                ActiveTab::Codex => {
+                    if let Err(e) = state.delete_codex_profile() {
+                        state.codex_tab.status_message = Some(e.to_string());
+                    }
+                }
             },
             Some(input::Action::RemoveExited) => match state.active_tab() {
                 ActiveTab::Overview => state.remove_exited(),
@@ -157,12 +159,30 @@ async fn run_loop(
             }
             Some(input::Action::CodexLaunchSelected) => {
                 if state.active_tab() == ActiveTab::Codex {
-                    ratatui::restore();
-                    let launch_result = state.launch_selected_codex_profile();
-                    *terminal = ratatui::init();
-                    terminal.clear()?;
-                    if let Err(error) = launch_result {
-                        state.codex_tab.status_message = Some(error.to_string());
+                    if state.codex_tab.session_picker_mode {
+                        // Already in session picker, just dismiss
+                        state.dismiss_session_picker();
+                    } else {
+                        // Try to start session picker for resume
+                        state.start_session_picker_for_resume();
+
+                        // If no sessions found, launch new instead
+                        if !state.codex_tab.session_picker_mode
+                            && state
+                                .codex_tab
+                                .status_message
+                                .as_ref()
+                                .map(|m| m.contains("No sessions"))
+                                .unwrap_or(false)
+                        {
+                            ratatui::restore();
+                            let launch_result = state.launch_selected_codex_profile();
+                            *terminal = ratatui::init();
+                            terminal.clear()?;
+                            if let Err(error) = launch_result {
+                                state.codex_tab.status_message = Some(error.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -240,14 +260,41 @@ async fn run_loop(
                     state.dismiss_codex_edit();
                 }
             }
-            Some(input::Action::CodexViewProfile) => {
+            Some(input::Action::CodexQuotaEditStart) => {
                 if state.active_tab() == ActiveTab::Codex {
-                    state.codex_tab.view_mode = true;
+                    state.start_codex_quota_edit();
                 }
             }
-            Some(input::Action::CodexDismissView) => {
-                if state.codex_tab.view_mode {
-                    state.codex_tab.view_mode = false;
+            Some(input::Action::CodexQuotaEditChar(c)) => {
+                if state.codex_tab.quota_edit_mode {
+                    state.codex_quota_edit_push_char(c);
+                }
+            }
+            Some(input::Action::CodexQuotaEditBackspace) => {
+                if state.codex_tab.quota_edit_mode {
+                    state.codex_quota_edit_pop_char();
+                }
+            }
+            Some(input::Action::CodexQuotaEditNextField) => {
+                if state.codex_tab.quota_edit_mode {
+                    state.codex_quota_edit_next_field();
+                }
+            }
+            Some(input::Action::CodexQuotaEditPrevField) => {
+                if state.codex_tab.quota_edit_mode {
+                    state.codex_quota_edit_prev_field();
+                }
+            }
+            Some(input::Action::CodexQuotaEditConfirm) => {
+                if state.codex_tab.quota_edit_mode {
+                    if let Err(e) = state.confirm_codex_quota_edit() {
+                        state.codex_tab.status_message = Some(e.to_string());
+                    }
+                }
+            }
+            Some(input::Action::CodexQuotaEditCancel) => {
+                if state.codex_tab.quota_edit_mode {
+                    state.dismiss_codex_quota_edit();
                 }
             }
             Some(input::Action::Tick) | None => {}

@@ -95,7 +95,7 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                 None => continue,
             };
             let remaining: String = parts.collect::<Vec<_>>().join(" ");
-            
+
             let pid: u32 = match pid_str.parse() {
                 Ok(p) => p,
                 Err(_) => continue,
@@ -350,7 +350,8 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     let cwd_map = batch_get_cwds(&pids).await;
 
     // Build a map of PID -> (tool, ppid, cwd) for parent lookup
-    let mut pid_info: std::collections::HashMap<u32, (AgentTool, Option<u32>)> = std::collections::HashMap::new();
+    let mut pid_info: std::collections::HashMap<u32, (AgentTool, Option<u32>)> =
+        std::collections::HashMap::new();
     for p in &procs {
         pid_info.insert(p.pid, (p.tool, p.ppid));
     }
@@ -376,26 +377,30 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
                     return None;
                 }
             };
-            
+
             // Check if this process has a child with same tool and same CWD
             // If so, skip this parent (keep the child which is the actual binary)
             // This handles cases like opencode where node wrapper spawns the actual binary
             let has_same_tool_child_with_same_cwd = proc.ppid.is_some() && {
                 // Check if this process's parent also has same tool
-                proc.ppid.and_then(|ppid| pid_info.get(&ppid))
+                proc.ppid
+                    .and_then(|ppid| pid_info.get(&ppid))
                     .map(|(parent_tool, _)| *parent_tool == proc.tool)
                     .unwrap_or(false)
             };
-            
+
             if has_same_tool_child_with_same_cwd {
                 if let Some(parent_cwd) = cwd_map.get(&proc.ppid.unwrap()) {
                     if parent_cwd == &cwd {
-                        debug!("Skipping parent process {} (child has same tool/CWD)", proc.pid);
+                        debug!(
+                            "Skipping parent process {} (child has same tool/CWD)",
+                            proc.pid
+                        );
                         return None;
                     }
                 }
             }
-            
+
             Some((proc, cwd))
         })
         .collect();

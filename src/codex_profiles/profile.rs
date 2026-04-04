@@ -114,12 +114,12 @@ fn decode_jwt_payload(token: &str) -> Option<Value> {
     }
 
     let payload = parts[1];
-    let padding = (4 - payload.len() % 4) % 4;
-    let padded = format!("{}{}", payload, "=".repeat(padding));
 
+    // URL_SAFE_NO_PAD accepts raw base64url without padding characters.
+    // Do NOT add '=' padding — the NO_PAD engine rejects those characters.
     use base64::Engine;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(&padded)
+        .decode(payload)
         .ok()?;
 
     serde_json::from_slice(&decoded).ok()
@@ -292,6 +292,33 @@ mod tests {
         assert!(
             result.enabled,
             "profile.json without enabled field must yield enabled=true"
+        );
+    }
+
+    // The id_token payload from a real halanejo auth.json (1338 base64url chars → mod4=2).
+    // extract_auth_metadata must return email and plan from the JWT when profile.json has none.
+    const HALANEJO_ID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImIxZGQzZjhmLTlhYWQtNDdmZS1iMGU3LWVkYjAwOTc3N2Q2YiIsInR5cCI6IkpXVCJ9.eyJhbXIiOlsib3RwIiwidXJuOm9wZW5haTphbXI6b3RwX2VtYWlsIl0sImF0X2hhc2giOiJQdzAxQVhZdXdaSENucWZGa2hBUzB3IiwiYXVkIjpbImFwcF9FTW9hbUVFWjczZjBDa1hhWHA3aHJhbm4iXSwiYXV0aF9wcm92aWRlciI6InBhc3N3b3JkbGVzcyIsImF1dGhfdGltZSI6MTc3NTMzMDkxMiwiZW1haWwiOiJoYWxhbmVqb3NwZWg0QG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImV4cCI6MTc3NTMzNDUxMywiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjhjZDgyOGZmLWY1NTMtNGRiOS04Y2QxLTU3MmExYzgyMDFlZCIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyIsImNoYXRncHRfc3Vic2NyaXB0aW9uX2FjdGl2ZV9zdGFydCI6IjIwMjYtMDQtMDNUMDM6NDk6MTcrMDA6MDAiLCJjaGF0Z3B0X3N1YnNjcmlwdGlvbl9hY3RpdmVfdW50aWwiOiIyMDI2LTA1LTAzVDAzOjQ5OjE1KzAwOjAwIiwiY2hhdGdwdF9zdWJzY3JpcHRpb25fbGFzdF9jaGVja2VkIjoiMjAyNi0wNC0wNFQxOToyODozMi43ODQxMjQrMDA6MDAiLCJjaGF0Z3B0X3VzZXJfaWQiOiJ1c2VyLWtUOVAxVVdHY0dFRVk2Ums4SjR0U1JmRyIsImdyb3VwcyI6W10sImxvY2FsaG9zdCI6dHJ1ZSwib3JnYW5pemF0aW9ucyI6W3siaWQiOiJvcmctd29tQ2ExeUcySXFMWEdUMG9ob2pwc1pxIiwiaXNfZGVmYXVsdCI6dHJ1ZSwicm9sZSI6Im93bmVyIiwidGl0bGUiOiJQZXJzb25hbCJ9XSwidXNlcl9pZCI6InVzZXIta1Q5UDFVV0djR0VFWTZSazhKNHRTUmZHIn0sImlhdCI6MTc3NTMzMDkxMywiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5haS5jb20iLCJqdGkiOiJmMGYzNWYwYS04OTRkLTRlZDctOWFiMi0yYmQ0YzNmMzZhZjEiLCJuYW1lIjoiTmd2c2thIiwicmF0IjoxNzc1MzMwODk1LCJzaWQiOiJkN2EzNTI5NC1iZDU3LTQ0M2MtYmNlNC05NTc1MjE5NmM3NjIiLCJzdWIiOiJhdXRoMHw4NGZQRVliMXpqeXdXcFVoT29GazRYdVMifQ.SIGNATURE";
+
+    #[test]
+    fn test_extract_auth_metadata_jwt_with_padding_needed() {
+        // This JWT payload is 1338 base64url chars (mod4=2), so the old code added "=="
+        // and passed it to URL_SAFE_NO_PAD which rejects '=' — returning None silently.
+        let auth_json: Value = serde_json::json!({
+            "auth_mode": "chatgpt",
+            "tokens": {
+                "id_token": HALANEJO_ID_TOKEN
+            }
+        });
+        let meta = extract_auth_metadata(&auth_json);
+        assert_eq!(
+            meta.email.as_deref(),
+            Some("halanejospeh4@outlook.com"),
+            "email must be extracted from JWT id_token"
+        );
+        assert_eq!(
+            meta.plan.as_deref(),
+            Some("plus"),
+            "plan must be extracted from JWT id_token"
         );
     }
 

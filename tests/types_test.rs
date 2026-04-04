@@ -464,6 +464,92 @@ fn codex_quota_snapshot_old_json_without_pct_fields_deserializes_ok() {
 }
 
 #[test]
+fn parse_quota_from_sessions_returns_none_for_missing_dir() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let result = parse_quota_from_sessions(std::path::Path::new("/nonexistent/sessions/dir"));
+    assert!(result.is_none());
+}
+
+#[test]
+fn parse_quota_from_sessions_returns_none_for_empty_dir() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let temp = tempdir().unwrap();
+    let result = parse_quota_from_sessions(temp.path());
+    assert!(result.is_none());
+}
+
+#[test]
+fn parse_quota_from_sessions_returns_none_when_no_token_count_events() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let temp = tempdir().unwrap();
+    let day_dir = temp.path().join("2026").join("04").join("04");
+    fs::create_dir_all(&day_dir).unwrap();
+    fs::write(
+        day_dir.join("rollout-test.jsonl"),
+        r#"{"type":"session_meta","payload":{"id":"abc"}}"#,
+    )
+    .unwrap();
+    let result = parse_quota_from_sessions(temp.path());
+    assert!(result.is_none());
+}
+
+#[test]
+fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let temp = tempdir().unwrap();
+    let day_dir = temp.path().join("2026").join("04").join("04");
+    fs::create_dir_all(&day_dir).unwrap();
+
+    // resets_at values far in the future so the snapshot isn't considered stale
+    let content = r#"{"type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"primary":{"used_percent":47.0,"window_minutes":300,"resets_at":9999999999},"secondary":{"used_percent":85.0,"window_minutes":10080,"resets_at":9999999999},"plan_type":"plus","credits":null}}}"#;
+    fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
+
+    let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
+    assert_eq!(snapshot.five_hour_used_pct, Some(47));
+    assert_eq!(snapshot.weekly_used_pct, Some(85));
+    assert_eq!(snapshot.five_hour_state, LimitState::Available);
+    assert_eq!(snapshot.weekly_state, LimitState::Available);
+    assert_eq!(snapshot.confidence, Confidence::Parsed);
+    assert!(snapshot.five_hour_reset_at.is_some());
+    assert!(snapshot.weekly_reset_at.is_some());
+}
+
+#[test]
+fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let temp = tempdir().unwrap();
+    let day_dir = temp.path().join("2026").join("04").join("04");
+    fs::create_dir_all(&day_dir).unwrap();
+
+    let content = r#"{"type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"primary":{"used_percent":100.0,"window_minutes":300,"resets_at":9999999999},"secondary":{"used_percent":100.0,"window_minutes":10080,"resets_at":9999999999},"credits":null}}}"#;
+    fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
+
+    let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
+    assert_eq!(snapshot.five_hour_used_pct, Some(100));
+    assert_eq!(snapshot.five_hour_state, LimitState::Hit);
+    assert_eq!(snapshot.weekly_state, LimitState::Hit);
+}
+
+#[test]
+fn parse_quota_from_sessions_picks_last_token_count_event_in_file() {
+    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    let temp = tempdir().unwrap();
+    let day_dir = temp.path().join("2026").join("04").join("04");
+    fs::create_dir_all(&day_dir).unwrap();
+
+    // First event: 10%, second event: 60% — should return 60%
+    let content = concat!(
+        r#"{"type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"primary":{"used_percent":10.0,"window_minutes":300,"resets_at":9999999999},"secondary":{"used_percent":10.0,"window_minutes":10080,"resets_at":9999999999},"credits":null}}}"#,
+        "\n",
+        r#"{"type":"event_msg","payload":{"type":"token_count","info":{},"rate_limits":{"primary":{"used_percent":60.0,"window_minutes":300,"resets_at":9999999999},"secondary":{"used_percent":60.0,"window_minutes":10080,"resets_at":9999999999},"credits":null}}}"#,
+    );
+    fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
+
+    let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
+    assert_eq!(snapshot.five_hour_used_pct, Some(60));
+}
+
+#[test]
 fn profile_metadata_save_load_round_trip() {
     let temp_dir = tempfile::tempdir().unwrap();
     let profile_dir = temp_dir.path().to_path_buf();

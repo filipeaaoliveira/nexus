@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Confidence {
@@ -142,4 +143,104 @@ pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
 
 pub fn save_quota_cache(cache: &QuotaCache, path: &Path) -> Result<()> {
     cache.save(path)
+}
+
+/// Scan `sessions_dir` (recursively) for the most-recently-modified `.jsonl` file,
+/// find the last `token_count` event in it, and return a `QuotaSnapshot` built from
+/// the `rate_limits` payload. Returns `None` if the directory is absent, empty, or
+/// contains no `token_count` events.
+pub fn parse_quota_from_sessions(sessions_dir: &Path) -> Option<QuotaSnapshot> {
+    // Collect all .jsonl paths with their mtime.
+    let mut files: Vec<(SystemTime, std::path::PathBuf)> = Vec::new();
+    collect_jsonl_files(sessions_dir, &mut files);
+    if files.is_empty() {
+        return None;
+    }
+
+    // Sort newest first.
+    files.sort_by(|a, b| b.0.cmp(&a.0));
+
+    // Scan the newest file for the last token_count event.
+    let content = fs::read_to_string(&files[0].1).ok()?;
+    let last_event = content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|obj| {
+            obj.get("type").and_then(|v| v.as_str()) == Some("event_msg")
+                && obj.pointer("/payload/type").and_then(|v| v.as_str()) == Some("token_count")
+        })
+        .last()?;
+
+    let rate_limits = last_event.pointer("/payload/rate_limits")?;
+    let primary = rate_limits.get("primary")?;
+    let secondary = rate_limits.get("secondary")?;
+
+    let five_hour_pct_raw = primary
+        .get("used_percent")
+        .and_then(|v| v.as_f64())
+        .map(|f| f.round() as u8);
+    let weekly_pct_raw = secondary
+        .get("used_percent")
+        .and_then(|v| v.as_f64())
+        .map(|f| f.round() as u8);
+
+    let five_hour_state = pct_to_state(five_hour_pct_raw);
+    let weekly_state = pct_to_state(weekly_pct_raw);
+
+    let five_hour_reset_at = primary
+        .get("resets_at")
+        .and_then(|v| v.as_i64())
+        .and_then(|secs| DateTime::from_timestamp(secs, 0));
+    let weekly_reset_at = secondary
+        .get("resets_at")
+        .and_then(|v| v.as_i64())
+        .and_then(|secs| DateTime::from_timestamp(secs, 0));
+
+    let summary = format!(
+        "5h={}%; weekly={}%",
+        five_hour_pct_raw
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".to_string()),
+        weekly_pct_raw
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".to_string()),
+    );
+
+    Some(QuotaSnapshot {
+        captured_at: Utc::now(),
+        confidence: Confidence::Parsed,
+        five_hour_state,
+        five_hour_reset_at,
+        five_hour_used_pct: five_hour_pct_raw,
+        weekly_state,
+        weekly_reset_at,
+        weekly_used_pct: weekly_pct_raw,
+        summary,
+    })
+}
+
+fn pct_to_state(pct: Option<u8>) -> LimitState {
+    match pct {
+        Some(p) if p >= 100 => LimitState::Hit,
+        Some(_) => LimitState::Available,
+        None => LimitState::Unknown,
+    }
+}
+
+fn collect_jsonl_files(dir: &Path, out: &mut Vec<(SystemTime, std::path::PathBuf)>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_jsonl_files(&path, out);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            if let Ok(meta) = fs::metadata(&path) {
+                if let Ok(mtime) = meta.modified() {
+                    out.push((mtime, path));
+                }
+            }
+        }
+    }
 }

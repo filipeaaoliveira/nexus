@@ -698,23 +698,37 @@ impl AppState {
     }
 
     pub fn refresh_all_codex_quotas(&mut self) {
+        // Sessions parse is shared across all profiles — do it once.
+        let sessions_dir = self
+            .config
+            .codex_repos_dir
+            .join("current-repo")
+            .join("sessions");
+        let sessions_snapshot = parse_quota_from_sessions(&sessions_dir);
+
         let profile_ids = self.codex_tab.profile_ids.clone();
-        let mut all_refreshed = Vec::new();
+        let mut all_refreshed: Vec<(String, QuotaSnapshot)> = Vec::new();
 
         for profile_id in &profile_ids {
-            let profile_dir = self.config.codex_profiles_dir.join(profile_id);
-            let runtime_home = self.config.codex_runtime_dir.join(profile_id);
-            let repo_dir = self.config.codex_repos_dir.join("current-repo");
+            if let Some(ref snap) = sessions_snapshot {
+                // Sessions parse wins for every profile (they share the sessions dir).
+                all_refreshed.push((profile_id.clone(), snap.clone()));
+            } else {
+                // Fall back to CLI for each profile.
+                let profile_dir = self.config.codex_profiles_dir.join(profile_id);
+                let runtime_home = self.config.codex_runtime_dir.join(profile_id);
+                let repo_dir = self.config.codex_repos_dir.join("current-repo");
 
-            let runtime = RuntimePlan::new(profile_dir.clone(), repo_dir, runtime_home);
+                let runtime = RuntimePlan::new(profile_dir.clone(), repo_dir, runtime_home);
 
-            let codex_bin = match require_codex_binary(self.config.codex_binary.as_deref()) {
-                Ok(bin) => bin,
-                Err(_) => continue,
-            };
+                let codex_bin = match require_codex_binary(self.config.codex_binary.as_deref()) {
+                    Ok(bin) => bin,
+                    Err(_) => continue,
+                };
 
-            if let Ok(Some(quota)) = get_codex_quota(&codex_bin, &runtime) {
-                all_refreshed.push((profile_id.clone(), quota));
+                if let Ok(Some(quota)) = get_codex_quota(&codex_bin, &runtime) {
+                    all_refreshed.push((profile_id.clone(), quota));
+                }
             }
         }
 
@@ -1064,6 +1078,7 @@ impl AppState {
             self.select_codex_profile_id(profile_id);
         } else {
             self.clamp_codex_selection();
+            self.refresh_codex_quota();
         }
     }
 

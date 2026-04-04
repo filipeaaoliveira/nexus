@@ -26,16 +26,36 @@ pub struct CodexProfile {
     pub auth_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProfileMetadata {
     pub id: String,
     pub label: Option<String>,
     pub email: Option<String>,
     pub plan: Option<String>,
     pub notes: Option<String>,
+    #[serde(default = "default_true")]
     pub enabled: bool,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+impl Default for ProfileMetadata {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            label: None,
+            email: None,
+            plan: None,
+            notes: None,
+            enabled: true,
+            created_at: None,
+            updated_at: None,
+        }
+    }
 }
 
 impl CodexProfile {
@@ -245,5 +265,48 @@ mod tests {
 
         let result = detect_live_profile_id(&profiles_dir, &home_auth);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_profile_metadata_default_enabled_true() {
+        let m = ProfileMetadata::default();
+        assert!(m.enabled, "default ProfileMetadata must have enabled=true");
+    }
+
+    #[test]
+    fn test_load_profile_metadata_absent_file_enabled_true() {
+        let tmp = TempDir::new().unwrap();
+        // profile dir exists but no profile.json inside
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(
+            result.enabled,
+            "missing profile.json must yield enabled=true"
+        );
+    }
+
+    #[test]
+    fn test_load_profile_metadata_missing_enabled_field_defaults_true() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("profile.json"), b"{\"id\":\"x\"}").unwrap();
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(
+            result.enabled,
+            "profile.json without enabled field must yield enabled=true"
+        );
+    }
+
+    #[test]
+    fn test_load_profile_metadata_explicit_false_preserved() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("profile.json"),
+            b"{\"id\":\"x\",\"enabled\":false}",
+        )
+        .unwrap();
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(
+            !result.enabled,
+            "profile.json with enabled=false must be preserved"
+        );
     }
 }

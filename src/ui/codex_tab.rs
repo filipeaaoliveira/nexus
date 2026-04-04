@@ -5,7 +5,9 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Frame;
 
 use crate::app::{AppState, EditField};
-use crate::codex_profiles::profile::{extract_auth_metadata, load_profile_metadata};
+use crate::codex_profiles::profile::{
+    detect_live_profile_id, extract_auth_metadata, load_profile_metadata,
+};
 use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
@@ -66,6 +68,11 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 }
 
 fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
+    let live_profile_id = detect_live_profile_id(
+        &state.config.codex_profiles_dir,
+        &state.config.codex_data_dir.join("auth.json"),
+    );
+
     let block = Block::default()
         .borders(Borders::RIGHT)
         .border_style(theme::border_style())
@@ -115,13 +122,18 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
             };
 
             let prefix = if is_selected { ">" } else { " " };
+            let live_marker = if live_profile_id.as_deref() == Some(profile_id.as_str()) {
+                " *"
+            } else {
+                ""
+            };
             let active_suffix = if is_active { " (active)" } else { "" };
             let enabled_suffix = if is_enabled { "" } else { " [disabled]" };
             let quota_str = quota_indicator.unwrap_or_default();
 
             let label = format!(
-                "{} {}{}{}{}",
-                prefix, display_label, quota_str, active_suffix, enabled_suffix
+                "{} {}{}{}{}{}",
+                prefix, display_label, quota_str, live_marker, active_suffix, enabled_suffix
             );
 
             let style = if is_enabled {

@@ -38,8 +38,13 @@ pub enum Action {
     CodexEditPrevField,
     CodexEditConfirm,
     CodexEditCancel,
-    CodexViewProfile,
-    CodexDismissView,
+    CodexQuotaEditStart,
+    CodexQuotaEditChar(char),
+    CodexQuotaEditBackspace,
+    CodexQuotaEditNextField,
+    CodexQuotaEditPrevField,
+    CodexQuotaEditConfirm,
+    CodexQuotaEditCancel,
 }
 
 pub fn poll_action(
@@ -48,7 +53,7 @@ pub fn poll_action(
     rename_mode: bool,
     session_picker_mode: bool,
     edit_mode: bool,
-    view_mode: bool,
+    quota_edit_mode: bool,
 ) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
         if let Event::Key(key) = event::read()? {
@@ -58,7 +63,7 @@ pub fn poll_action(
                 rename_mode,
                 session_picker_mode,
                 edit_mode,
-                view_mode,
+                quota_edit_mode,
             ));
         }
     }
@@ -71,18 +76,10 @@ fn action_for_key(
     rename_mode: bool,
     session_picker_mode: bool,
     edit_mode: bool,
-    view_mode: bool,
+    quota_edit_mode: bool,
 ) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
-    }
-
-    if view_mode {
-        return match key.code {
-            KeyCode::Esc => Some(Action::CodexDismissView),
-            KeyCode::Char('v') => Some(Action::CodexDismissView),
-            _ => None,
-        };
     }
 
     if edit_mode {
@@ -128,6 +125,18 @@ fn action_for_key(
         };
     }
 
+    if quota_edit_mode {
+        return match key.code {
+            KeyCode::Esc => Some(Action::CodexQuotaEditCancel),
+            KeyCode::Enter => Some(Action::CodexQuotaEditConfirm),
+            KeyCode::Tab => Some(Action::CodexQuotaEditNextField),
+            KeyCode::BackTab => Some(Action::CodexQuotaEditPrevField),
+            KeyCode::Char(c) => Some(Action::CodexQuotaEditChar(c)),
+            KeyCode::Backspace => Some(Action::CodexQuotaEditBackspace),
+            _ => None,
+        };
+    }
+
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
@@ -144,7 +153,7 @@ fn action_for_key(
         KeyCode::Char('i') => Some(Action::CodexImportAuth),
         KeyCode::Char('w') => Some(Action::CodexWriteToHome),
         KeyCode::Char('e') => Some(Action::CodexEditStart),
-        KeyCode::Char('v') => Some(Action::CodexViewProfile),
+        KeyCode::Char('Q') => Some(Action::CodexQuotaEditStart),
         KeyCode::Enter => Some(Action::CodexLaunchSelected),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,

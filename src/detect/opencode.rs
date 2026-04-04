@@ -759,12 +759,13 @@ pub async fn run_opencode_detector(
             let registry2 = registry.clone();
             type SessionData = (
                 OpenCodeSession,
-                u32,                          // pid
-                Vec<PartData>,                // recent parts
-                bool,                         // assistant_turn_completed
-                Option<AssistantMessageData>, // latest assistant message data
-                Vec<TodoItem>,                // todos
-                Vec<OpenCodeSession>,         // subagent sessions
+                u32,                                     // pid
+                Vec<PartData>,                           // recent parts
+                bool,                                    // assistant_turn_completed
+                Option<AssistantMessageData>,            // latest assistant message data
+                Vec<TodoItem>,                           // todos
+                Vec<OpenCodeSession>,                    // subagent sessions
+                Option<chrono::DateTime<chrono::Local>>, // process_started_at
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
             let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<PollData> {
@@ -799,6 +800,9 @@ pub async fn run_opencode_detector(
                             continue; // process not yet discovered
                         }
                     };
+                    let process_started_at = registry2
+                        .find_opencode_launch(pid)
+                        .and_then(|info| info.started_at);
 
                     // Reuse the same connection for all per-session queries.
                     let mut stmt = conn.prepare_cached(
@@ -834,6 +838,7 @@ pub async fn run_opencode_detector(
                         latest_assistant_message_data,
                         todos,
                         subs,
+                        process_started_at,
                     ));
                 }
                 Ok((active_session_ids, results))
@@ -850,13 +855,13 @@ pub async fn run_opencode_detector(
                         latest_assistant_message_data,
                         todos,
                         subs,
+                        process_started_at,
                     ) in session_data
                     {
                         let state = session_states.entry(session.id.clone()).or_default();
 
                         // Emit SessionInfo once per session
                         if !state.session_info_sent {
-                            let session_started = from_epoch_millis(session.time_created);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
                                     id: AgentId::new(AgentTool::OpenCode, pid),
@@ -864,7 +869,7 @@ pub async fn run_opencode_detector(
                                     session_id: session.id.clone(),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
-                                    started_at: session_started,
+                                    started_at: None,
                                 })
                                 .await;
                             state.session_info_sent = true;
@@ -960,7 +965,7 @@ pub async fn run_opencode_detector(
                         }
 
                         // ── Subagents ──────────────────────────────────────────────
-                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid, None)
+                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid, process_started_at)
                         {
                             let _ = tx.send(event).await;
                         }

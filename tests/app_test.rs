@@ -985,6 +985,36 @@ fn test_session_info_only_applies_earlier_start_time() {
 }
 
 #[test]
+fn test_session_info_none_started_at_does_not_overwrite_existing() {
+    let mut state = make_state();
+    let past = chrono::Local::now() - chrono::Duration::hours(1);
+
+    // Discover agent with a known process start time
+    state.handle_event(discovered(
+        AgentTool::OpenCode,
+        55,
+        PathBuf::from("/tmp/oc-test"),
+        Some(past),
+    ));
+    assert_eq!(state.agents[0].started_at, past);
+
+    // SessionInfo with started_at: None must not overwrite the process start time
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::new(AgentTool::OpenCode, 55),
+        pid: Some(55),
+        session_id: "sess-55".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: None,
+    });
+
+    assert_eq!(
+        state.agents[0].started_at, past,
+        "SessionInfo with started_at: None must not overwrite the process start time"
+    );
+}
+
+#[test]
 fn test_codex_session_info_uses_session_identity() {
     let mut state = make_state();
     state.handle_event(discovered(

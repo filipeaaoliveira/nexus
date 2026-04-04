@@ -915,7 +915,7 @@ fn test_collect_subagent_events_new_subagent_emits_spawned() {
     let mut state = SessionEmitState::default();
     let sub = make_subagent("sub-1", "Do task (@explore subagent)", false);
 
-    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42);
+    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42, None);
 
     assert_eq!(events.len(), 1, "should emit exactly one SubagentSpawned");
     assert!(
@@ -935,9 +935,10 @@ fn test_collect_subagent_events_known_active_subagent_emits_nothing() {
         &mut state,
         AgentTool::OpenCode,
         42,
+        None,
     );
     // Second poll: still active, should emit nothing
-    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42);
+    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42, None);
 
     assert!(
         events.is_empty(),
@@ -952,19 +953,20 @@ fn test_collect_subagent_events_completed_emitted_only_once() {
     let archived = make_subagent("sub-1", "Do task (@explore subagent)", true);
 
     // Poll 1: spawned
-    collect_subagent_events(&[active], &mut state, AgentTool::OpenCode, 42);
+    collect_subagent_events(&[active], &mut state, AgentTool::OpenCode, 42, None);
     // Poll 2: archived → SubagentCompleted
     let events2 = collect_subagent_events(
         std::slice::from_ref(&archived),
         &mut state,
         AgentTool::OpenCode,
         42,
+        None,
     );
     assert_eq!(events2.len(), 1, "poll 2 should emit SubagentCompleted");
     assert!(matches!(&events2[0], AgentEvent::SubagentCompleted { .. }));
 
     // Poll 3: still archived → NO additional SubagentCompleted
-    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42);
+    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42, None);
     assert!(
         events3.is_empty(),
         "SubagentCompleted must not be emitted again on subsequent polls"
@@ -984,6 +986,7 @@ fn test_collect_subagent_events_already_archived_on_first_sight_emits_spawned_an
         &mut state,
         AgentTool::OpenCode,
         42,
+        None,
     );
     assert_eq!(events1.len(), 1);
     assert!(matches!(&events1[0], AgentEvent::SubagentSpawned { .. }));
@@ -994,10 +997,93 @@ fn test_collect_subagent_events_already_archived_on_first_sight_emits_spawned_an
         &mut state,
         AgentTool::OpenCode,
         42,
+        None,
     );
     assert!(events2.is_empty());
 
     // Third poll: no more events
-    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42);
+    let events3 = collect_subagent_events(&[archived], &mut state, AgentTool::OpenCode, 42, None);
     assert!(events3.is_empty());
+}
+
+#[test]
+fn test_collect_subagent_events_filters_subagents_before_process_start() {
+    let mut state = SessionEmitState::default();
+    // Subagent created at epoch ms 500 — before the process started at ms 1000
+    let old_sub = OpenCodeSession {
+        id: "old-sub".to_string(),
+        title: Some("Old task (@explore subagent)".to_string()),
+        directory: None,
+        parent_id: Some("parent".to_string()),
+        time_created: 500,
+        time_updated: 600,
+        time_archived: None,
+        branch: None,
+    };
+    let process_started_at =
+        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Local));
+
+    let events = collect_subagent_events(
+        &[old_sub],
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+        process_started_at,
+    );
+
+    assert!(
+        events.is_empty(),
+        "subagent created before process start should be filtered out"
+    );
+    assert!(
+        state.emitted_subagent_ids.is_empty(),
+        "filtered subagent should not be recorded in emitted_subagent_ids"
+    );
+}
+
+#[test]
+fn test_collect_subagent_events_allows_subagents_after_process_start() {
+    let mut state = SessionEmitState::default();
+    // Subagent created at epoch ms 2000 — after the process started at ms 1000
+    let new_sub = OpenCodeSession {
+        id: "new-sub".to_string(),
+        title: Some("New task (@general subagent)".to_string()),
+        directory: None,
+        parent_id: Some("parent".to_string()),
+        time_created: 2000,
+        time_updated: 3000,
+        time_archived: None,
+        branch: None,
+    };
+    let process_started_at =
+        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Local));
+
+    let events = collect_subagent_events(
+        &[new_sub],
+        &mut state,
+        AgentTool::OpenCode,
+        42,
+        process_started_at,
+    );
+
+    assert_eq!(
+        events.len(),
+        1,
+        "subagent after process start should emit SubagentSpawned"
+    );
+    assert!(matches!(&events[0], AgentEvent::SubagentSpawned { .. }));
+}
+
+#[test]
+fn test_collect_subagent_events_none_process_start_allows_all() {
+    let mut state = SessionEmitState::default();
+    let sub = make_subagent("sub-1", "Do task (@explore subagent)", false);
+
+    let events = collect_subagent_events(&[sub], &mut state, AgentTool::OpenCode, 42, None);
+
+    assert_eq!(
+        events.len(),
+        1,
+        "with no process_started_at, all subagents should pass through"
+    );
 }

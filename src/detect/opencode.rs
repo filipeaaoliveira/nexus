@@ -672,10 +672,19 @@ pub fn collect_subagent_events(
     state: &mut SessionEmitState,
     tool: crate::types::AgentTool,
     pid: u32,
+    process_started_at: Option<chrono::DateTime<chrono::Local>>,
 ) -> Vec<AgentEvent> {
     let mut events = Vec::new();
+    let process_start_ms = process_started_at.map(|dt| dt.timestamp_millis());
 
     for sub in subagents {
+        // Skip subagents created before the current process started.
+        // This prevents historical subagents from previous runs being counted.
+        if let Some(threshold) = process_start_ms {
+            if sub.time_created < threshold {
+                continue;
+            }
+        }
         if state.emitted_subagent_ids.contains(&sub.id) {
             // Already announced — check for first-time completion.
             if sub.time_archived.is_some() && !state.completed_subagent_ids.contains(&sub.id) {
@@ -736,10 +745,13 @@ pub async fn run_opencode_detector(
     registry: AgentRegistry,
 ) -> anyhow::Result<()> {
     let db_path = opencode_data_dir.join("opencode.db");
+    tracing::info!("OpenCode detector starting, db_path={}", db_path.display());
+    tracing::info!("OpenCode detector: db exists={}", db_path.exists());
     let mut session_states: HashMap<String, SessionEmitState> = HashMap::new();
 
     loop {
         if db_path.exists() {
+            tracing::debug!("OpenCode detector: querying database");
             // Open ONE connection for the entire poll cycle and query all sessions
             // plus their per-session data (parts, todos, subagents) in a single
             // spawn_blocking call to avoid the repeated open/close overhead.
@@ -779,9 +791,13 @@ pub async fn run_opencode_detector(
                         Some(d) => d.clone(),
                         None => continue,
                     };
-                    let pid = match registry2.find_pid(AgentTool::OpenCode, &cwd) {
+                    tracing::debug!("OpenCode: checking session {} dir={}", session.id, cwd.display());
+                    let pid = match registry2.find_pid_prefix(AgentTool::OpenCode, &cwd) {
                         Some(p) => p,
-                        None => continue, // process not yet discovered
+                        None => {
+                            tracing::debug!("OpenCode: no pid found for cwd={}", cwd.display());
+                            continue; // process not yet discovered
+                        }
                     };
 
                     // Reuse the same connection for all per-session queries.
@@ -944,7 +960,7 @@ pub async fn run_opencode_detector(
                         }
 
                         // ── Subagents ──────────────────────────────────────────────
-                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid)
+                        for event in collect_subagent_events(&subs, state, AgentTool::OpenCode, pid, None)
                         {
                             let _ = tx.send(event).await;
                         }

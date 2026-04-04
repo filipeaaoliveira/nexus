@@ -2,7 +2,9 @@ use ai_overview::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
     ProfileMetadata,
 };
-use ai_overview::codex_profiles::quota::{parse_status_output, Confidence, LimitState, QuotaCache};
+use ai_overview::codex_profiles::quota::{
+    parse_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
+};
 use ai_overview::types::*;
 use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
 use serde_json::json;
@@ -440,6 +442,25 @@ fn codex_quota_cache_loads_malformed_file_as_error() {
 
     assert!(err.to_string().contains("failed to parse"));
     assert!(err.to_string().contains("quota-cache.json"));
+}
+
+#[test]
+fn codex_quota_snapshot_old_json_without_pct_fields_deserializes_ok() {
+    // JSON produced before the pct fields existed — must deserialize without error
+    // and leave the new fields as None.
+    let json = r#"{
+        "captured_at": "2026-04-03T12:00:00Z",
+        "confidence": "Parsed",
+        "five_hour_state": "Available",
+        "five_hour_reset_at": null,
+        "weekly_state": "Unknown",
+        "weekly_reset_at": null,
+        "summary": "5h=Available; weekly=Unknown"
+    }"#;
+    let snapshot: QuotaSnapshot = serde_json::from_str(json).expect("deserialization failed");
+    assert_eq!(snapshot.five_hour_used_pct, None);
+    assert_eq!(snapshot.weekly_used_pct, None);
+    assert_eq!(snapshot.five_hour_state, LimitState::Available);
 }
 
 #[test]

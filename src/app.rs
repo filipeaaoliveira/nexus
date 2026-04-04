@@ -822,8 +822,10 @@ impl AppState {
             confidence: crate::codex_profiles::quota::Confidence::Exact,
             five_hour_state,
             five_hour_reset_at: None,
+            five_hour_used_pct: None,
             weekly_state,
             weekly_reset_at: None,
+            weekly_used_pct: None,
             summary,
         };
 

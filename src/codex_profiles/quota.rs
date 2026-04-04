@@ -26,8 +26,14 @@ pub struct QuotaSnapshot {
     pub confidence: Confidence,
     pub five_hour_state: LimitState,
     pub five_hour_reset_at: Option<DateTime<Utc>>,
+    /// Percentage of the 5-hour quota used (0–100). None if not available.
+    #[serde(default)]
+    pub five_hour_used_pct: Option<u8>,
     pub weekly_state: LimitState,
     pub weekly_reset_at: Option<DateTime<Utc>>,
+    /// Percentage of the 7-day quota used (0–100). None if not available.
+    #[serde(default)]
+    pub weekly_used_pct: Option<u8>,
     pub summary: String,
 }
 
@@ -51,8 +57,10 @@ pub fn parse_status_output(input: &str) -> Option<QuotaSnapshot> {
         confidence: Confidence::Parsed,
         five_hour_state,
         five_hour_reset_at,
+        five_hour_used_pct: None,
         weekly_state,
         weekly_reset_at,
+        weekly_used_pct: None,
         summary,
     })
 }

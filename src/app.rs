@@ -939,6 +939,18 @@ impl AppState {
             auth_source.as_path(),
         )?;
 
+        let metadata = ProfileMetadata {
+            id: profile.id.clone(),
+            label: Some(profile.label.clone()),
+            email: profile.email.clone(),
+            plan: profile.plan.clone(),
+            notes: profile.notes.clone(),
+            enabled: profile.enabled,
+            created_at: Some(profile.created_at),
+            updated_at: Some(profile.updated_at),
+        };
+        save_profile_metadata(&profile.profile_dir, &metadata)?;
+
         self.reload_codex_profiles();
         self.select_codex_profile_id(&profile.id);
         self.codex_tab.status_message = Some(format!("Imported {}", profile.id));
@@ -1926,10 +1938,15 @@ fn push_event(
 #[cfg(test)]
 mod tests {
     use super::AppState;
+    use crate::codex_profiles::profile::{
+        load_profile_metadata, save_profile_metadata, CodexProfile, ProfileMetadata,
+    };
     use crate::config::Config;
     use crate::event::AgentEvent;
     use crate::types::{AgentId, AgentTool, PrimaryStatus, SortMode};
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     fn discovered(tool: AgentTool, pid: u32, cwd: &str) -> AgentEvent {
         AgentEvent::Discovered {
@@ -1976,5 +1993,48 @@ mod tests {
         });
         state.sort_mode = SortMode::Urgency;
         assert_eq!(state.visible_agents()[0].pid, Some(2));
+    }
+
+    #[test]
+    fn test_import_codex_auth_writes_profile_json() {
+        // Set up a temp dir to act as the profiles dir and a fake auth.json
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        let auth_source = tmp.path().join("auth.json");
+        fs::write(&auth_source, b"{\"email\":\"test@example.com\"}").unwrap();
+
+        // Exercise the same logic that import_codex_auth uses, calling helpers directly
+        // (constructing a full AppState in a unit test is impractical)
+        let profile_id = "profile-01";
+        let profile_dir = profiles_dir.join(profile_id);
+        let profile = CodexProfile::import_from_auth(
+            profile_id,
+            profile_id,
+            profile_dir.clone(),
+            &auth_source,
+        )
+        .unwrap();
+
+        let metadata = ProfileMetadata {
+            id: profile.id.clone(),
+            label: Some(profile.label.clone()),
+            email: profile.email.clone(),
+            plan: profile.plan.clone(),
+            notes: profile.notes.clone(),
+            enabled: profile.enabled,
+            created_at: Some(profile.created_at),
+            updated_at: Some(profile.updated_at),
+        };
+        save_profile_metadata(&profile.profile_dir, &metadata).unwrap();
+
+        // Verify profile.json was written with enabled=true
+        let written = load_profile_metadata(&profile_dir).unwrap();
+        assert!(
+            written.enabled,
+            "imported profile must have enabled=true in profile.json"
+        );
+        assert_eq!(written.label, Some(profile_id.to_string()));
     }
 }

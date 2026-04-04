@@ -152,3 +152,98 @@ pub fn save_profile_metadata(profile_dir: &Path, metadata: &ProfileMetadata) -> 
         .with_context(|| format!("failed to write {}", metadata_path.display()))?;
     Ok(())
 }
+
+/// Detects which stored profile is currently "live" by comparing
+/// `~/.codex/auth.json` bytes against each profile's `auth.json`.
+/// Returns the profile ID of the first match, or `None` if no match
+/// or if `codex_home_auth` cannot be read.
+pub fn detect_live_profile_id(profiles_dir: &Path, codex_home_auth: &Path) -> Option<String> {
+    let home_bytes = fs::read(codex_home_auth).ok()?;
+
+    let entries = fs::read_dir(profiles_dir).ok()?;
+    let mut ids: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    ids.sort();
+
+    for id in ids {
+        let profile_auth = profiles_dir.join(&id).join("auth.json");
+        if let Ok(profile_bytes) = fs::read(&profile_auth) {
+            if profile_bytes == home_bytes {
+                return Some(id);
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn write_file(dir: &std::path::Path, name: &str, content: &[u8]) {
+        fs::write(dir.join(name), content).unwrap();
+    }
+
+    #[test]
+    fn test_detect_live_profile_id_match() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
+
+        let home_auth = tmp.path().join("auth.json");
+        fs::write(&home_auth, b"{\"email\":\"a@b.com\"}").unwrap();
+
+        let result = detect_live_profile_id(&profiles_dir, &home_auth);
+        assert_eq!(result, Some("profile-01".to_string()));
+    }
+
+    #[test]
+    fn test_detect_live_profile_id_no_match() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
+
+        let home_auth = tmp.path().join("auth.json");
+        fs::write(&home_auth, b"{\"email\":\"other@b.com\"}").unwrap();
+
+        let result = detect_live_profile_id(&profiles_dir, &home_auth);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_live_profile_id_missing_home_auth() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
+
+        let home_auth = tmp.path().join("nonexistent-auth.json");
+
+        let result = detect_live_profile_id(&profiles_dir, &home_auth);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_detect_live_profile_id_empty_profiles_dir() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        let home_auth = tmp.path().join("auth.json");
+        write_file(tmp.path(), "auth.json", b"{\"email\":\"a@b.com\"}");
+
+        let result = detect_live_profile_id(&profiles_dir, &home_auth);
+        assert_eq!(result, None);
+    }
+}

@@ -12,6 +12,39 @@ use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
 
+/// Returns (bar_string, fill_color) for a quota percentage.
+/// `bar_width` is the number of block characters to render.
+fn quota_bar_spans(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
+    let filled = ((pct as usize).min(100) * bar_width) / 100;
+    let empty = bar_width - filled;
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+    let color = if pct <= 50 {
+        theme::STATUS_RUNNING
+    } else if pct <= 80 {
+        theme::STATUS_WAITING
+    } else {
+        theme::STATUS_ERROR
+    };
+    (bar, color)
+}
+
+/// Returns a human-readable duration string like "2h 14m" or "3d 6h".
+fn format_reset_duration(reset_at: chrono::DateTime<chrono::Utc>) -> String {
+    let now = chrono::Utc::now();
+    let secs = (reset_at - now).num_seconds().max(0);
+    let total_minutes = secs / 60;
+    let total_hours = total_minutes / 60;
+    if total_hours >= 24 {
+        let days = total_hours / 24;
+        let hours = total_hours % 24;
+        format!("{}d {}h", days, hours)
+    } else {
+        let hours = total_hours;
+        let minutes = total_minutes % 60;
+        format!("{}h {}m", hours, minutes)
+    }
+}
+
 pub fn render(frame: &mut Frame, state: &AppState) {
     let render_data = RenderData::from_state(state);
 
@@ -255,60 +288,74 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
 
     if let Some(ref quota) = state.codex_tab.quota {
         lines.push(Line::from(Span::raw("")));
-        lines.push(Line::from(vec![Span::styled(
-            "  quota: ",
+
+        // Helper closure: build one quota row, using a progress bar if pct is known,
+        // otherwise falling back to the Hit/Available/? text label.
+        let quota_row = |label: &'static str,
+                         pct: Option<u8>,
+                         state: &crate::codex_profiles::quota::LimitState,
+                         reset_at: Option<chrono::DateTime<chrono::Utc>>|
+         -> Line {
+            if let Some(pct) = pct {
+                let (bar, bar_color) = quota_bar_spans(pct, 20);
+                let mut spans = vec![
+                    Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
+                    Span::styled(bar, Style::default().fg(bar_color)),
+                    Span::styled(format!(" {}%", pct), Style::default().fg(theme::FG_DEFAULT)),
+                ];
+                if let Some(reset) = reset_at {
+                    spans.push(Span::styled(
+                        format!("  resets in {}", format_reset_duration(reset)),
+                        Style::default().fg(theme::FG_COMMENT),
+                    ));
+                }
+                Line::from(spans)
+            } else {
+                // Fallback: no percentage data (old cache or CLI-only snapshot).
+                let text_label = match state {
+                    crate::codex_profiles::quota::LimitState::Hit => "HIT",
+                    crate::codex_profiles::quota::LimitState::Available => "ok",
+                    crate::codex_profiles::quota::LimitState::Unknown => "?",
+                };
+                let text_color = match state {
+                    crate::codex_profiles::quota::LimitState::Hit => theme::STATUS_ERROR,
+                    crate::codex_profiles::quota::LimitState::Available => theme::STATUS_RUNNING,
+                    crate::codex_profiles::quota::LimitState::Unknown => theme::FG_COMMENT,
+                };
+                let mut spans = vec![
+                    Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
+                    Span::styled(text_label, Style::default().fg(text_color)),
+                ];
+                if let Some(reset) = reset_at {
+                    let reset_local = chrono::DateTime::<chrono::Local>::from(reset);
+                    spans.push(Span::styled(
+                        format!("  resets {}", reset_local.format("%a %H:%M")),
+                        Style::default().fg(theme::FG_COMMENT),
+                    ));
+                }
+                Line::from(spans)
+            }
+        };
+
+        lines.push(quota_row(
+            "  quota (5h):  ",
+            quota.five_hour_used_pct,
+            &quota.five_hour_state,
+            quota.five_hour_reset_at,
+        ));
+        lines.push(quota_row(
+            "  quota (7d):  ",
+            quota.weekly_used_pct,
+            &quota.weekly_state,
+            quota.weekly_reset_at,
+        ));
+
+        // Show when quota was last captured.
+        let captured_local = chrono::DateTime::<chrono::Local>::from(quota.captured_at);
+        lines.push(Line::from(Span::styled(
+            format!("  as of {}", captured_local.format("%H:%M")),
             Style::default().fg(theme::FG_COMMENT),
-        )]));
-
-        let five_hour_label = match quota.five_hour_state {
-            crate::codex_profiles::quota::LimitState::Hit => "HIT",
-            crate::codex_profiles::quota::LimitState::Available => "ok",
-            crate::codex_profiles::quota::LimitState::Unknown => "?",
-        };
-        let five_hour_color = match quota.five_hour_state {
-            crate::codex_profiles::quota::LimitState::Hit => theme::STATUS_ERROR,
-            crate::codex_profiles::quota::LimitState::Available => theme::STATUS_RUNNING,
-            crate::codex_profiles::quota::LimitState::Unknown => theme::FG_COMMENT,
-        };
-        lines.push(Line::from(vec![
-            Span::styled("    5h: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(five_hour_label, Style::default().fg(five_hour_color)),
-        ]));
-        if let Some(reset_at) = quota.five_hour_reset_at {
-            let reset_local = chrono::DateTime::<chrono::Local>::from(reset_at);
-            lines.push(Line::from(vec![
-                Span::styled("      reset: ", Style::default().fg(theme::FG_COMMENT)),
-                Span::styled(
-                    reset_local.format("%H:%M").to_string(),
-                    Style::default().fg(theme::FG_DEFAULT),
-                ),
-            ]));
-        }
-
-        let weekly_label = match quota.weekly_state {
-            crate::codex_profiles::quota::LimitState::Hit => "HIT",
-            crate::codex_profiles::quota::LimitState::Available => "ok",
-            crate::codex_profiles::quota::LimitState::Unknown => "?",
-        };
-        let weekly_color = match quota.weekly_state {
-            crate::codex_profiles::quota::LimitState::Hit => theme::STATUS_ERROR,
-            crate::codex_profiles::quota::LimitState::Available => theme::STATUS_RUNNING,
-            crate::codex_profiles::quota::LimitState::Unknown => theme::FG_COMMENT,
-        };
-        lines.push(Line::from(vec![
-            Span::styled("    weekly: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(weekly_label, Style::default().fg(weekly_color)),
-        ]));
-        if let Some(reset_at) = quota.weekly_reset_at {
-            let reset_local = chrono::DateTime::<chrono::Local>::from(reset_at);
-            lines.push(Line::from(vec![
-                Span::styled("      reset: ", Style::default().fg(theme::FG_COMMENT)),
-                Span::styled(
-                    reset_local.format("%a %H:%M").to_string(),
-                    Style::default().fg(theme::FG_DEFAULT),
-                ),
-            ]));
-        }
+        )));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -561,4 +608,50 @@ fn render_quota_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
     ];
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_bar(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
+        quota_bar_spans(pct, bar_width)
+    }
+
+    #[test]
+    fn quota_bar_green_at_50_percent() {
+        let (bar, color) = make_bar(50, 20);
+        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
+        // 50% of 20 = 10 filled blocks
+        assert_eq!(bar.chars().filter(|&c| c == '█').count(), 10);
+        assert_eq!(bar.chars().filter(|&c| c == '░').count(), 10);
+    }
+
+    #[test]
+    fn quota_bar_yellow_at_51_percent() {
+        let (_bar, color) = make_bar(51, 20);
+        assert_eq!(color, crate::ui::theme::STATUS_WAITING);
+    }
+
+    #[test]
+    fn quota_bar_red_at_81_percent() {
+        let (_bar, color) = make_bar(81, 20);
+        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
+    }
+
+    #[test]
+    fn quota_bar_full_at_100_percent() {
+        let (bar, color) = make_bar(100, 20);
+        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
+        assert_eq!(bar.chars().filter(|&c| c == '█').count(), 20);
+        assert_eq!(bar.chars().filter(|&c| c == '░').count(), 0);
+    }
+
+    #[test]
+    fn quota_bar_empty_at_0_percent() {
+        let (bar, color) = make_bar(0, 20);
+        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
+        assert_eq!(bar.chars().filter(|&c| c == '█').count(), 0);
+        assert_eq!(bar.chars().filter(|&c| c == '░').count(), 20);
+    }
 }

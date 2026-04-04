@@ -13,7 +13,9 @@ use crate::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
     ProfileMetadata,
 };
-use crate::codex_profiles::quota::{load_quota_cache, save_quota_cache, QuotaCache, QuotaSnapshot};
+use crate::codex_profiles::quota::{
+    load_quota_cache, parse_quota_from_sessions, save_quota_cache, QuotaCache, QuotaSnapshot,
+};
 use crate::codex_profiles::runtime::{
     get_codex_quota, launch_codex, require_codex_binary, RuntimePlan,
 };
@@ -647,47 +649,51 @@ impl AppState {
 
         tracing::debug!("refreshing quota for profile: {}", profile_id);
 
-        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-        let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
-        let repo_dir = self.config.codex_repos_dir.join("current-repo");
+        let sessions_dir = self
+            .config
+            .codex_repos_dir
+            .join("current-repo")
+            .join("sessions");
 
-        let runtime = RuntimePlan::new(profile_dir.clone(), repo_dir, runtime_home);
+        // Try the sessions-file parse first — it gives percentages and reset timestamps.
+        let quota: Option<QuotaSnapshot> = parse_quota_from_sessions(&sessions_dir).or_else(|| {
+            // Fall back to the CLI-based parse (existing behaviour).
+            let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+            let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
+            let repo_dir = self.config.codex_repos_dir.join("current-repo");
+            let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
 
-        let codex_bin = match require_codex_binary(self.config.codex_binary.as_deref()) {
-            Ok(bin) => {
-                tracing::debug!("found codex binary: {:?}", bin);
-                bin
-            }
-            Err(e) => {
-                tracing::debug!("codex binary not found: {}", e);
-                self.codex_tab.quota = None;
-                return;
-            }
-        };
+            let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())
+                .map_err(|e| {
+                    tracing::debug!("codex binary not found: {}", e);
+                })
+                .ok()?;
 
-        match get_codex_quota(&codex_bin, &runtime) {
-            Ok(Some(quota)) => {
-                tracing::debug!("got quota: {:?}", quota);
-
-                // Save to cache before assigning to quota
-                let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
-                cache.by_profile.insert(profile_id.clone(), quota.clone());
-                if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
-                    tracing::warn!("failed to save quota cache: {}", e);
-                } else {
-                    self.codex_tab.quota_cache = Some(cache);
+            match get_codex_quota(&codex_bin, &runtime) {
+                Ok(Some(q)) => Some(q),
+                Ok(None) => {
+                    tracing::debug!("no quota returned from codex status");
+                    None
                 }
+                Err(e) => {
+                    tracing::debug!("failed to get codex quota: {}", e);
+                    None
+                }
+            }
+        });
 
-                self.codex_tab.quota = Some(quota);
+        if let Some(quota) = quota {
+            tracing::debug!("got quota: {:?}", quota);
+            let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
+            cache.by_profile.insert(profile_id.clone(), quota.clone());
+            if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
+                tracing::warn!("failed to save quota cache: {}", e);
+            } else {
+                self.codex_tab.quota_cache = Some(cache);
             }
-            Ok(None) => {
-                tracing::debug!("no quota returned");
-                self.codex_tab.quota = None;
-            }
-            Err(e) => {
-                tracing::debug!("failed to get codex quota: {}", e);
-                self.codex_tab.quota = None;
-            }
+            self.codex_tab.quota = Some(quota);
+        } else {
+            self.codex_tab.quota = None;
         }
     }
 

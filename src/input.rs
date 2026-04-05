@@ -8,7 +8,6 @@ pub enum Action {
     MoveUp,
     MoveDown,
     NextTab,
-    PreviousTab,
     CycleSortMode,
     StartFilter,
     FilterChar(char),
@@ -45,6 +44,7 @@ pub enum Action {
     CodexQuotaEditPrevField,
     CodexQuotaEditConfirm,
     CodexQuotaEditCancel,
+    CodexRefreshQuota,
 }
 
 pub fn poll_action(
@@ -143,7 +143,6 @@ fn action_for_key(
         KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Tab => Some(Action::NextTab),
-        KeyCode::BackTab => Some(Action::PreviousTab),
         KeyCode::Char('s') => Some(Action::CycleSortMode),
         KeyCode::Char('/') => Some(Action::StartFilter),
         KeyCode::Char('?') => Some(Action::ShowHelp),
@@ -154,6 +153,7 @@ fn action_for_key(
         KeyCode::Char('w') => Some(Action::CodexWriteToHome),
         KeyCode::Char('e') => Some(Action::CodexEditStart),
         KeyCode::Char('Q') => Some(Action::CodexQuotaEditStart),
+        KeyCode::Char('R') => Some(Action::CodexRefreshQuota),
         KeyCode::Enter => Some(Action::CodexLaunchSelected),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,

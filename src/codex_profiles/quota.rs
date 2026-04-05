@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
@@ -243,4 +244,149 @@ fn collect_jsonl_files(dir: &Path, out: &mut Vec<(SystemTime, std::path::PathBuf
             }
         }
     }
+}
+
+use crate::codex_profiles::ProfileAuth;
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct UsageResponse {
+    #[serde(rename = "used_units")]
+    used_units: Option<i32>,
+    quota: Option<i32>,
+    #[serde(rename = "rate_limit")]
+    rate_limit: Option<RateLimitResponse>,
+    #[serde(rename = "account_id")]
+    account_id: Option<String>,
+    email: Option<String>,
+    #[serde(rename = "plan_type")]
+    plan_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct RateLimitResponse {
+    #[serde(rename = "primary_window")]
+    primary_window: Option<WindowResponse>,
+    #[serde(rename = "secondary_window")]
+    secondary_window: Option<WindowResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct WindowResponse {
+    #[serde(rename = "used_percent")]
+    used_percent: Option<f64>,
+    name: Option<String>,
+    #[serde(rename = "reset_at")]
+    reset_at: Option<f64>,
+}
+
+pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Option<QuotaSnapshot> {
+    let account_id = profile_auth.account_id()?;
+    let access_token = profile_auth.access_token()?;
+    fetch_quota_async(account_id, access_token).await
+}
+
+/// Spawns an async task to fetch quota in the background.
+/// When complete, calls the callback with the result.
+/// Returns a handle that can be awaited.
+pub fn spawn_quota_fetch<F>(profile_id: String, auth: ProfileAuth, on_done: F)
+where
+    F: FnOnce(String, Option<QuotaSnapshot>) + Send + 'static,
+{
+    tokio::spawn(async move {
+        let result = fetch_quota_from_api(&auth).await;
+        on_done(profile_id, result);
+    });
+}
+
+/// Sync wrapper that runs the async fetch in a blocking context.
+/// Used when calling from synchronous code.
+pub fn fetch_quota_from_api_sync(profile_auth: &ProfileAuth) -> Option<QuotaSnapshot> {
+    let account_id = match profile_auth.account_id() {
+        Some(id) => id.to_string(),
+        None => return None,
+    };
+    let access_token = match profile_auth.access_token() {
+        Some(token) => token.to_string(),
+        None => return None,
+    };
+    
+    // Try to get current runtime, or create a new one
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.block_on(fetch_quota_async(&account_id, &access_token))
+    } else {
+        // Create a runtime for tests or when no runtime exists
+        let rt = tokio::runtime::Runtime::new().ok()?;
+        rt.block_on(fetch_quota_async(&account_id, &access_token))
+    }
+}
+
+async fn fetch_quota_async(account_id: &str, access_token: &str) -> Option<QuotaSnapshot> {
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    let response = client
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .bearer_auth(access_token)
+        .header("ChatGPT-Account-Id", account_id)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .ok()?;
+
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let usage: UsageResponse = response.json().await.ok()?;
+    let rate_limit = usage.rate_limit?;
+    let primary = rate_limit.primary_window;
+    let secondary = rate_limit.secondary_window;
+
+    let five_hour_pct_raw = primary
+        .as_ref()
+        .and_then(|w| w.used_percent)
+        .map(|f| f.round() as u8);
+    let weekly_pct_raw = secondary
+        .as_ref()
+        .and_then(|w| w.used_percent)
+        .map(|f| f.round() as u8);
+
+    let five_hour_state = pct_to_state(five_hour_pct_raw);
+    let weekly_state = pct_to_state(weekly_pct_raw);
+
+    let five_hour_reset_at = primary
+        .as_ref()
+        .and_then(|w| w.reset_at)
+        .and_then(|secs| DateTime::from_timestamp(secs as i64, 0));
+    let weekly_reset_at = secondary
+        .as_ref()
+        .and_then(|w| w.reset_at)
+        .and_then(|secs| DateTime::from_timestamp(secs as i64, 0));
+
+    let summary = format!(
+        "5h={}%; weekly={}%",
+        five_hour_pct_raw
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".to_string()),
+        weekly_pct_raw
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "?".to_string()),
+    );
+
+    Some(QuotaSnapshot {
+        captured_at: Utc::now(),
+        confidence: Confidence::Exact,
+        five_hour_state,
+        five_hour_reset_at,
+        five_hour_used_pct: five_hour_pct_raw,
+        weekly_state,
+        weekly_reset_at,
+        weekly_used_pct: weekly_pct_raw,
+        summary,
+    })
 }

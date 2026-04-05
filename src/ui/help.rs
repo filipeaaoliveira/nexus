@@ -37,7 +37,6 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
     let mut lines = vec![
         Line::from(""),
         keybind_line("Tab", "Switch workspace"),
-        keybind_line("Shift-Tab", "Switch back"),
         Line::from(""),
         Line::from(Span::styled(
             "  Overview",
@@ -61,7 +60,6 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
         )),
         keybind_line("j / ↓", "Move selected profile"),
         keybind_line("k / ↑", "Move selected profile"),
-        keybind_line("Enter", "Launch selected profile"),
         keybind_line("i", "Import current ~/.codex/auth.json"),
         keybind_line("/", "Start profile filter"),
         Line::from(""),

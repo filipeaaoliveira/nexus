@@ -3,12 +3,15 @@ use crate::event::AgentEvent;
 use crate::types::AgentId;
 use crate::types::AgentTool;
 use chrono::{DateTime, Local, NaiveDateTime};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
+
+static CWD_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<u32, PathBuf>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -345,39 +348,63 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let procs = parse_ps_output(&stdout);
 
-    // Resolve CWDs for all discovered processes in a single lsof call.
-    let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
-    let cwd_map = batch_get_cwds(&pids).await;
+    // Separate PIDs: those we have cached vs those we need to look up
+    // Must clone the data we need before any await points
+    let (new_pids, cached_procs_data): (Vec<u32>, Vec<(u32, PathBuf)>) = {
+        let cached_cwds = CWD_CACHE.lock().unwrap();
+        let new_pids: Vec<u32> = procs.iter()
+            .filter(|p| !cached_cwds.contains_key(&p.pid))
+            .map(|p| p.pid)
+            .collect();
+        let cached_procs_data: Vec<(u32, PathBuf)> = procs.iter()
+            .filter(|p| cached_cwds.contains_key(&p.pid))
+            .filter_map(|p| cached_cwds.get(&p.pid).map(|cwd| (p.pid, cwd.clone())))
+            .collect();
+        (new_pids, cached_procs_data)
+    };
 
-    // Build a map of PID -> (tool, ppid, cwd) for parent lookup
+    // Start with cached CWDs - we now have (pid, cwd) pairs, need to rejoin with ProcessInfo
+    let mut pid_cwd: std::collections::HashMap<u32, PathBuf> = cached_procs_data
+        .into_iter()
+        .collect();
+
+    // Only call lsof for PIDs we haven't cached yet
+    if !new_pids.is_empty() {
+        let new_cwds = batch_get_cwds(&new_pids).await;
+        
+        // Update cache and results
+        let mut cache = CWD_CACHE.lock().unwrap();
+        for (pid, cwd) in &new_cwds {
+            cache.insert(*pid, cwd.clone());
+        }
+        
+        pid_cwd.extend(new_cwds);
+    }
+
+    // Filter out processes without CWD
     let mut pid_info: std::collections::HashMap<u32, (AgentTool, Option<u32>)> =
         std::collections::HashMap::new();
-    for p in &procs {
-        pid_info.insert(p.pid, (p.tool, p.ppid));
-    }
 
-    // Also create a map of PID -> CWD from the batch results BEFORE filtering
-    let mut pid_cwd: std::collections::HashMap<u32, PathBuf> = std::collections::HashMap::new();
-    for proc in &procs {
-        if let Some(cwd) = cwd_map.get(&proc.pid) {
-            pid_cwd.insert(proc.pid, cwd.clone());
-        }
-    }
+    let procs_with_cwd: Vec<(ProcessInfo, PathBuf)> = procs
+        .into_iter()
+        .filter_map(|proc| {
+            pid_info.insert(proc.pid, (proc.tool, proc.ppid));
+            pid_cwd.remove(&proc.pid).map(|cwd| (proc, cwd))
+        })
+        .collect();
+
+    // Get all CWDs for parent lookup (including from cache)
+    let cwd_map: std::collections::HashMap<u32, PathBuf> = {
+        let cache = CWD_CACHE.lock().unwrap();
+        cache.clone()
+    };
 
     // Filter out child processes that have the same tool as their parent
     // This prevents duplicate detection when a tool spawns a child process
     // with the same command (like opencode's node wrapper)
-    let results: Vec<(ProcessInfo, PathBuf)> = procs
+    let results: Vec<(ProcessInfo, PathBuf)> = procs_with_cwd
         .into_iter()
-        .filter_map(|proc| {
-            let cwd = match pid_cwd.remove(&proc.pid) {
-                Some(c) => c,
-                None => {
-                    debug!("Could not get CWD for pid {}", proc.pid);
-                    return None;
-                }
-            };
-
+        .filter_map(|(proc, cwd)| {
             // Check if this process has a child with same tool and same CWD
             // If so, skip this parent (keep the child which is the actual binary)
             // This handles cases like opencode where node wrapper spawns the actual binary
@@ -450,13 +477,15 @@ pub async fn run_process_scanner(
             }
         }
         let exited: Vec<_> = known_pids.difference(&current_pids).cloned().collect();
-        for (tool, pid) in exited {
+        for (tool, pid) in &exited {
             debug!("Process exited: {} pid={}", tool.as_str(), pid);
-            registry.remove(pid);
+            registry.remove(*pid);
+            // Clean up CWD cache for exited process
+            CWD_CACHE.lock().unwrap().remove(pid);
             let _ = tx
                 .send(AgentEvent::ProcessExited {
-                    id: AgentId::new(tool, pid),
-                    pid: Some(pid),
+                    id: AgentId::new(*tool, *pid),
+                    pid: Some(*pid),
                 })
                 .await;
         }

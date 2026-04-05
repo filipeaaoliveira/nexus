@@ -12,18 +12,19 @@ use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
 
-/// Returns (bar_string, fill_color) for a quota percentage.
+/// Returns (bar_string, fill_color) for a quota percentage (remaining, not used).
 /// `bar_width` is the number of block characters to render.
 fn quota_bar_spans(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
     let filled = ((pct as usize).min(100) * bar_width) / 100;
     let empty = bar_width - filled;
     let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+    // Low remaining = bad (red), medium = warning (yellow), high = good (green)
     let color = if pct <= 50 {
-        theme::STATUS_RUNNING
+        theme::STATUS_ERROR
     } else if pct <= 80 {
         theme::STATUS_WAITING
     } else {
-        theme::STATUS_ERROR
+        theme::STATUS_RUNNING
     };
     (bar, color)
 }
@@ -339,13 +340,13 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
 
         lines.push(quota_row(
             "  quota (5h):  ",
-            quota.five_hour_used_pct,
+            quota.five_hour_used_pct.map(|p| 100 - p),
             &quota.five_hour_state,
             quota.five_hour_reset_at,
         ));
         lines.push(quota_row(
             "  quota (7d):  ",
-            quota.weekly_used_pct,
+            quota.weekly_used_pct.map(|p| 100 - p),
             &quota.weekly_state,
             quota.weekly_reset_at,
         ));
@@ -621,8 +622,7 @@ mod tests {
     #[test]
     fn quota_bar_green_at_50_percent() {
         let (bar, color) = make_bar(50, 20);
-        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
-        // 50% of 20 = 10 filled blocks
+        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
         assert_eq!(bar.chars().filter(|&c| c == '█').count(), 10);
         assert_eq!(bar.chars().filter(|&c| c == '░').count(), 10);
     }
@@ -636,13 +636,13 @@ mod tests {
     #[test]
     fn quota_bar_red_at_81_percent() {
         let (_bar, color) = make_bar(81, 20);
-        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
+        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
     }
 
     #[test]
     fn quota_bar_full_at_100_percent() {
         let (bar, color) = make_bar(100, 20);
-        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
+        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
         assert_eq!(bar.chars().filter(|&c| c == '█').count(), 20);
         assert_eq!(bar.chars().filter(|&c| c == '░').count(), 0);
     }
@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn quota_bar_empty_at_0_percent() {
         let (bar, color) = make_bar(0, 20);
-        assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
+        assert_eq!(color, crate::ui::theme::STATUS_ERROR);
         assert_eq!(bar.chars().filter(|&c| c == '█').count(), 0);
         assert_eq!(bar.chars().filter(|&c| c == '░').count(), 20);
     }

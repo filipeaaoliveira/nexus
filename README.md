@@ -1,8 +1,8 @@
-# ai-overview
+# nexus
 
 Terminal dashboard and control surface for local AI coding agents.
 
-`ai-overview` now combines two workspaces in one TUI:
+`nexus` now combines two workspaces in one TUI:
 
 - `Overview`: passive monitoring for local agent sessions
 - `Codex`: Codex profile management, best-effort quota inspection, and safe Codex launch workflows
@@ -21,20 +21,34 @@ Current focus:
 
 ## Installation
 
+### Quick install (recommended)
+
+```bash
+curl -sL https://raw.githubusercontent.com/filipeaaoliveira/nexus/main/install.sh | bash
+```
+
+Or manually:
+
+```bash
+git clone https://github.com/filipeaaoliveira/nexus.git
+cd nexus
+./install.sh
+```
+
 ### From source
 
 ```bash
-git clone https://github.com/filipeaaoliveira/ai-overview.git
-cd ai-overview
+git clone https://github.com/filipeaaoliveira/nexus.git
+cd nexus
 cargo build --release
-./target/release/ai-overview
+./target/release/nexus
 ```
 
 ### Directly from Git
 
 ```bash
-cargo install --git https://github.com/filipeaaoliveira/ai-overview.git
-ai-overview
+cargo install --git https://github.com/filipeaaoliveira/nexus.git
+nexus
 ```
 
 ## Requirements
@@ -48,15 +62,15 @@ Default local state roots:
 
 - Claude: `~/.claude`
 - Codex agent detection: `~/.codex`
-- ai-overview Codex management data: platform local data dir under `ai-overview/codex/`
-- OpenCode: platform local data dir under `ai-overview/opencode/`
+- nexus Codex management data: platform local data dir under `nexus/codex/`
+- OpenCode: platform local data dir under `nexus/opencode/`
 
 ## Usage
 
 Run:
 
 ```bash
-ai-overview
+nexus
 ```
 
 Current CLI flags:
@@ -69,8 +83,8 @@ Current CLI flags:
 Examples:
 
 ```bash
-ai-overview --poll-interval 2
-ai-overview --log-file ~/.cache/ai-overview/debug.log
+nexus --poll-interval 2
+nexus --log-file ~/.cache/nexus/debug.log
 ```
 
 ## Workspaces
@@ -102,7 +116,7 @@ Primary workflow:
 
 1. Import or manage a Codex profile
 2. Select the desired profile in the `Codex` tab
-3. Launch Codex for the current repo through `ai-overview`
+3. Launch Codex for the current repo through `nexus`
 4. When one account hits a limit, switch profiles and continue the same repo work
 
 This is built specifically so `codex resume <id>` can continue working across account switches for the same repository.
@@ -115,7 +129,7 @@ Codex account switching is implemented with:
 - repo-shared session state
 - repo-shared sqlite runtime state
 
-`ai-overview` does not rely on swapping a single shared `~/.codex/auth.json` during the normal flow.
+`nexus` does not rely on swapping a single shared `~/.codex/auth.json` during the normal flow.
 
 Instead, launch behavior is intended to:
 
@@ -149,7 +163,6 @@ If quota parsing fails, the app should prefer showing stale cached data or “un
 Global:
 
 - `Tab`: switch workspaces
-- `Shift-Tab`: switch back
 - `?`: toggle help
 - `Esc`: dismiss overlay or active input mode
 - `q`: quit
@@ -202,7 +215,7 @@ cargo build --locked
 - `Overview` remains a passive monitor for agent discovery and activity.
 - `Codex` is no longer passive-only; it is the explicit control surface for Codex profile workflows.
 - The app requires a real terminal for startup.
-- Logs default to a cache location such as `~/.cache/ai-overview/ai-overview.log` and can be overridden with `--log-file`.
+- Logs default to a cache location such as `~/.cache/nexus/nexus.log` and can be overridden with `--log-file`.
 - Process discovery still depends on Unix-like `ps`, `lsof`, and `git` output formats. macOS remains the primary supported environment.
 
 ## Contributing

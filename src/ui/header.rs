@@ -9,15 +9,6 @@ use crate::app::{ActiveTab, AppState};
 use super::{theme, RenderData};
 
 pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>, area: Rect) {
-    let tab_style = |tab: ActiveTab| {
-        if tab == render_data.active_tab {
-            theme::bar_style()
-                .fg(theme::FG_DEFAULT)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            theme::bar_style().fg(theme::FG_DIMMED)
-        }
-    };
     let total = render_data.header.total;
     let running = render_data.header.running;
     let waiting = render_data.header.waiting;
@@ -27,19 +18,11 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
     let subagent_count = render_data.header.subagent_count;
 
     let mut spans = vec![
-        Span::styled(" ai-overview ", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" nexus ", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled("  ", theme::bar_style()),
     ];
 
-    for (index, tab) in ActiveTab::ALL.iter().copied().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(" / ", theme::bar_style().fg(theme::FG_DIMMED)));
-        }
-        spans.push(Span::styled(tab.label(), tab_style(tab)));
-    }
-
     spans.extend([
-        Span::styled("  ", theme::bar_style()),
         Span::styled(
             format!("{total} agents"),
             theme::bar_style().fg(theme::FG_DIMMED),
@@ -76,14 +59,33 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         ),
     ]);
 
-    let right_spans = vec![Span::styled(
-        format!("poll: {}s ", state.config.poll_interval_secs),
+    let right_tab_style = |tab: ActiveTab| {
+        if tab == render_data.active_tab {
+            theme::bar_style()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            theme::bar_style().fg(theme::FG_DIMMED)
+        }
+    };
+
+    let mut right_spans = vec![];
+
+    for (index, tab) in ActiveTab::ALL.iter().copied().enumerate() {
+        if index > 0 {
+            right_spans.push(Span::styled(" / ", theme::bar_style().fg(theme::FG_DIMMED)));
+        }
+        right_spans.push(Span::styled(tab.label(), right_tab_style(tab)));
+    }
+
+    right_spans.push(Span::styled(
+        format!("  poll: {}s ", state.config.poll_interval_secs),
         theme::bar_style().fg(theme::FG_DIMMED),
-    )];
+    ));
 
     let header_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(12)])
+        .constraints([Constraint::Min(0), Constraint::Length(30)])
         .split(area);
 
     frame.render_widget(

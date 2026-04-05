@@ -9,7 +9,7 @@ use clap::Parser;
 )]
 pub struct Cli {
     /// Poll interval in seconds
-    #[arg(long, default_value = "2")]
+    #[arg(long, default_value = "5")]
     pub poll_interval: u64,
 
     /// Path to the log file used when RUST_LOG enables file logging
@@ -31,6 +31,7 @@ pub struct Config {
     pub codex_profiles_dir: PathBuf,
     pub codex_repos_dir: PathBuf,
     pub codex_runtime_dir: PathBuf,
+    pub codex_sessions_dir: PathBuf,
     pub codex_quota_cache_file: PathBuf,
     pub opencode_data_dir: PathBuf,
 }
@@ -44,18 +45,19 @@ impl Default for Config {
         let codex_management_dir = data_dir.join("ai-overview").join("codex");
         let opencode_data_dir = home.join(".local/share/opencode");
         Self {
-            poll_interval_secs: 2,
+            poll_interval_secs: 5,
             worktree_scan_interval_secs: 10,
             log_file: cache_dir.join("ai-overview").join("ai-overview.log"),
             opencode_api_url: None,
             claude_data_dir: home.join(".claude"),
-            codex_data_dir,
+            codex_data_dir: codex_data_dir.clone(),
             codex_management_dir: codex_management_dir.clone(),
             codex_binary: None,
             codex_launch_args: Vec::new(),
             codex_profiles_dir: codex_management_dir.join("profiles"),
             codex_repos_dir: codex_management_dir.join("repos"),
             codex_runtime_dir: codex_management_dir.join("runtime"),
+            codex_sessions_dir: codex_data_dir.join("sessions"),
             codex_quota_cache_file: codex_management_dir.join("quota-cache.json"),
             opencode_data_dir,
         }

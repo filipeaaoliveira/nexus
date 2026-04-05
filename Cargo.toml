@@ -1,13 +1,13 @@
 [package]
-name = "ai-overview"
+name = "nexus"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 description = "Read-only terminal dashboard for monitoring AI coding agents"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/filipeaaoliveira/ai-overview"
-homepage = "https://github.com/filipeaaoliveira/ai-overview"
+repository = "https://github.com/filipeaaoliveira/nexus"
+homepage = "https://github.com/filipeaaoliveira/nexus"
 keywords = ["tui", "monitoring", "ai", "codex", "claude"]
 categories = ["command-line-utilities", "development-tools"]
 
@@ -22,9 +22,11 @@ ratatui = "0.29"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+futures = "0.3"
 
 [dev-dependencies]
 tempfile = "3"

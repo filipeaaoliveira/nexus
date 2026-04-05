@@ -14,11 +14,13 @@ use crate::codex_profiles::profile::{
     ProfileMetadata,
 };
 use crate::codex_profiles::quota::{
-    load_quota_cache, parse_quota_from_sessions, save_quota_cache, QuotaCache, QuotaSnapshot,
+    fetch_quota_from_api_sync, load_quota_cache, parse_quota_from_sessions, save_quota_cache,
+    QuotaCache, QuotaSnapshot,
 };
 use crate::codex_profiles::runtime::{
     get_codex_quota, launch_codex, require_codex_binary, RuntimePlan,
 };
+use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::event::AgentEvent;
 use crate::types::*;
@@ -89,6 +91,8 @@ pub struct CodexTabState {
     pub quota_five_hour: String,
     pub quota_weekly: String,
     pub quota_edit_field_weekly: bool, // false = 5h, true = weekly
+    pub quota_loading: bool,           // true when async fetch is in progress
+    pub pending_quota: Option<QuotaSnapshot>, // result from async fetch
 }
 
 impl Default for CodexTabState {
@@ -117,6 +121,8 @@ impl Default for CodexTabState {
             quota_five_hour: String::new(),
             quota_weekly: String::new(),
             quota_edit_field_weekly: false,
+            quota_loading: false,
+            pending_quota: None,
         }
     }
 }
@@ -131,6 +137,7 @@ impl CodexTabState {
         if len == 0 {
             self.selected_profile_index = None;
             self.active_profile_id = None;
+            self.quota = None;
             return;
         }
 
@@ -140,6 +147,7 @@ impl CodexTabState {
         };
         self.selected_profile_index = Some(new_index);
         self.active_profile_id = Some(self.profile_ids[new_index].clone());
+        self.load_quota_from_cache();
     }
 
     pub fn previous_profile(&mut self) {
@@ -147,6 +155,7 @@ impl CodexTabState {
         if len == 0 {
             self.selected_profile_index = None;
             self.active_profile_id = None;
+            self.quota = None;
             return;
         }
 
@@ -156,10 +165,59 @@ impl CodexTabState {
         };
         self.selected_profile_index = Some(new_index);
         self.active_profile_id = Some(self.profile_ids[new_index].clone());
+        self.load_quota_from_cache();
     }
 
     pub fn set_active(&mut self, profile_id: Option<String>) {
         self.active_profile_id = profile_id;
+    }
+
+    /// Load quota from cache for currently selected profile
+    pub fn load_quota_from_cache(&mut self) {
+        if let Some(profile_id) = self
+            .selected_profile_index
+            .and_then(|i| self.profile_ids.get(i).cloned())
+        {
+            if let Some(ref cache) = self.quota_cache {
+                if let Some(quota) = cache.by_profile.get(&profile_id) {
+                    self.quota = Some(quota.clone());
+                }
+            }
+        }
+    }
+
+    /// Apply any pending quota result from async fetch
+    pub fn apply_pending_quota(&mut self, profile_id: &str, quota: QuotaSnapshot) {
+        let is_selected = self
+            .selected_profile_index
+            .and_then(|i| self.profile_ids.get(i))
+            .map(|id| id == profile_id)
+            .unwrap_or(false);
+
+        if is_selected {
+            self.quota = Some(quota);
+        }
+        self.quota_loading = false;
+        self.pending_quota = None;
+    }
+
+    /// Check if a profile is currently selected
+    pub fn is_profile_selected(&self, profile_id: &str) -> bool {
+        self.selected_profile_index
+            .and_then(|i| self.profile_ids.get(i))
+            .map(|id| id == profile_id)
+            .unwrap_or(false)
+    }
+
+    /// Clear pending quota (fetch failed or was cancelled)
+    pub fn clear_pending_quota(&mut self) {
+        self.quota_loading = false;
+        self.pending_quota = None;
+    }
+
+    /// Set pending quota from async fetch
+    pub fn set_pending_quota(&mut self, quota: QuotaSnapshot) {
+        self.pending_quota = Some(quota);
     }
 
     pub fn start_edit(
@@ -223,6 +281,7 @@ pub struct AppState {
     pub should_quit: bool,
     visible_agent_cache: RefCell<VisibleAgentCache>,
     agents_version: Cell<u64>,
+    codex_profiles_last_reload: Cell<std::time::Instant>,
 }
 
 impl AppState {
@@ -250,6 +309,10 @@ impl AppState {
             should_quit: false,
             visible_agent_cache: RefCell::new(VisibleAgentCache::default()),
             agents_version: Cell::new(0),
+            // Set to past so first reload always runs
+            codex_profiles_last_reload: Cell::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(10),
+            ),
         };
         state.reload_codex_profiles();
         state
@@ -261,16 +324,10 @@ impl AppState {
 
     pub fn next_tab(&mut self) {
         self.active_tab = self.active_tab.next();
-        if self.active_tab == ActiveTab::Codex {
-            self.refresh_all_codex_quotas();
-        }
     }
 
     pub fn previous_tab(&mut self) {
         self.active_tab = self.active_tab.previous();
-        if self.active_tab == ActiveTab::Codex {
-            self.refresh_all_codex_quotas();
-        }
     }
 
     pub fn active_filter_mode(&self) -> bool {
@@ -344,6 +401,13 @@ impl AppState {
             AgentEvent::TodosUpdated { id, pid, todos } => {
                 self.handle_todos_updated(id, pid, todos, now)
             }
+            AgentEvent::CodexQuotaRefreshed { profile_id, quota } => {
+                if let Some(selected_id) = self.selected_codex_profile_id() {
+                    if selected_id == profile_id {
+                        self.codex_tab.quota = quota;
+                    }
+                }
+            }
         }
     }
 
@@ -368,7 +432,11 @@ impl AppState {
             return;
         }
         let max = count - 1;
-        self.selected = Some(self.selected.map_or(0, |s| (s + 1).min(max)));
+        self.selected = Some(match self.selected {
+            Some(s) if s < max => s + 1,
+            Some(_) => 0, // wrap to top
+            None => 0,
+        });
     }
 
     pub fn move_selection_up(&mut self) {
@@ -376,7 +444,12 @@ impl AppState {
         if count == 0 {
             return;
         }
-        self.selected = Some(self.selected.map_or(0, |s| s.saturating_sub(1)));
+        let max = count - 1;
+        self.selected = Some(match self.selected {
+            Some(s) if s > 0 => s - 1,
+            Some(_) => max, // wrap to bottom
+            None => 0,
+        });
     }
 
     pub fn handle_codex_move_down(&mut self) {
@@ -494,7 +567,7 @@ impl AppState {
                 self.codex_tab.active_profile_id = self.codex_tab.profile_ids.get(index).cloned();
                 self.codex_tab.view_mode = true;
                 self.dismiss_session_picker();
-                self.refresh_codex_quota();
+                self.codex_tab.load_quota_from_cache();
             }
         } else {
             self.dismiss_session_picker();
@@ -510,17 +583,48 @@ impl AppState {
         }
 
         let mut sessions = Vec::new();
-        if let Ok(entries) = fs::read_dir(&sessions_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir()
-                    && !path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().starts_with('.'))
-                        .unwrap_or(false)
-                {
-                    if let Some(name) = path.file_name() {
-                        sessions.push(name.to_string_lossy().to_string());
+
+        // Read year directories (e.g., 2025, 2026)
+        if let Ok(year_entries) = fs::read_dir(&sessions_dir) {
+            for year_entry in year_entries.flatten() {
+                let year_path = year_entry.path();
+                if !year_path.is_dir() {
+                    continue;
+                }
+                let year_name = match year_path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+
+                // Read month directories (e.g., 01, 02, 03)
+                if let Ok(month_entries) = fs::read_dir(&year_path) {
+                    for month_entry in month_entries.flatten() {
+                        let month_path = month_entry.path();
+                        if !month_path.is_dir() {
+                            continue;
+                        }
+                        let month_name = match month_path.file_name().and_then(|n| n.to_str()) {
+                            Some(n) => n.to_string(),
+                            None => continue,
+                        };
+
+                        // Read actual session directories
+                        if let Ok(session_entries) = fs::read_dir(&month_path) {
+                            for session_entry in session_entries.flatten() {
+                                let session_path = session_entry.path();
+                                if !session_path.is_dir() {
+                                    continue;
+                                }
+                                let session_name =
+                                    match session_path.file_name().and_then(|n| n.to_str()) {
+                                        Some(n) if !n.starts_with('.') => n.to_string(),
+                                        _ => continue,
+                                    };
+                                // Format: 2026/04/04
+                                sessions
+                                    .push(format!("{}/{}/{}", year_name, month_name, session_name));
+                            }
+                        }
                     }
                 }
             }
@@ -649,41 +753,54 @@ impl AppState {
 
         tracing::debug!("refreshing quota for profile: {}", profile_id);
 
-        let sessions_dir = self
+        // First try API for the selected profile
+        let profile_auth_path = self
             .config
-            .codex_repos_dir
-            .join("current-repo")
-            .join("sessions");
+            .codex_profiles_dir
+            .join(&profile_id)
+            .join("auth.json");
 
-        // Try the sessions-file parse first — it gives percentages and reset timestamps.
-        let quota: Option<QuotaSnapshot> = parse_quota_from_sessions(&sessions_dir).or_else(|| {
-            // Fall back to the CLI-based parse (existing behaviour).
-            let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-            let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
-            let repo_dir = self.config.codex_repos_dir.join("current-repo");
-            let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
-
-            let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())
-                .map_err(|e| {
-                    tracing::debug!("codex binary not found: {}", e);
-                })
-                .ok()?;
-
-            match get_codex_quota(&codex_bin, &runtime) {
-                Ok(Some(q)) => Some(q),
-                Ok(None) => {
-                    tracing::debug!("no quota returned from codex status");
-                    None
-                }
-                Err(e) => {
-                    tracing::debug!("failed to get codex quota: {}", e);
-                    None
-                }
+        let api_quota = if profile_auth_path.exists() {
+            match ProfileAuth::load(&profile_auth_path) {
+                Ok(auth) => fetch_quota_from_api_sync(&auth),
+                Err(_) => None,
             }
+        } else {
+            None
+        };
+
+        // If API succeeded, use it
+        let quota = api_quota.or_else(|| {
+            // Fall back to sessions-based parse
+            let sessions_dir = &self.config.codex_sessions_dir;
+            parse_quota_from_sessions(sessions_dir).or_else(|| {
+                // Fall back to CLI-based parse
+                let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+                let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
+                let repo_dir = self.config.codex_repos_dir.join("current-repo");
+                let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
+
+                let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())
+                    .map_err(|e| {
+                        tracing::debug!("codex binary not found: {}", e);
+                    })
+                    .ok()?;
+
+                match get_codex_quota(&codex_bin, &runtime) {
+                    Ok(Some(q)) => Some(q),
+                    Ok(None) => {
+                        tracing::debug!("no quota returned from codex status");
+                        None
+                    }
+                    Err(e) => {
+                        tracing::debug!("failed to get codex quota: {}", e);
+                        None
+                    }
+                }
+            })
         });
 
         if let Some(quota) = quota {
-            tracing::debug!("got quota: {:?}", quota);
             let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
             cache.by_profile.insert(profile_id.clone(), quota.clone());
             if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
@@ -698,36 +815,33 @@ impl AppState {
     }
 
     pub fn refresh_all_codex_quotas(&mut self) {
-        // Sessions parse is shared across all profiles — do it once.
-        let sessions_dir = self
-            .config
-            .codex_repos_dir
-            .join("current-repo")
-            .join("sessions");
-        let sessions_snapshot = parse_quota_from_sessions(&sessions_dir);
-
         let profile_ids = self.codex_tab.profile_ids.clone();
         let mut all_refreshed: Vec<(String, QuotaSnapshot)> = Vec::new();
 
         for profile_id in &profile_ids {
-            if let Some(ref snap) = sessions_snapshot {
-                // Sessions parse wins for every profile (they share the sessions dir).
-                all_refreshed.push((profile_id.clone(), snap.clone()));
+            // Try API for each profile
+            let profile_auth_path = self
+                .config
+                .codex_profiles_dir
+                .join(profile_id)
+                .join("auth.json");
+
+            let api_quota = if profile_auth_path.exists() {
+                match ProfileAuth::load(&profile_auth_path) {
+                    Ok(auth) => fetch_quota_from_api_sync(&auth),
+                    Err(_) => None,
+                }
             } else {
-                // Fall back to CLI for each profile.
-                let profile_dir = self.config.codex_profiles_dir.join(profile_id);
-                let runtime_home = self.config.codex_runtime_dir.join(profile_id);
-                let repo_dir = self.config.codex_repos_dir.join("current-repo");
+                None
+            };
 
-                let runtime = RuntimePlan::new(profile_dir.clone(), repo_dir, runtime_home);
-
-                let codex_bin = match require_codex_binary(self.config.codex_binary.as_deref()) {
-                    Ok(bin) => bin,
-                    Err(_) => continue,
-                };
-
-                if let Ok(Some(quota)) = get_codex_quota(&codex_bin, &runtime) {
-                    all_refreshed.push((profile_id.clone(), quota));
+            if let Some(quota) = api_quota {
+                all_refreshed.push((profile_id.clone(), quota));
+            } else {
+                // Fall back to sessions for this profile
+                let sessions_dir = &self.config.codex_sessions_dir;
+                if let Some(snap) = parse_quota_from_sessions(sessions_dir) {
+                    all_refreshed.push((profile_id.clone(), snap));
                 }
             }
         }
@@ -1058,33 +1172,79 @@ impl AppState {
     }
 
     pub fn reload_codex_profiles(&mut self) {
-        let selected_profile_id = self.selected_codex_profile_id().map(ToOwned::to_owned);
-        let mut profile_ids = Vec::new();
+        // Skip if called within last 5 seconds to avoid repeated scans
+        if self.codex_profiles_last_reload.get().elapsed() < std::time::Duration::from_secs(5) {
+            return;
+        }
+        self.codex_profiles_last_reload
+            .set(std::time::Instant::now());
 
-        if let Ok(entries) = fs::read_dir(&self.config.codex_profiles_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() && path.join("auth.json").is_file() {
-                    if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                        profile_ids.push(name.to_string());
+        let selected_profile_id = self.selected_codex_profile_id().map(ToOwned::to_owned);
+        let profiles_dir = self.config.codex_profiles_dir.clone();
+
+        // Run directory scan in spawn_blocking to avoid blocking
+        let profile_ids = std::thread::spawn(move || {
+            let mut ids = Vec::new();
+            if let Ok(entries) = fs::read_dir(&profiles_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() && path.join("auth.json").is_file() {
+                        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
+                            ids.push(name.to_string());
+                        }
                     }
                 }
             }
-            profile_ids.sort();
-        }
+            ids.sort();
+            ids
+        })
+        .join()
+        .unwrap_or_default();
 
         self.codex_tab.profile_ids = profile_ids;
+
+        // After setting profile IDs, select and load quota from cache
         if let Some(profile_id) = selected_profile_id.as_deref() {
             self.select_codex_profile_id(profile_id);
         } else {
             self.clamp_codex_selection();
-            self.refresh_codex_quota();
+            // Try to load quota from cache for selected profile
+            self.load_quota_from_cache();
+        }
+    }
+
+    /// Load quota from cache for currently selected profile
+    pub fn load_quota_from_cache(&mut self) {
+        if let Some(profile_id) = self.selected_codex_profile_id() {
+            if let Some(ref cache) = self.codex_tab.quota_cache {
+                if let Some(quota) = cache.by_profile.get(profile_id) {
+                    self.codex_tab.quota = Some(quota.clone());
+                }
+            }
         }
     }
 
     pub fn selected_codex_profile_id(&self) -> Option<&str> {
         let index = self.codex_tab.selected_profile_index?;
         self.codex_tab.profile_ids.get(index).map(String::as_str)
+    }
+
+    pub fn update_quota_for_profile(&mut self, profile_id: &str, quota: QuotaSnapshot) {
+        // Update cache
+        let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
+        cache
+            .by_profile
+            .insert(profile_id.to_string(), quota.clone());
+        if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
+            tracing::warn!("failed to save quota cache: {}", e);
+        } else {
+            self.codex_tab.quota_cache = Some(cache);
+        }
+
+        // Update current display if this is the selected profile
+        if self.selected_codex_profile_id() == Some(profile_id) {
+            self.codex_tab.quota = Some(quota);
+        }
     }
 
     pub fn set_active_codex_profile(&mut self, profile_id: Option<String>) {
@@ -1175,7 +1335,7 @@ impl AppState {
             .iter()
             .position(|candidate| candidate == profile_id);
         self.clamp_codex_selection();
-        self.refresh_codex_quota();
+        // Quota will be loaded via background fetcher and cached in memory
     }
 
     fn clamp_codex_selection(&mut self) {

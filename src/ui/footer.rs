@@ -68,7 +68,7 @@ pub fn shortcut_text(state: &AppState) -> String {
 fn shortcut_line(state: &AppState) -> Line<'static> {
     match state.active_tab() {
         crate::app::ActiveTab::Overview => overview_shortcut_line(state),
-        crate::app::ActiveTab::Accounts => codex_shortcut_line(),
+        crate::app::ActiveTab::Accounts => accounts_shortcut_line(),
     }
 }
 
@@ -99,10 +99,10 @@ fn overview_shortcut_line(state: &AppState) -> Line<'static> {
     ])
 }
 
-fn codex_shortcut_line() -> Line<'static> {
+fn accounts_shortcut_line() -> Line<'static> {
     Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
-        Span::styled(" profiles", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled(" accounts", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  e", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" edit", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  d", theme::bar_style().fg(theme::FG_DEFAULT)),
@@ -110,9 +110,11 @@ fn codex_shortcut_line() -> Line<'static> {
         Span::styled("  i", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" import", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  w", theme::bar_style().fg(theme::FG_DEFAULT)),
-        Span::styled(" ~/.codex", theme::bar_style().fg(theme::FG_DIMMED)),
-        Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" write", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  f", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" filter", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" search", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" switch", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),

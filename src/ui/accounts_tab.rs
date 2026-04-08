@@ -4,13 +4,28 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{AppState, EditField};
+use crate::app::{build_unified_list, AppState, EditField, Provider};
+use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::{
     detect_live_profile_id, extract_auth_metadata, load_profile_metadata,
 };
 use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
+
+fn provider_badge(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Codex => "[CX]",
+        Provider::Claude => "[CL]",
+    }
+}
+
+fn provider_badge_color(provider: Provider) -> ratatui::style::Color {
+    match provider {
+        Provider::Codex => theme::STATUS_WAITING,
+        Provider::Claude => ratatui::style::Color::Cyan,
+    }
+}
 
 /// Returns (bar_string, fill_color) for a quota percentage (remaining, not used).
 /// `bar_width` is the number of block characters to render.
@@ -102,81 +117,132 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 }
 
 fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
-    let live_profile_id = detect_live_profile_id(
+    let codex_live = detect_live_profile_id(
         &state.config.codex_profiles_dir,
         &state.config.codex_data_dir.join("auth.json"),
     );
+    let claude_live = detect_live_claude_profile_id(
+        &state.config.claude_profiles_dir,
+        &state.config.claude_data_dir.join(".credentials.json"),
+    );
+
+    let filter_label = state.accounts_tab.active_filter.label();
+    let header_title = format!(" accounts ({}) ", filter_label);
 
     let block = Block::default()
         .borders(Borders::RIGHT)
         .border_style(theme::border_style())
         .title(Span::styled(
-            " profiles ",
+            header_title,
             Style::default().fg(theme::FG_COMMENT),
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let items: Vec<ListItem> = state
-        .accounts_tab
-        .codex_profile_ids
+    let unified = build_unified_list(
+        &state.accounts_tab.codex_profile_ids,
+        &state.accounts_tab.claude_profile_ids,
+        state.accounts_tab.active_filter,
+    );
+
+    let items: Vec<ListItem> = unified
         .iter()
         .enumerate()
-        .map(|(index, profile_id)| {
+        .map(|(index, entry)| {
             let is_selected = state.accounts_tab.selected_index == Some(index);
-            let is_active = state.active_codex_profile_id() == Some(profile_id.as_str());
-
-            let profile_dir = state.config.codex_profiles_dir.join(profile_id);
-            let (display_label, is_enabled) =
-                if let Ok(metadata) = load_profile_metadata(&profile_dir) {
-                    let label = metadata.label.unwrap_or_else(|| profile_id.clone());
-                    (label, metadata.enabled)
-                } else {
-                    (profile_id.clone(), true)
-                };
-
-            // Get quota indicator if available
-            let quota_indicator = if let Some(ref cache) = state.accounts_tab.codex_quota_cache {
-                if let Some(quota) = cache.by_profile.get(profile_id) {
-                    let five_h = match quota.five_hour_state {
-                        crate::codex_profiles::quota::LimitState::Hit => "✗",
-                        crate::codex_profiles::quota::LimitState::Available => "✓",
-                        crate::codex_profiles::quota::LimitState::Unknown => "?",
-                    };
-                    let wk = match quota.weekly_state {
-                        crate::codex_profiles::quota::LimitState::Hit => "✗",
-                        crate::codex_profiles::quota::LimitState::Available => "✓",
-                        crate::codex_profiles::quota::LimitState::Unknown => "?",
-                    };
-                    Some(format!("[{}/{}]", five_h, wk))
-                } else {
-                    None
+            let is_active = match entry.provider {
+                Provider::Codex => {
+                    state.accounts_tab.codex_active_profile_id.as_deref()
+                        == Some(&entry.profile_id)
                 }
-            } else {
-                None
+                Provider::Claude => {
+                    state.accounts_tab.claude_active_profile_id.as_deref()
+                        == Some(&entry.profile_id)
+                }
+            };
+
+            let profiles_dir = match entry.provider {
+                Provider::Codex => &state.config.codex_profiles_dir,
+                Provider::Claude => &state.config.claude_profiles_dir,
+            };
+            let profile_dir = profiles_dir.join(&entry.profile_id);
+
+            let (display_label, is_enabled) = match entry.provider {
+                Provider::Codex => {
+                    load_profile_metadata(&profile_dir)
+                        .map(|m| (m.label.unwrap_or_else(|| entry.profile_id.clone()), m.enabled))
+                        .unwrap_or_else(|_| (entry.profile_id.clone(), true))
+                }
+                Provider::Claude => {
+                    crate::claude_profiles::profile::load_claude_profile_metadata(&profile_dir)
+                        .map(|m| (m.label.unwrap_or_else(|| entry.profile_id.clone()), m.enabled))
+                        .unwrap_or_else(|_| (entry.profile_id.clone(), true))
+                }
+            };
+
+            let quota_indicator = {
+                let cache = match entry.provider {
+                    Provider::Codex => state.accounts_tab.codex_quota_cache.as_ref(),
+                    Provider::Claude => state.accounts_tab.claude_quota_cache.as_ref(),
+                };
+                cache
+                    .and_then(|c| c.by_profile.get(&entry.profile_id))
+                    .map(|quota| {
+                        let five_h = match quota.five_hour_state {
+                            crate::codex_profiles::quota::LimitState::Hit => "✗",
+                            crate::codex_profiles::quota::LimitState::Available => "✓",
+                            crate::codex_profiles::quota::LimitState::Unknown => "?",
+                        };
+                        let wk = match quota.weekly_state {
+                            crate::codex_profiles::quota::LimitState::Hit => "✗",
+                            crate::codex_profiles::quota::LimitState::Available => "✓",
+                            crate::codex_profiles::quota::LimitState::Unknown => "?",
+                        };
+                        format!(" [{}/{}]", five_h, wk)
+                    })
+            };
+
+            let live_marker = match entry.provider {
+                Provider::Codex => {
+                    if codex_live.as_deref() == Some(&entry.profile_id) {
+                        " *"
+                    } else {
+                        ""
+                    }
+                }
+                Provider::Claude => {
+                    if claude_live.as_deref() == Some(&entry.profile_id) {
+                        " *"
+                    } else {
+                        ""
+                    }
+                }
             };
 
             let prefix = if is_selected { ">" } else { " " };
-            let live_marker = if live_profile_id.as_deref() == Some(profile_id.as_str()) {
-                " *"
-            } else {
-                ""
-            };
             let active_suffix = if is_active { " (active)" } else { "" };
             let enabled_suffix = if is_enabled { "" } else { " [disabled]" };
             let quota_str = quota_indicator.unwrap_or_default();
+            let badge = provider_badge(entry.provider);
 
-            let label = format!(
-                "{} {}{}{}{}{}",
-                prefix, display_label, quota_str, live_marker, active_suffix, enabled_suffix
-            );
+            let line = Line::from(vec![
+                Span::styled(
+                    format!("{} {} ", prefix, badge),
+                    Style::default().fg(provider_badge_color(entry.provider)),
+                ),
+                Span::styled(
+                    format!(
+                        "{}{}{}{}{}",
+                        display_label, quota_str, live_marker, active_suffix, enabled_suffix
+                    ),
+                    if is_enabled {
+                        Style::default().fg(theme::FG_DEFAULT)
+                    } else {
+                        Style::default().fg(theme::FG_FADED)
+                    },
+                ),
+            ]);
 
-            let style = if is_enabled {
-                Style::default().fg(theme::FG_DEFAULT)
-            } else {
-                Style::default().fg(theme::FG_FADED)
-            };
-
-            ListItem::new(Line::from(Span::styled(label, style)))
+            ListItem::new(line)
         })
         .collect();
 
@@ -191,32 +257,63 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
-    let profile_id = match state.selected_codex_profile_id() {
-        Some(id) => id,
-        None => {
-            render_detail_placeholder(frame, state, area);
-            return;
-        }
+    let Some((provider, profile_id)) = state.selected_account() else {
+        render_detail_placeholder(frame, state, area);
+        return;
     };
 
-    let profile_dir = state.config.codex_profiles_dir.join(profile_id);
-    let metadata = load_profile_metadata(&profile_dir).ok();
+    let profiles_dir = match provider {
+        Provider::Codex => &state.config.codex_profiles_dir,
+        Provider::Claude => &state.config.claude_profiles_dir,
+    };
+    let profile_dir = profiles_dir.join(profile_id);
 
-    let auth_email;
-    let auth_plan;
-    let auth_path = profile_dir.join("auth.json");
-    if let Ok(auth_content) = std::fs::read_to_string(&auth_path) {
-        if let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) {
-            let auth_meta = extract_auth_metadata(&auth_json);
-            auth_email = auth_meta.email;
-            auth_plan = auth_meta.plan;
-        } else {
-            auth_email = None;
-            auth_plan = None;
+    // Load metadata and auth info depending on provider
+    let (meta_label, meta_email, meta_plan, meta_notes, meta_enabled);
+    match provider {
+        Provider::Codex => {
+            let metadata = load_profile_metadata(&profile_dir).ok();
+            let auth_path = profile_dir.join("auth.json");
+            let (auth_email, auth_plan) =
+                if let Ok(auth_content) = std::fs::read_to_string(&auth_path) {
+                    if let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) {
+                        let auth_meta = extract_auth_metadata(&auth_json);
+                        (auth_meta.email, auth_meta.plan)
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+            meta_label = metadata
+                .as_ref()
+                .and_then(|m| m.label.clone())
+                .unwrap_or_else(|| profile_id.to_string());
+            meta_email = metadata.as_ref().and_then(|m| m.email.clone()).or(auth_email);
+            meta_plan = metadata.as_ref().and_then(|m| m.plan.clone()).or(auth_plan);
+            meta_notes = metadata.as_ref().and_then(|m| m.notes.clone());
+            meta_enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
         }
-    } else {
-        auth_email = None;
-        auth_plan = None;
+        Provider::Claude => {
+            let metadata =
+                crate::claude_profiles::profile::load_claude_profile_metadata(&profile_dir).ok();
+            let auth_path = profile_dir.join(".credentials.json");
+            let auth_plan =
+                crate::claude_profiles::auth::ClaudeAuth::load(&auth_path)
+                    .ok()
+                    .and_then(|a| a.subscription_type().map(str::to_string));
+            meta_label = metadata
+                .as_ref()
+                .and_then(|m| m.label.clone())
+                .unwrap_or_else(|| profile_id.to_string());
+            meta_email = metadata.as_ref().and_then(|m| m.email.clone());
+            meta_plan = metadata
+                .as_ref()
+                .and_then(|m| m.plan.clone())
+                .or(auth_plan);
+            meta_notes = metadata.as_ref().and_then(|m| m.notes.clone());
+            meta_enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
+        }
     }
 
     let block = Block::default()
@@ -229,35 +326,39 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let mut lines = Vec::new();
 
-    let label = metadata
-        .as_ref()
-        .and_then(|m| m.label.clone())
-        .unwrap_or_else(|| profile_id.to_string());
+    // Provider line
+    let provider_label = match provider {
+        Provider::Codex => "Codex",
+        Provider::Claude => "Claude",
+    };
     lines.push(Line::from(vec![
-        Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(&label, Style::default().fg(theme::FG_DEFAULT)),
+        Span::styled("  provider:  ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(
+            provider_label,
+            Style::default().fg(provider_badge_color(provider)),
+        ),
     ]));
 
-    let email = metadata
-        .as_ref()
-        .and_then(|m| m.email.clone())
-        .or(auth_email);
-    if let Some(ref email) = email {
+    lines.push(Line::from(vec![
+        Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
+        Span::styled(&meta_label, Style::default().fg(theme::FG_DEFAULT)),
+    ]));
+
+    if let Some(ref email) = meta_email {
         lines.push(Line::from(vec![
             Span::styled("  email: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(email, Style::default().fg(theme::FG_DEFAULT)),
         ]));
     }
 
-    let plan = metadata.as_ref().and_then(|m| m.plan.clone()).or(auth_plan);
-    if let Some(ref plan) = plan {
+    if let Some(ref plan) = meta_plan {
         lines.push(Line::from(vec![
             Span::styled("  plan: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(plan, Style::default().fg(theme::FG_DEFAULT)),
         ]));
     }
 
-    let enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
+    let enabled = meta_enabled;
     lines.push(Line::from(vec![
         Span::styled("  enabled: ", Style::default().fg(theme::FG_COMMENT)),
         Span::styled(
@@ -270,7 +371,7 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
         ),
     ]));
 
-    let notes = metadata.as_ref().and_then(|m| m.notes.clone());
+    let notes = meta_notes;
     if let Some(ref notes) = notes {
         if !notes.is_empty() {
             lines.push(Line::from(Span::raw("")));
@@ -653,5 +754,17 @@ mod tests {
         assert_eq!(color, crate::ui::theme::STATUS_ERROR);
         assert_eq!(bar.chars().filter(|&c| c == '█').count(), 0);
         assert_eq!(bar.chars().filter(|&c| c == '░').count(), 20);
+    }
+
+    #[test]
+    fn test_provider_badge_codex() {
+        let badge = provider_badge(crate::app::Provider::Codex);
+        assert_eq!(badge, "[CX]");
+    }
+
+    #[test]
+    fn test_provider_badge_claude() {
+        let badge = provider_badge(crate::app::Provider::Claude);
+        assert_eq!(badge, "[CL]");
     }
 }

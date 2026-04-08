@@ -747,68 +747,111 @@ impl AppState {
     }
 
     pub fn start_codex_edit(&mut self) {
-        let profile_id = match self.selected_codex_profile_id() {
-            Some(id) => id.to_string(),
+        use crate::claude_profiles::profile::load_claude_profile_metadata;
+
+        let (provider, profile_id) = match self.selected_account() {
+            Some((p, id)) => (p, id.to_string()),
             None => return,
         };
-        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
 
         let mut edit_email = None;
         let mut edit_plan = None;
-        let auth_path = profile_dir.join("auth.json");
-        if let Ok(auth_content) = fs::read_to_string(&auth_path) {
-            if let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) {
-                let auth_meta = extract_auth_metadata(&auth_json);
-                edit_email = auth_meta.email;
-                edit_plan = auth_meta.plan;
+        let mut label = profile_id.clone();
+        let mut notes = String::new();
+        let mut enabled = true;
+
+        match provider {
+            Provider::Codex => {
+                let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+                let auth_path = profile_dir.join("auth.json");
+                if let Ok(auth_content) = fs::read_to_string(&auth_path) {
+                    if let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) {
+                        let auth_meta = extract_auth_metadata(&auth_json);
+                        edit_email = auth_meta.email;
+                        edit_plan = auth_meta.plan;
+                    }
+                }
+                if let Ok(metadata) = load_profile_metadata(&profile_dir) {
+                    label = metadata.label.unwrap_or(profile_id.clone());
+                    notes = metadata.notes.unwrap_or_default();
+                    enabled = metadata.enabled;
+                }
+            }
+            Provider::Claude => {
+                let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
+                if let Ok(metadata) = load_claude_profile_metadata(&profile_dir) {
+                    label = metadata.label.unwrap_or(profile_id.clone());
+                    edit_email = metadata.email;
+                    edit_plan = metadata.plan;
+                    notes = metadata.notes.unwrap_or_default();
+                    enabled = metadata.enabled;
+                }
             }
         }
 
-        if let Ok(metadata) = load_profile_metadata(&profile_dir) {
-            self.accounts_tab.start_edit(
-                metadata.label.as_deref().unwrap_or(&profile_id),
-                edit_email.as_deref(),
-                edit_plan.as_deref(),
-                metadata.notes.as_deref().unwrap_or(""),
-                metadata.enabled,
-            );
-            return;
-        }
         self.accounts_tab.start_edit(
-            &profile_id,
+            &label,
             edit_email.as_deref(),
             edit_plan.as_deref(),
-            "",
-            true,
+            &notes,
+            enabled,
         );
     }
 
     pub fn confirm_codex_edit(&mut self) -> Result<()> {
+        use crate::claude_profiles::profile::{
+            load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfileMetadata,
+        };
+
         if !self.accounts_tab.edit_mode {
             return Ok(());
         }
-        let profile_id = match self.selected_codex_profile_id() {
-            Some(id) => id.to_string(),
+
+        let (provider, profile_id) = match self.selected_account() {
+            Some((p, id)) => (p, id.to_string()),
             None => return Err(anyhow!("no profile selected")),
         };
-        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
 
-        let metadata = ProfileMetadata {
-            id: profile_id.clone(),
-            label: Some(self.accounts_tab.edit_label.clone()),
-            email: None,
-            plan: None,
-            notes: if self.accounts_tab.edit_notes.is_empty() {
-                None
-            } else {
-                Some(self.accounts_tab.edit_notes.clone())
-            },
-            enabled: self.accounts_tab.edit_enabled,
-            created_at: None,
-            updated_at: Some(Utc::now()),
-        };
+        match provider {
+            Provider::Codex => {
+                let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
+                let metadata = ProfileMetadata {
+                    id: profile_id.clone(),
+                    label: Some(self.accounts_tab.edit_label.clone()),
+                    email: None,
+                    plan: None,
+                    notes: if self.accounts_tab.edit_notes.is_empty() {
+                        None
+                    } else {
+                        Some(self.accounts_tab.edit_notes.clone())
+                    },
+                    enabled: self.accounts_tab.edit_enabled,
+                    created_at: None,
+                    updated_at: Some(Utc::now()),
+                };
+                save_profile_metadata(&profile_dir, &metadata)?;
+            }
+            Provider::Claude => {
+                let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
+                let existing = load_claude_profile_metadata(&profile_dir).unwrap_or_default();
+                let metadata = ClaudeProfileMetadata {
+                    id: profile_id.clone(),
+                    label: Some(self.accounts_tab.edit_label.clone()),
+                    email: existing.email,
+                    plan: existing.plan,
+                    notes: if self.accounts_tab.edit_notes.is_empty() {
+                        None
+                    } else {
+                        Some(self.accounts_tab.edit_notes.clone())
+                    },
+                    enabled: self.accounts_tab.edit_enabled,
+                    created_at: existing.created_at,
+                    updated_at: Some(Utc::now()),
+                };
+                save_claude_profile_metadata(&profile_dir, &metadata)?;
+            }
+        }
 
-        save_profile_metadata(&profile_dir, &metadata)?;
         self.accounts_tab.edit_mode = false;
         self.accounts_tab.status_message = Some(format!("Saved profile {}", profile_id));
         Ok(())
@@ -835,6 +878,24 @@ impl AppState {
         self.accounts_tab.selected_index = None;
         self.accounts_tab.view_mode = false;
         self.accounts_tab.status_message = Some(format!("Deleted profile {}", profile_id));
+        Ok(())
+    }
+
+    pub fn delete_claude_profile(&mut self) -> anyhow::Result<()> {
+        let profile_id = self
+            .selected_claude_profile_id()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("no Claude profile selected"))?;
+
+        let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
+        if profile_dir.exists() {
+            std::fs::remove_dir_all(&profile_dir)
+                .with_context(|| format!("failed to delete {}", profile_dir.display()))?;
+        }
+
+        self.accounts_tab.claude_profile_ids.retain(|id| id != &profile_id);
+        self.clamp_accounts_selection();
+        self.accounts_tab.status_message = Some(format!("Deleted Claude {}", profile_id));
         Ok(())
     }
 
@@ -1123,6 +1184,12 @@ impl AppState {
         };
         save_claude_profile_metadata(&profile.profile_dir, &metadata)?;
 
+        // Clean up temp credentials file if we created one
+        let tmp_path = std::env::temp_dir().join("nexus-claude-creds.json");
+        if tmp_path.exists() {
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+
         self.reload_claude_profiles();
         self.accounts_tab.status_message = Some(format!("Imported Claude {}", profile.id));
         Ok(())
@@ -1130,10 +1197,9 @@ impl AppState {
 
     pub fn write_active_claude_profile_to_home(&mut self) -> anyhow::Result<()> {
         let profile_id = self
-            .accounts_tab
-            .claude_active_profile_id
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("no active Claude profile"))?;
+            .selected_claude_profile_id()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("no Claude profile selected"))?;
         let source = self
             .config
             .claude_profiles_dir

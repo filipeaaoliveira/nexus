@@ -263,8 +263,17 @@ async fn run_loop(
             Some(input::Action::RemoveAgent) => match state.active_tab() {
                 ActiveTab::Overview => state.remove_selected(),
                 ActiveTab::Accounts => {
-                    if let Err(e) = state.delete_codex_profile() {
-                        state.accounts_tab.status_message = Some(e.to_string());
+                    match state.selected_account() {
+                        Some((nexus::app::Provider::Claude, _)) => {
+                            if let Err(e) = state.delete_claude_profile() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
+                        Some((nexus::app::Provider::Codex, _)) | None => {
+                            if let Err(e) = state.delete_codex_profile() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
                     }
                 }
             },

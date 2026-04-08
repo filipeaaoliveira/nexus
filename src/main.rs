@@ -390,11 +390,6 @@ async fn run_loop(
                     }
                 }
             }
-            Some(input::Action::CodexImportAuth)
-            | Some(input::Action::CodexWriteToHome)
-            | Some(input::Action::CodexRefreshQuota) => {
-                // Superseded by Accounts* variants; key bindings no longer emit these
-            }
             Some(input::Action::Tick) | None => {}
         }
     }

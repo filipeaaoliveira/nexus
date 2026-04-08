@@ -1,6 +1,6 @@
-use ai_overview::codex_profiles::runtime::RuntimePlan;
-use ai_overview::codex_profiles::runtime::{launch_codex, require_codex_binary};
-use ai_overview::config::Config;
+use nexus::codex_profiles::runtime::RuntimePlan;
+use nexus::codex_profiles::runtime::{launch_codex, require_codex_binary};
+use nexus::config::Config;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -10,7 +10,7 @@ use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn test_help_works_without_interactive_terminal() {
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ai-overview"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_nexus"))
         .arg("--help")
         .output()
         .expect("failed to run ai-overview --help");
@@ -41,11 +41,11 @@ fn default_codex_monitoring_uses_home_codex_dir() {
 }
 
 #[test]
-fn default_codex_management_paths_are_under_ai_overview_data_root() {
+fn default_codex_management_paths_are_under_nexus_data_root() {
     let config = Config::default();
 
     let management_root = config.codex_management_dir.clone();
-    assert!(management_root.ends_with("ai-overview/codex"));
+    assert!(management_root.ends_with("nexus/codex"));
     assert_eq!(config.codex_profiles_dir, management_root.join("profiles"));
     assert_eq!(config.codex_repos_dir, management_root.join("repos"));
     assert_eq!(config.codex_runtime_dir, management_root.join("runtime"));

@@ -1,7 +1,7 @@
-use ai_overview::detect::process::{
+use nexus::detect::process::{
     extract_claude_resume_session, parse_lsof_cwd, parse_ps_output,
 };
-use ai_overview::types::AgentTool;
+use nexus::types::AgentTool;
 use std::path::PathBuf;
 
 #[test]

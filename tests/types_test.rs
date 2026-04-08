@@ -1,19 +1,19 @@
-use ai_overview::codex_profiles::profile::{
+use nexus::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
     ProfileMetadata,
 };
-use ai_overview::codex_profiles::quota::{
+use nexus::codex_profiles::quota::{
     parse_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
 };
-use ai_overview::types::*;
-use ai_overview::types::{TodoItem, TodoPriority, TodoStatus};
+use nexus::types::*;
+use nexus::types::{TodoItem, TodoPriority, TodoStatus};
 use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
 
 #[test]
 fn test_normalized_status_labels() {
-    use ai_overview::types::{NormalizedReason, NormalizedStatus};
+    use nexus::types::{NormalizedReason, NormalizedStatus};
 
     assert_eq!(NormalizedStatus::Working.as_str(), "working");
     assert_eq!(NormalizedStatus::NeedsInput.as_str(), "needs input");
@@ -31,7 +31,7 @@ fn test_normalized_status_labels() {
 
 #[test]
 fn test_normalized_status_precedence_order() {
-    use ai_overview::types::NormalizedStatus;
+    use nexus::types::NormalizedStatus;
 
     assert!(NormalizedStatus::NeedsInput > NormalizedStatus::Blocked);
     assert!(NormalizedStatus::Blocked > NormalizedStatus::Working);
@@ -41,7 +41,7 @@ fn test_normalized_status_precedence_order() {
 
 #[test]
 fn test_normalized_state_without_reason() {
-    use ai_overview::types::{NormalizedState, NormalizedStatus};
+    use nexus::types::{NormalizedState, NormalizedStatus};
 
     let state = NormalizedState::new(NormalizedStatus::Working, None);
 
@@ -51,7 +51,7 @@ fn test_normalized_state_without_reason() {
 
 #[test]
 fn test_normalized_state_with_reason() {
-    use ai_overview::types::{NormalizedReason, NormalizedState, NormalizedStatus};
+    use nexus::types::{NormalizedReason, NormalizedState, NormalizedStatus};
 
     let state = NormalizedState::new(
         NormalizedStatus::Done,
@@ -465,14 +465,14 @@ fn codex_quota_snapshot_old_json_without_pct_fields_deserializes_ok() {
 
 #[test]
 fn parse_quota_from_sessions_returns_none_for_missing_dir() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let result = parse_quota_from_sessions(std::path::Path::new("/nonexistent/sessions/dir"));
     assert!(result.is_none());
 }
 
 #[test]
 fn parse_quota_from_sessions_returns_none_for_empty_dir() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let result = parse_quota_from_sessions(temp.path());
     assert!(result.is_none());
@@ -480,7 +480,7 @@ fn parse_quota_from_sessions_returns_none_for_empty_dir() {
 
 #[test]
 fn parse_quota_from_sessions_returns_none_when_no_token_count_events() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -495,7 +495,7 @@ fn parse_quota_from_sessions_returns_none_when_no_token_count_events() {
 
 #[test]
 fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -516,7 +516,7 @@ fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
 
 #[test]
 fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -532,7 +532,7 @@ fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
 
 #[test]
 fn parse_quota_from_sessions_picks_last_token_count_event_in_file() {
-    use ai_overview::codex_profiles::quota::parse_quota_from_sessions;
+    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();

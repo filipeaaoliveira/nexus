@@ -1,5 +1,5 @@
-use ai_overview::detect::registry::AgentRegistry;
-use ai_overview::types::AgentTool;
+use nexus::detect::registry::AgentRegistry;
+use nexus::types::AgentTool;
 use chrono::Local;
 use std::path::PathBuf;
 

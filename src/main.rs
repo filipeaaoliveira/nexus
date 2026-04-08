@@ -317,6 +317,13 @@ async fn run_loop(
                     }
                 }
             }
+            Some(input::Action::AccountsImportClaudeAuth) => {
+                if state.active_tab() == ActiveTab::Accounts {
+                    if let Err(e) = state.import_claude_auth() {
+                        state.accounts_tab.status_message = Some(e.to_string());
+                    }
+                }
+            }
             Some(input::Action::AccountsWriteToHome) => {
                 if state.active_tab() == ActiveTab::Accounts {
                     match state.selected_account() {
@@ -483,13 +490,6 @@ async fn run_loop(
                             }
                         }
                         None => {}
-                    }
-                }
-            }
-            Some(input::Action::AccountsImportClaudeAuth) => {
-                if state.active_tab() == ActiveTab::Accounts {
-                    if let Err(e) = state.import_claude_auth() {
-                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             }

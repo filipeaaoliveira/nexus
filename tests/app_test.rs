@@ -203,8 +203,8 @@ fn codex_footer_uses_codex_shortcuts() {
     state.next_tab();
 
     let footer = footer::shortcut_text(&state);
-    assert!(footer.contains("i"));
-    assert!(footer.contains("import"));
+    assert!(footer.contains("import codex"));
+    assert!(footer.contains("import claude"));
     assert!(!footer.contains("sort:"));
     assert!(!footer.contains(" rename"));
 }

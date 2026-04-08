@@ -211,6 +211,26 @@ mod tests {
     }
 
     #[test]
+    fn test_uppercase_i_absorbed_by_modal_modes() {
+        let key = KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE);
+        // edit_mode: I becomes a char-input event, not an import action
+        assert_eq!(
+            action_for_key(key, false, false, false, true, false),
+            Some(Action::CodexEditChar('I'))
+        );
+        // filter_mode: same — I feeds into the filter input
+        assert_eq!(
+            action_for_key(key, true, false, false, false, false),
+            Some(Action::FilterChar('I'))
+        );
+        // quota_edit_mode: I feeds into quota char input
+        assert_eq!(
+            action_for_key(key, false, false, false, false, true),
+            Some(Action::CodexQuotaEditChar('I'))
+        );
+    }
+
+    #[test]
     fn test_enter_stays_filter_confirm_while_filtering() {
         assert_eq!(
             action_for_key(

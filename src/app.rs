@@ -372,6 +372,9 @@ impl AppState {
         if let Ok(cache) = load_quota_cache(&config.codex_quota_cache_file) {
             accounts_tab.codex_quota_cache = Some(cache);
         }
+        if let Ok(cache) = load_quota_cache(&config.claude_quota_cache_file) {
+            accounts_tab.claude_quota_cache = Some(cache);
+        }
 
         let mut state = Self {
             active_tab: ActiveTab::Overview,
@@ -1134,6 +1137,10 @@ impl AppState {
         }
         let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
         let target = home.join(".claude").join(".credentials.json");
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
         std::fs::copy(&source, &target)?;
         self.accounts_tab.status_message = Some(format!(
             "Wrote {} to ~/.claude/.credentials.json",
@@ -1275,6 +1282,8 @@ impl AppState {
         }
         self.claude_profiles_last_reload.set(std::time::Instant::now());
 
+        let previously_selected = self.selected_claude_profile_id().map(|s| s.to_string());
+
         let profiles_dir = self.config.claude_profiles_dir.clone();
         let mut ids = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
@@ -1290,7 +1299,23 @@ impl AppState {
         ids.sort();
 
         self.accounts_tab.claude_profile_ids = ids;
-        self.clamp_accounts_selection();
+
+        // Re-select the previously selected Claude profile if it still exists
+        if let Some(ref prev_id) = previously_selected {
+            let list = build_unified_list(
+                &self.accounts_tab.codex_profile_ids,
+                &self.accounts_tab.claude_profile_ids,
+                self.accounts_tab.active_filter,
+            );
+            if let Some(idx) = list.iter().position(|e| e.provider == Provider::Claude && &e.profile_id == prev_id) {
+                self.accounts_tab.selected_index = Some(idx);
+            } else {
+                self.clamp_accounts_selection();
+            }
+        } else {
+            self.clamp_accounts_selection();
+        }
+
         let codex_ids = self.accounts_tab.codex_profile_ids.clone();
         let claude_ids = self.accounts_tab.claude_profile_ids.clone();
         self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
@@ -1364,9 +1389,8 @@ impl AppState {
         cache.by_profile.insert(profile_id.to_string(), quota.clone());
         if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
             tracing::warn!("failed to save codex quota cache: {}", e);
-        } else {
-            self.accounts_tab.codex_quota_cache = Some(cache);
         }
+        self.accounts_tab.codex_quota_cache = Some(cache);
         if self.selected_codex_profile_id() == Some(profile_id) {
             self.accounts_tab.quota = Some(quota);
         }
@@ -1378,9 +1402,8 @@ impl AppState {
         cache.by_profile.insert(profile_id.to_string(), quota.clone());
         if let Err(e) = save_quota_cache(&cache, &self.config.claude_quota_cache_file) {
             tracing::warn!("failed to save claude quota cache: {}", e);
-        } else {
-            self.accounts_tab.claude_quota_cache = Some(cache);
         }
+        self.accounts_tab.claude_quota_cache = Some(cache);
         if self.selected_claude_profile_id() == Some(profile_id) {
             self.accounts_tab.quota = Some(quota);
         }

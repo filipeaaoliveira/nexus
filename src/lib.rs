@@ -1,4 +1,5 @@
 pub mod app;
+pub mod claude_profiles;
 pub mod codex_profiles;
 pub mod config;
 pub mod detect;

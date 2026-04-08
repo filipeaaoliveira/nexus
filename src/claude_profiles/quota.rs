@@ -26,6 +26,8 @@ struct ClaudeWindow {
 struct TokenRefreshResponse {
     #[serde(rename = "accessToken")]
     access_token: Option<String>,
+    /// Unix timestamp in milliseconds — same unit as ClaudeOAuthTokens::expires_at.
+    /// Anthropic's OAuth endpoints use the same credential format as .credentials.json.
     #[serde(rename = "expiresAt")]
     expires_at: Option<i64>,
 }
@@ -80,10 +82,10 @@ pub async fn refresh_token_if_needed(auth: ClaudeAuth) -> ClaudeAuth {
 
 pub async fn fetch_claude_quota(auth: &ClaudeAuth) -> Option<QuotaSnapshot> {
     let access_token = auth.access_token()?;
-    fetch_quota_async(access_token).await
+    fetch_claude_quota_async(access_token).await
 }
 
-async fn fetch_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
+async fn fetch_claude_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()

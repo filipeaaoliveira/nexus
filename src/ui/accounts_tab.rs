@@ -721,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn quota_bar_green_at_50_percent() {
+    fn quota_bar_red_at_50_percent_remaining() {
         let (bar, color) = make_bar(50, 20);
         assert_eq!(color, crate::ui::theme::STATUS_ERROR);
         assert_eq!(bar.chars().filter(|&c| c == '█').count(), 10);
@@ -729,13 +729,13 @@ mod tests {
     }
 
     #[test]
-    fn quota_bar_yellow_at_51_percent() {
+    fn quota_bar_yellow_at_51_percent_remaining() {
         let (_bar, color) = make_bar(51, 20);
         assert_eq!(color, crate::ui::theme::STATUS_WAITING);
     }
 
     #[test]
-    fn quota_bar_red_at_81_percent() {
+    fn quota_bar_green_at_81_percent_remaining() {
         let (_bar, color) = make_bar(81, 20);
         assert_eq!(color, crate::ui::theme::STATUS_RUNNING);
     }

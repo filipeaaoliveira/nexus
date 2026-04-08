@@ -488,20 +488,6 @@ impl AppState {
             AgentEvent::TodosUpdated { id, pid, todos } => {
                 self.handle_todos_updated(id, pid, todos, now)
             }
-            AgentEvent::CodexQuotaRefreshed { profile_id, quota } => {
-                if let Some(selected_id) = self.selected_codex_profile_id() {
-                    if selected_id == profile_id {
-                        self.accounts_tab.quota = quota;
-                    }
-                }
-            }
-            AgentEvent::ClaudeQuotaRefreshed { profile_id, quota } => {
-                if let Some(selected_id) = self.selected_claude_profile_id() {
-                    if selected_id == profile_id {
-                        self.accounts_tab.quota = quota;
-                    }
-                }
-            }
         }
     }
 
@@ -875,7 +861,7 @@ impl AppState {
         }
 
         self.accounts_tab.codex_profile_ids.retain(|id| id != &profile_id);
-        self.accounts_tab.selected_index = None;
+        self.clamp_accounts_selection();
         self.accounts_tab.view_mode = false;
         self.accounts_tab.status_message = Some(format!("Deleted profile {}", profile_id));
         Ok(())
@@ -905,9 +891,8 @@ impl AppState {
 
 
     pub fn start_codex_quota_edit(&mut self) {
-        let _profile_id = match self.selected_codex_profile_id() {
-            Some(id) => id,
-            None => return,
+        let Some((_provider, _profile_id)) = self.selected_account() else {
+            return;
         };
 
         // Initialize with current quota values or defaults
@@ -1006,10 +991,9 @@ impl AppState {
         let mut cache = self.accounts_tab.codex_quota_cache.take().unwrap_or_default();
         cache.by_profile.insert(profile_id.clone(), quota.clone());
         if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
-            tracing::warn!("failed to save quota cache: {}", e);
-        } else {
-            self.accounts_tab.codex_quota_cache = Some(cache);
+            tracing::warn!("failed to save codex quota cache: {}", e);
         }
+        self.accounts_tab.codex_quota_cache = Some(cache);
 
         self.accounts_tab.quota = Some(quota);
         self.accounts_tab.quota_edit_mode = false;
@@ -1195,7 +1179,7 @@ impl AppState {
         Ok(())
     }
 
-    pub fn write_active_claude_profile_to_home(&mut self) -> anyhow::Result<()> {
+    pub fn write_selected_claude_profile_to_home(&mut self) -> anyhow::Result<()> {
         let profile_id = self
             .selected_claude_profile_id()
             .map(|s| s.to_string())
@@ -1490,7 +1474,7 @@ impl AppState {
         self.accounts_tab.codex_active_profile_id.as_deref()
     }
 
-    pub fn write_active_profile_to_codex_home(&mut self) -> Result<()> {
+    pub fn write_selected_profile_to_codex_home(&mut self) -> Result<()> {
         let active_profile_id = self
             .active_codex_profile_id()
             .ok_or_else(|| anyhow!("no active profile"))?;
@@ -2387,7 +2371,7 @@ fn push_event(
 
 #[cfg(test)]
 mod tests {
-    use super::AppState;
+    use super::*;
     use crate::codex_profiles::profile::{
         load_profile_metadata, save_profile_metadata, CodexProfile, ProfileMetadata,
     };
@@ -2486,5 +2470,47 @@ mod tests {
             "imported profile must have enabled=true in profile.json"
         );
         assert_eq!(written.label, Some(profile_id.to_string()));
+    }
+
+    #[test]
+    fn test_build_unified_list_all_filter() {
+        let codex = vec!["c1".to_string(), "c2".to_string()];
+        let claude = vec!["cl1".to_string()];
+        let list = build_unified_list(&codex, &claude, ProviderFilter::All);
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0], AccountEntry { provider: Provider::Codex, profile_id: "c1".to_string() });
+        assert_eq!(list[1], AccountEntry { provider: Provider::Codex, profile_id: "c2".to_string() });
+        assert_eq!(list[2], AccountEntry { provider: Provider::Claude, profile_id: "cl1".to_string() });
+    }
+
+    #[test]
+    fn test_build_unified_list_codex_filter() {
+        let codex = vec!["c1".to_string()];
+        let claude = vec!["cl1".to_string()];
+        let list = build_unified_list(&codex, &claude, ProviderFilter::Codex);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].provider, Provider::Codex);
+    }
+
+    #[test]
+    fn test_build_unified_list_claude_filter() {
+        let codex = vec!["c1".to_string()];
+        let claude = vec!["cl1".to_string()];
+        let list = build_unified_list(&codex, &claude, ProviderFilter::Claude);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].provider, Provider::Claude);
+    }
+
+    #[test]
+    fn test_provider_filter_cycle() {
+        assert_eq!(ProviderFilter::All.next(), ProviderFilter::Codex);
+        assert_eq!(ProviderFilter::Codex.next(), ProviderFilter::Claude);
+        assert_eq!(ProviderFilter::Claude.next(), ProviderFilter::All);
+    }
+
+    #[test]
+    fn test_build_unified_list_empty() {
+        let list = build_unified_list(&[], &[], ProviderFilter::All);
+        assert!(list.is_empty());
     }
 }

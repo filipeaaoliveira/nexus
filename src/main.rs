@@ -330,12 +330,12 @@ async fn run_loop(
                 if state.active_tab() == ActiveTab::Accounts {
                     match state.selected_account() {
                         Some((nexus::app::Provider::Claude, _)) => {
-                            if let Err(e) = state.write_active_claude_profile_to_home() {
+                            if let Err(e) = state.write_selected_claude_profile_to_home() {
                                 state.accounts_tab.status_message = Some(e.to_string());
                             }
                         }
                         Some((nexus::app::Provider::Codex, _)) | None => {
-                            if let Err(e) = state.write_active_profile_to_codex_home() {
+                            if let Err(e) = state.write_selected_profile_to_codex_home() {
                                 state.accounts_tab.status_message = Some(e.to_string());
                             }
                         }

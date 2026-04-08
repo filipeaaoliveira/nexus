@@ -66,12 +66,4 @@ pub enum AgentEvent {
         is_worktree: bool,
         started_at: Option<DateTime<Local>>,
     },
-    CodexQuotaRefreshed {
-        profile_id: String,
-        quota: Option<crate::codex_profiles::quota::QuotaSnapshot>,
-    },
-    ClaudeQuotaRefreshed {
-        profile_id: String,
-        quota: Option<crate::codex_profiles::quota::QuotaSnapshot>,
-    },
 }

@@ -76,11 +76,11 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     footer::render(frame, state, outer[2]);
 
-    if state.codex_tab.session_picker_mode {
+    if state.accounts_tab.session_picker_mode {
         render_session_picker(frame, state);
     }
 
-    if state.codex_tab.edit_mode {
+    if state.accounts_tab.edit_mode {
         let edit_area = Rect::new(
             main_chunks[1].x + 5,
             main_chunks[1].y + 2,
@@ -90,7 +90,7 @@ pub fn render(frame: &mut Frame, state: &AppState) {
         render_edit_mode(frame, state, edit_area);
     }
 
-    if state.codex_tab.quota_edit_mode {
+    if state.accounts_tab.quota_edit_mode {
         let edit_area = Rect::new(
             main_chunks[1].x + 5,
             main_chunks[1].y + 2,
@@ -117,12 +117,12 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
         .style(Style::default().bg(theme::BG_MAIN));
 
     let items: Vec<ListItem> = state
-        .codex_tab
-        .profile_ids
+        .accounts_tab
+        .codex_profile_ids
         .iter()
         .enumerate()
         .map(|(index, profile_id)| {
-            let is_selected = state.codex_tab.selected_profile_index == Some(index);
+            let is_selected = state.accounts_tab.selected_index == Some(index);
             let is_active = state.active_codex_profile_id() == Some(profile_id.as_str());
 
             let profile_dir = state.config.codex_profiles_dir.join(profile_id);
@@ -135,7 +135,7 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
                 };
 
             // Get quota indicator if available
-            let quota_indicator = if let Some(ref cache) = state.codex_tab.quota_cache {
+            let quota_indicator = if let Some(ref cache) = state.accounts_tab.codex_quota_cache {
                 if let Some(quota) = cache.by_profile.get(profile_id) {
                     let five_h = match quota.five_hour_state {
                         crate::codex_profiles::quota::LimitState::Hit => "✗",
@@ -185,7 +185,7 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
         .highlight_style(theme::selected_style());
 
     let mut list_state = ListState::default();
-    list_state.select(state.codex_tab.selected_profile_index);
+    list_state.select(state.accounts_tab.selected_index);
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }
@@ -287,7 +287,7 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
         }
     }
 
-    if let Some(ref quota) = state.codex_tab.quota {
+    if let Some(ref quota) = state.accounts_tab.quota {
         lines.push(Line::from(Span::raw("")));
 
         // Helper closure: build one quota row, using a progress bar if pct is known,
@@ -373,18 +373,18 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let mut lines = Vec::new();
 
-    if state.codex_tab.filter_mode {
+    if state.accounts_tab.filter_mode {
         lines.push(Line::from(vec![
             Span::styled("  filter: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(
-                &state.codex_tab.filter_input,
+                &state.accounts_tab.filter_input,
                 Style::default().fg(theme::FG_DEFAULT),
             ),
             Span::styled("_", Style::default().fg(theme::STATUS_WAITING)),
         ]));
     }
 
-    if let Some(message) = state.codex_tab.status_message.as_ref() {
+    if let Some(message) = state.accounts_tab.status_message.as_ref() {
         lines.push(Line::from(vec![
             Span::styled("  ", Style::default()),
             Span::styled(message, Style::default().fg(theme::STATUS_WAITING)),
@@ -398,11 +398,11 @@ fn render_session_picker(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     let picker_width = 40;
 
-    let is_sessions = state.codex_tab.session_picker_sessions.is_some();
+    let is_sessions = state.accounts_tab.session_picker_sessions.is_some();
     let items: &[String] = if is_sessions {
-        state.codex_tab.session_picker_sessions.as_ref().unwrap()
+        state.accounts_tab.session_picker_sessions.as_ref().unwrap()
     } else {
-        &state.codex_tab.profile_ids
+        &state.accounts_tab.codex_profile_ids
     };
 
     let picker_height = 5.max((items.len() + 3).min(20));
@@ -434,7 +434,7 @@ fn render_session_picker(frame: &mut Frame, state: &AppState) {
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            let is_selected = state.codex_tab.session_picker_selected == Some(index);
+            let is_selected = state.accounts_tab.session_picker_selected == Some(index);
             let label = if is_selected {
                 format!("> {}", item)
             } else {
@@ -452,7 +452,7 @@ fn render_session_picker(frame: &mut Frame, state: &AppState) {
         .highlight_style(theme::selected_style());
 
     let mut list_state = ListState::default();
-    list_state.select(state.codex_tab.session_picker_selected);
+    list_state.select(state.accounts_tab.session_picker_selected);
 
     frame.render_stateful_widget(list, picker_area, &mut list_state);
 }
@@ -469,7 +469,7 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let mut lines = Vec::new();
 
-    let label_prefix = if state.codex_tab.edit_field == EditField::Label {
+    let label_prefix = if state.accounts_tab.edit_field == EditField::Label {
         "> "
     } else {
         "  "
@@ -478,12 +478,12 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::raw(label_prefix),
         Span::styled("label: ", Style::default().fg(theme::FG_COMMENT)),
         Span::styled(
-            &state.codex_tab.edit_label,
+            &state.accounts_tab.edit_label,
             Style::default().fg(theme::FG_DEFAULT),
         ),
     ]));
 
-    if let Some(ref email) = state.codex_tab.edit_email {
+    if let Some(ref email) = state.accounts_tab.edit_email {
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled("email: ", Style::default().fg(theme::FG_COMMENT)),
@@ -491,7 +491,7 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         ]));
     }
 
-    if let Some(ref plan) = state.codex_tab.edit_plan {
+    if let Some(ref plan) = state.accounts_tab.edit_plan {
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled("plan: ", Style::default().fg(theme::FG_COMMENT)),
@@ -499,7 +499,7 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         ]));
     }
 
-    let notes_prefix = if state.codex_tab.edit_field == EditField::Notes {
+    let notes_prefix = if state.accounts_tab.edit_field == EditField::Notes {
         "> "
     } else {
         "  "
@@ -508,22 +508,22 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::raw(notes_prefix),
         Span::styled("notes: ", Style::default().fg(theme::FG_COMMENT)),
         Span::styled(
-            &state.codex_tab.edit_notes,
+            &state.accounts_tab.edit_notes,
             Style::default().fg(theme::FG_DEFAULT),
         ),
     ]));
 
-    let enabled_prefix = if state.codex_tab.edit_field == EditField::Enabled {
+    let enabled_prefix = if state.accounts_tab.edit_field == EditField::Enabled {
         "> "
     } else {
         "  "
     };
-    let enabled_status = if state.codex_tab.edit_enabled {
+    let enabled_status = if state.accounts_tab.edit_enabled {
         "enabled"
     } else {
         "disabled"
     };
-    let enabled_style = if state.codex_tab.edit_enabled {
+    let enabled_style = if state.accounts_tab.edit_enabled {
         Style::default().fg(theme::STATUS_RUNNING)
     } else {
         Style::default().fg(theme::STATUS_EXITED)
@@ -559,12 +559,12 @@ fn render_quota_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let five_hour_prefix = if !state.codex_tab.quota_edit_field_weekly {
+    let five_hour_prefix = if !state.accounts_tab.quota_edit_field_weekly {
         "> "
     } else {
         "  "
     };
-    let weekly_prefix = if state.codex_tab.quota_edit_field_weekly {
+    let weekly_prefix = if state.accounts_tab.quota_edit_field_weekly {
         "> "
     } else {
         "  "
@@ -583,16 +583,16 @@ fn render_quota_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
             Span::raw(five_hour_prefix),
             Span::styled("5h limit: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(
-                state.codex_tab.quota_five_hour.clone(),
-                state_style(&state.codex_tab.quota_five_hour),
+                state.accounts_tab.quota_five_hour.clone(),
+                state_style(&state.accounts_tab.quota_five_hour),
             ),
         ]),
         Line::from(vec![
             Span::raw(weekly_prefix),
             Span::styled("weekly:   ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(
-                state.codex_tab.quota_weekly.clone(),
-                state_style(&state.codex_tab.quota_weekly),
+                state.accounts_tab.quota_weekly.clone(),
+                state_style(&state.accounts_tab.quota_weekly),
             ),
         ]),
         Line::from(Span::raw("")),

@@ -12,10 +12,6 @@ use std::io::{stdout, IsTerminal};
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
-async fn fetch_quota_for_profile(profile_id: String, auth: ProfileAuth) -> (String, Option<nexus::codex_profiles::quota::QuotaSnapshot>) {
-    let result = fetch_quota_from_api(&auth).await;
-    (profile_id, result)
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,11 +21,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Let clap handle non-interactive help/version output before enforcing TUI startup.
     if !std::io::stdin().is_terminal() {
-        anyhow::bail!("stdin is not a terminal — ai-overview must run in an interactive terminal");
+        anyhow::bail!("stdin is not a terminal — nexus must run in an interactive terminal");
     }
     if !stdout().is_terminal() {
-        anyhow::bail!("stdout is not a terminal — ai-overview must run in an interactive terminal");
+        anyhow::bail!("stdout is not a terminal — nexus must run in an interactive terminal");
     }
+
+    migrate_data_dir_if_needed(&config);
 
     let mut rx = detect::spawn_detectors(&config);
     let mut state = AppState::new(config);
@@ -47,7 +45,7 @@ fn initialize_tracing(config: &Config) -> anyhow::Result<()> {
     // Initialize tracing to a file so debug output does not corrupt the TUI.
     // Use RUST_LOG to control level (default: info).
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("ai_overview=info"));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("nexus=info"));
     if let Some(parent) = config.log_file.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -63,19 +61,72 @@ fn initialize_tracing(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// One-time migration: if the old `ai-overview` data directory exists and the
+/// new `nexus` directory does not, rename it in place so existing profiles and
+/// quota cache are preserved across the rename.
+fn migrate_data_dir_if_needed(config: &Config) {
+    // Codex management dir: ~/.local/share/nexus/codex
+    // Old path:             ~/.local/share/ai-overview/codex
+    if let Some(new_parent) = config.codex_management_dir.parent() {
+        // new_parent = ~/.local/share/nexus
+        if let Some(share_dir) = new_parent.parent() {
+            let old_parent = share_dir.join("ai-overview");
+            if old_parent.exists() && !new_parent.exists() {
+                match std::fs::rename(&old_parent, new_parent) {
+                    Ok(()) => tracing::info!(
+                        "migrated data directory from {} to {}",
+                        old_parent.display(),
+                        new_parent.display()
+                    ),
+                    Err(e) => tracing::warn!(
+                        "could not migrate {} to {}: {e}",
+                        old_parent.display(),
+                        new_parent.display()
+                    ),
+                }
+            }
+        }
+    }
+
+    // Log file: ~/.cache/nexus/nexus.log
+    // Old path: ~/.cache/ai-overview/ai-overview.log
+    if let Some(new_log_dir) = config.log_file.parent() {
+        if let Some(cache_dir) = new_log_dir.parent() {
+            let old_log_dir = cache_dir.join("ai-overview");
+            if old_log_dir.exists() && !new_log_dir.exists() {
+                match std::fs::rename(&old_log_dir, new_log_dir) {
+                    Ok(()) => tracing::info!(
+                        "migrated log directory from {} to {}",
+                        old_log_dir.display(),
+                        new_log_dir.display()
+                    ),
+                    Err(e) => tracing::warn!(
+                        "could not migrate log dir {} to {}: {e}",
+                        old_log_dir.display(),
+                        new_log_dir.display()
+                    ),
+                }
+            }
+        }
+    }
+}
+
 async fn run_loop(
     terminal: &mut ratatui::DefaultTerminal,
     state: &mut AppState,
     rx: &mut tokio::sync::mpsc::Receiver<AgentEvent>,
 ) -> anyhow::Result<()> {
-    // Channel for async quota fetch results
-    let (quota_tx, mut quota_rx) = tokio::sync::mpsc::channel::<(String, nexus::codex_profiles::quota::QuotaSnapshot)>(10);
+    // Channel for async quota fetch results. Carries Option so a None result
+    // (API failure) can still clear the quota_loading flag on the UI.
+    let (quota_tx, mut quota_rx) = tokio::sync::mpsc::channel::<(String, Option<nexus::codex_profiles::quota::QuotaSnapshot>)>(10);
     
     // Spawn background quota fetcher
     let config = state.config.clone();
     let profiles_dir = config.codex_profiles_dir.clone();
     
+    let bg_quota_tx = quota_tx.clone();
     tokio::spawn(async move {
+        let quota_tx = bg_quota_tx;
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
             
@@ -97,14 +148,15 @@ async fn run_loop(
                         return None;
                     }
                     let auth = ProfileAuth::load(&auth_path).ok()?;
-                    Some(fetch_quota_for_profile(profile_id.clone(), auth))
+                    let pid = profile_id.clone();
+                    Some(async move { (pid, fetch_quota_from_api(&auth).await) })
                 })
                 .collect();
             
             let results = join_all(fetch_futures).await;
             
             for (profile_id, quota) in results {
-                if let Some(quota) = quota {
+                if quota.is_some() {
                     let _ = quota_tx.send((profile_id, quota)).await;
                 }
             }
@@ -117,9 +169,14 @@ async fn run_loop(
             state.handle_event(event);
         }
 
-        // Check for async quota results (non-blocking)
+        // Check for async quota results (non-blocking).
+        // None means the fetch failed — clear quota_loading without updating data.
         while let Ok((profile_id, quota)) = quota_rx.try_recv() {
-            state.update_quota_for_profile(&profile_id, quota);
+            if let Some(quota) = quota {
+                state.update_codex_quota_for_profile(&profile_id, quota);
+            } else {
+                state.accounts_tab.quota_loading = false;
+            }
         }
 
         terminal.draw(|frame| {
@@ -130,69 +187,69 @@ async fn run_loop(
             Duration::from_millis(100),
             state.active_filter_mode(),
             state.active_rename_mode(),
-            state.codex_tab.session_picker_mode,
-            state.codex_tab.edit_mode,
-            state.codex_tab.quota_edit_mode,
+            state.accounts_tab.session_picker_mode,
+            state.accounts_tab.edit_mode,
+            state.accounts_tab.quota_edit_mode,
         )? {
             Some(input::Action::Quit) => break,
             Some(input::Action::MoveDown) => match state.active_tab() {
                 ActiveTab::Overview => state.move_selection_down(),
-                ActiveTab::Codex => state.handle_codex_move_down(),
+                ActiveTab::Accounts => state.handle_codex_move_down(),
             },
             Some(input::Action::MoveUp) => match state.active_tab() {
                 ActiveTab::Overview => state.move_selection_up(),
-                ActiveTab::Codex => state.handle_codex_move_up(),
+                ActiveTab::Accounts => state.handle_codex_move_up(),
             },
             Some(input::Action::NextTab) => state.next_tab(),
             Some(input::Action::CycleSortMode) => state.cycle_sort_mode(),
             Some(input::Action::ShowHelp) => state.toggle_help(),
             Some(input::Action::RemoveAgent) => match state.active_tab() {
                 ActiveTab::Overview => state.remove_selected(),
-                ActiveTab::Codex => {
+                ActiveTab::Accounts => {
                     if let Err(e) = state.delete_codex_profile() {
-                        state.codex_tab.status_message = Some(e.to_string());
+                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             },
             Some(input::Action::RemoveExited) => match state.active_tab() {
                 ActiveTab::Overview => state.remove_exited(),
-                ActiveTab::Codex => {}
+                ActiveTab::Accounts => {}
             },
             Some(input::Action::DismissOverlay) => match state.active_tab() {
                 ActiveTab::Overview => state.dismiss_overlay(),
-                ActiveTab::Codex => state.dismiss_codex_overlay(),
+                ActiveTab::Accounts => state.dismiss_codex_overlay(),
             },
             Some(input::Action::StartFilter) => match state.active_tab() {
                 ActiveTab::Overview => state.start_filter(),
-                ActiveTab::Codex => state.start_codex_filter(),
+                ActiveTab::Accounts => state.start_codex_filter(),
             },
             Some(input::Action::FilterChar(c)) => match state.active_tab() {
                 ActiveTab::Overview => state.filter_push_char(c),
-                ActiveTab::Codex => state.codex_filter_push_char(c),
+                ActiveTab::Accounts => state.codex_filter_push_char(c),
             },
             Some(input::Action::FilterBackspace) => match state.active_tab() {
                 ActiveTab::Overview => state.filter_pop_char(),
-                ActiveTab::Codex => state.codex_filter_pop_char(),
+                ActiveTab::Accounts => state.codex_filter_pop_char(),
             },
             Some(input::Action::FilterConfirm) => match state.active_tab() {
                 ActiveTab::Overview => state.confirm_filter(),
-                ActiveTab::Codex => state.confirm_codex_filter(),
+                ActiveTab::Accounts => state.confirm_codex_filter(),
             },
             Some(input::Action::StartRename) => match state.active_tab() {
                 ActiveTab::Overview => state.start_rename(),
-                ActiveTab::Codex => {}
+                ActiveTab::Accounts => {}
             },
             Some(input::Action::CodexImportAuth) => {
-                if state.active_tab() == ActiveTab::Codex {
+                if state.active_tab() == ActiveTab::Accounts {
                     if let Err(error) = state.import_codex_auth() {
-                        state.codex_tab.status_message = Some(error.to_string());
+                        state.accounts_tab.status_message = Some(error.to_string());
                     }
                 }
             }
             Some(input::Action::CodexWriteToHome) => {
-                if state.active_tab() == ActiveTab::Codex {
+                if state.active_tab() == ActiveTab::Accounts {
                     if let Err(e) = state.write_active_profile_to_codex_home() {
-                        state.codex_tab.status_message = Some(e.to_string());
+                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             }
@@ -201,130 +258,129 @@ async fn run_loop(
             }
             Some(input::Action::RenameChar(c)) => match state.active_tab() {
                 ActiveTab::Overview => state.rename_push_char(c),
-                ActiveTab::Codex => {}
+                ActiveTab::Accounts => {}
             },
             Some(input::Action::RenameBackspace) => match state.active_tab() {
                 ActiveTab::Overview => state.rename_pop_char(),
-                ActiveTab::Codex => {}
+                ActiveTab::Accounts => {}
             },
             Some(input::Action::RenameConfirm) => match state.active_tab() {
                 ActiveTab::Overview => state.confirm_rename(),
-                ActiveTab::Codex => {}
+                ActiveTab::Accounts => {}
             },
             Some(input::Action::CodexSessionPickerUp) => {
-                if state.codex_tab.session_picker_mode {
+                if state.accounts_tab.session_picker_mode {
                     state.session_picker_move_up();
                 }
             }
             Some(input::Action::CodexSessionPickerDown) => {
-                if state.codex_tab.session_picker_mode {
+                if state.accounts_tab.session_picker_mode {
                     state.session_picker_move_down();
                 }
             }
             Some(input::Action::CodexSessionPickerConfirm) => {
-                if state.codex_tab.session_picker_mode {
+                if state.accounts_tab.session_picker_mode {
                     state.confirm_session_picker();
                 }
             }
             Some(input::Action::CodexSessionPickerCancel) => {
-                if state.codex_tab.session_picker_mode {
+                if state.accounts_tab.session_picker_mode {
                     state.dismiss_session_picker();
                 }
             }
             Some(input::Action::CodexEditStart) => {
-                if state.active_tab() == ActiveTab::Codex {
+                if state.active_tab() == ActiveTab::Accounts {
                     state.start_codex_edit();
                 }
             }
             Some(input::Action::CodexEditChar(c)) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.codex_edit_push_char(c);
                 }
             }
             Some(input::Action::CodexEditBackspace) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.codex_edit_pop_char();
                 }
             }
             Some(input::Action::CodexEditToggleEnabled) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.codex_edit_toggle_enabled();
                 }
             }
             Some(input::Action::CodexEditNextField) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.codex_edit_next_field();
                 }
             }
             Some(input::Action::CodexEditPrevField) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.codex_edit_prev_field();
                 }
             }
             Some(input::Action::CodexEditConfirm) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     if let Err(e) = state.confirm_codex_edit() {
-                        state.codex_tab.status_message = Some(e.to_string());
+                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             }
             Some(input::Action::CodexEditCancel) => {
-                if state.codex_tab.edit_mode {
+                if state.accounts_tab.edit_mode {
                     state.dismiss_codex_edit();
                 }
             }
             Some(input::Action::CodexQuotaEditStart) => {
-                if state.active_tab() == ActiveTab::Codex {
+                if state.active_tab() == ActiveTab::Accounts {
                     state.start_codex_quota_edit();
                 }
             }
             Some(input::Action::CodexQuotaEditChar(c)) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     state.codex_quota_edit_push_char(c);
                 }
             }
             Some(input::Action::CodexQuotaEditBackspace) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     state.codex_quota_edit_pop_char();
                 }
             }
             Some(input::Action::CodexQuotaEditNextField) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     state.codex_quota_edit_next_field();
                 }
             }
             Some(input::Action::CodexQuotaEditPrevField) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     state.codex_quota_edit_prev_field();
                 }
             }
             Some(input::Action::CodexQuotaEditConfirm) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     if let Err(e) = state.confirm_codex_quota_edit() {
-                        state.codex_tab.status_message = Some(e.to_string());
+                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             }
             Some(input::Action::CodexQuotaEditCancel) => {
-                if state.codex_tab.quota_edit_mode {
+                if state.accounts_tab.quota_edit_mode {
                     state.dismiss_codex_quota_edit();
                 }
             }
             Some(input::Action::CodexRefreshQuota) => {
-                // Spawn async quota fetch in background - non-blocking
                 let Some(profile_id) = state.selected_codex_profile_id().map(|s| s.to_string()) else {
                     continue;
                 };
-                let profile_dir = state.config.codex_profiles_dir.join(&profile_id);
-                let auth_path = profile_dir.join("auth.json");
-                
+                let auth_path = state.config.codex_profiles_dir.join(&profile_id).join("auth.json");
                 if auth_path.exists() {
                     if let Ok(auth) = ProfileAuth::load(&auth_path) {
-                        state.codex_tab.quota_loading = true;
-                        
+                        state.accounts_tab.quota_loading = true;
+                        let tx = quota_tx.clone();
                         tokio::spawn(async move {
-                            let _result = fetch_quota_from_api(&auth).await;
-                            // Quota will be fetched - for now we just show it's loading
+                            // Always send — even None — so quota_loading is cleared
+                            // on API failure rather than staying stuck at true.
+                            let quota = fetch_quota_from_api(&auth).await;
+                            let _ = tx.send((profile_id, quota)).await;
                         });
                     }
                 }

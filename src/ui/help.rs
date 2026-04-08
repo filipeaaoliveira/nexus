@@ -73,7 +73,7 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
         lines.push(Line::from(Span::styled(
             match active_tab {
                 ActiveTab::Overview => "  Press Esc or ? to close",
-                ActiveTab::Codex => "  Press Esc or ? to close",
+                ActiveTab::Accounts => "  Press Esc or ? to close",
             },
             Style::default().fg(theme::FG_FADED),
         )));

@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::{self, Agent, NormalizedStatus};
+use crate::types::{self, Activity, Agent, NormalizedStatus};
 
 use super::{theme, RenderData};
 
@@ -35,8 +35,17 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
 fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
     let elapsed = types::format_duration(agent.elapsed());
     let subagent_count = agent.subagents.len();
+    // When the normalized state has no reason but the activity is ToolCall, show
+    // "· tool call" as a hint.  This covers the common race where a poll cycle
+    // picks up the tool_use entry and the tool_result in the same batch, so the
+    // NormalizedStateChanged event never carries Working(ToolCall).
     let status_text = match &agent.normalized.reason {
         Some(reason) => format!("{} · {}", agent.normalized.status.as_str(), reason.as_str()),
+        None if agent.normalized.status == NormalizedStatus::Working
+            && agent.activity == Some(Activity::ToolCall) =>
+        {
+            format!("{} · tool call", agent.normalized.status.as_str())
+        }
         None => agent.normalized.status.as_str().to_string(),
     };
 

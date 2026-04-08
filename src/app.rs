@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::cmp::Reverse;
 use std::collections::VecDeque;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::Local;
@@ -13,14 +13,10 @@ use crate::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
     ProfileMetadata,
 };
-use crate::codex_profiles::quota::{
-    fetch_quota_from_api_sync, load_quota_cache, parse_quota_from_sessions, save_quota_cache,
-    QuotaCache, QuotaSnapshot,
-};
+use crate::codex_profiles::quota::{load_quota_cache, save_quota_cache, QuotaCache, QuotaSnapshot};
 use crate::codex_profiles::runtime::{
-    get_codex_quota, launch_codex, require_codex_binary, RuntimePlan,
+    launch_codex, require_codex_binary, RuntimePlan,
 };
-use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::event::AgentEvent;
 use crate::types::*;
@@ -28,32 +24,92 @@ use crate::types::*;
 const MAX_RECENT_EVENTS: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    Codex,
+    Claude,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProviderFilter {
+    #[default]
+    All,
+    Codex,
+    Claude,
+}
+
+impl ProviderFilter {
+    pub fn next(self) -> Self {
+        match self {
+            Self::All => Self::Codex,
+            Self::Codex => Self::Claude,
+            Self::Claude => Self::All,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+}
+
+/// A profile entry in the unified account list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountEntry {
+    pub provider: Provider,
+    pub profile_id: String,
+}
+
+/// Build the unified list from codex + claude profile IDs, applying the filter.
+/// Codex profiles come first; both groups preserve their order.
+pub fn build_unified_list(
+    codex_ids: &[String],
+    claude_ids: &[String],
+    filter: ProviderFilter,
+) -> Vec<AccountEntry> {
+    let mut entries = Vec::new();
+    if filter != ProviderFilter::Claude {
+        for id in codex_ids {
+            entries.push(AccountEntry { provider: Provider::Codex, profile_id: id.clone() });
+        }
+    }
+    if filter != ProviderFilter::Codex {
+        for id in claude_ids {
+            entries.push(AccountEntry { provider: Provider::Claude, profile_id: id.clone() });
+        }
+    }
+    entries
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     Overview,
-    Codex,
+    Accounts,
 }
 
 impl ActiveTab {
-    pub const ALL: [Self; 2] = [Self::Overview, Self::Codex];
+    pub const ALL: [Self; 2] = [Self::Overview, Self::Accounts];
 
     pub fn next(self) -> Self {
         match self {
-            Self::Overview => Self::Codex,
-            Self::Codex => Self::Overview,
+            Self::Overview => Self::Accounts,
+            Self::Accounts => Self::Overview,
         }
     }
 
     pub fn previous(self) -> Self {
         match self {
-            Self::Overview => Self::Codex,
-            Self::Codex => Self::Overview,
+            Self::Overview => Self::Accounts,
+            Self::Accounts => Self::Overview,
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Overview => "Overview",
-            Self::Codex => "Codex",
+            Self::Accounts => "Accounts",
         }
     }
 }
@@ -67,10 +123,14 @@ pub enum EditField {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexTabState {
-    pub profile_ids: Vec<String>,
-    pub selected_profile_index: Option<usize>,
-    pub active_profile_id: Option<String>,
+pub struct AccountsTabState {
+    pub codex_profile_ids: Vec<String>,
+    pub selected_index: Option<usize>,
+    pub codex_active_profile_id: Option<String>,
+    pub claude_profile_ids: Vec<String>,
+    pub claude_active_profile_id: Option<String>,
+    pub claude_quota_cache: Option<QuotaCache>,
+    pub active_filter: ProviderFilter,
     pub filter_mode: bool,
     pub filter_input: String,
     pub status_message: Option<String>,
@@ -86,7 +146,7 @@ pub struct CodexTabState {
     pub edit_field: EditField,
     pub view_mode: bool,
     pub quota: Option<QuotaSnapshot>,
-    pub quota_cache: Option<QuotaCache>,
+    pub codex_quota_cache: Option<QuotaCache>,
     pub quota_edit_mode: bool,
     pub quota_five_hour: String,
     pub quota_weekly: String,
@@ -95,12 +155,16 @@ pub struct CodexTabState {
     pub pending_quota: Option<QuotaSnapshot>, // result from async fetch
 }
 
-impl Default for CodexTabState {
+impl Default for AccountsTabState {
     fn default() -> Self {
         Self {
-            profile_ids: Vec::new(),
-            selected_profile_index: None,
-            active_profile_id: None,
+            codex_profile_ids: Vec::new(),
+            selected_index: None,
+            codex_active_profile_id: None,
+            claude_profile_ids: Vec::new(),
+            claude_active_profile_id: None,
+            claude_quota_cache: None,
+            active_filter: ProviderFilter::All,
             filter_mode: false,
             filter_input: String::new(),
             status_message: None,
@@ -116,7 +180,7 @@ impl Default for CodexTabState {
             edit_field: EditField::Label,
             view_mode: false,
             quota: None,
-            quota_cache: None,
+            codex_quota_cache: None,
             quota_edit_mode: false,
             quota_five_hour: String::new(),
             quota_weekly: String::new(),
@@ -127,71 +191,85 @@ impl Default for CodexTabState {
     }
 }
 
-impl CodexTabState {
+impl AccountsTabState {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn next_profile(&mut self) {
-        let len = self.profile_ids.len();
+    pub fn next_profile(&mut self, codex_ids: &[String], claude_ids: &[String]) {
+        let list = build_unified_list(codex_ids, claude_ids, self.active_filter);
+        let len = list.len();
         if len == 0 {
-            self.selected_profile_index = None;
-            self.active_profile_id = None;
+            self.selected_index = None;
             self.quota = None;
             return;
         }
 
-        let new_index = match self.selected_profile_index {
-            Some(index) => (index + 1) % len,
+        let new_index = match self.selected_index {
+            Some(i) => (i + 1) % len,
             None => 0,
         };
-        self.selected_profile_index = Some(new_index);
-        self.active_profile_id = Some(self.profile_ids[new_index].clone());
-        self.load_quota_from_cache();
+        self.selected_index = Some(new_index);
+        self.load_quota_from_cache(codex_ids, claude_ids);
     }
 
-    pub fn previous_profile(&mut self) {
-        let len = self.profile_ids.len();
+    pub fn previous_profile(&mut self, codex_ids: &[String], claude_ids: &[String]) {
+        let list = build_unified_list(codex_ids, claude_ids, self.active_filter);
+        let len = list.len();
         if len == 0 {
-            self.selected_profile_index = None;
-            self.active_profile_id = None;
+            self.selected_index = None;
             self.quota = None;
             return;
         }
 
-        let new_index = match self.selected_profile_index {
-            Some(index) => (index + len - 1) % len,
+        let new_index = match self.selected_index {
+            Some(i) => (i + len - 1) % len,
             None => len - 1,
         };
-        self.selected_profile_index = Some(new_index);
-        self.active_profile_id = Some(self.profile_ids[new_index].clone());
-        self.load_quota_from_cache();
+        self.selected_index = Some(new_index);
+        self.load_quota_from_cache(codex_ids, claude_ids);
     }
 
     pub fn set_active(&mut self, profile_id: Option<String>) {
-        self.active_profile_id = profile_id;
+        self.codex_active_profile_id = profile_id;
     }
 
     /// Load quota from cache for currently selected profile
-    pub fn load_quota_from_cache(&mut self) {
-        if let Some(profile_id) = self
-            .selected_profile_index
-            .and_then(|i| self.profile_ids.get(i).cloned())
-        {
-            if let Some(ref cache) = self.quota_cache {
-                if let Some(quota) = cache.by_profile.get(&profile_id) {
-                    self.quota = Some(quota.clone());
-                }
-            }
-        }
+    pub fn load_quota_from_cache(&mut self, codex_ids: &[String], claude_ids: &[String]) {
+        let list = build_unified_list(codex_ids, claude_ids, self.active_filter);
+        let entry = self.selected_index.and_then(|i| list.get(i));
+        let Some(entry) = entry else {
+            self.quota = None;
+            return;
+        };
+        let quota = match entry.provider {
+            Provider::Codex => self
+                .codex_quota_cache
+                .as_ref()
+                .and_then(|c| c.by_profile.get(&entry.profile_id))
+                .cloned(),
+            Provider::Claude => self
+                .claude_quota_cache
+                .as_ref()
+                .and_then(|c| c.by_profile.get(&entry.profile_id))
+                .cloned(),
+        };
+        self.quota = quota;
     }
 
     /// Apply any pending quota result from async fetch
-    pub fn apply_pending_quota(&mut self, profile_id: &str, quota: QuotaSnapshot) {
+    pub fn apply_pending_quota(
+        &mut self,
+        profile_id: &str,
+        quota: QuotaSnapshot,
+        codex_ids: &[String],
+        claude_ids: &[String],
+    ) {
+        let list = build_unified_list(codex_ids, claude_ids, self.active_filter);
         let is_selected = self
-            .selected_profile_index
-            .and_then(|i| self.profile_ids.get(i))
-            .map(|id| id == profile_id)
+            .selected_index
+            .and_then(|i| list.get(i))
+            .map(|e| e.profile_id == profile_id)
             .unwrap_or(false);
 
         if is_selected {
@@ -202,10 +280,11 @@ impl CodexTabState {
     }
 
     /// Check if a profile is currently selected
-    pub fn is_profile_selected(&self, profile_id: &str) -> bool {
-        self.selected_profile_index
-            .and_then(|i| self.profile_ids.get(i))
-            .map(|id| id == profile_id)
+    pub fn is_profile_selected(&self, profile_id: &str, codex_ids: &[String], claude_ids: &[String]) -> bool {
+        let list = build_unified_list(codex_ids, claude_ids, self.active_filter);
+        self.selected_index
+            .and_then(|i| list.get(i))
+            .map(|e| e.profile_id == profile_id)
             .unwrap_or(false)
     }
 
@@ -267,7 +346,7 @@ struct SessionInfoUpdate {
 
 pub struct AppState {
     active_tab: ActiveTab,
-    pub codex_tab: CodexTabState,
+    pub accounts_tab: AccountsTabState,
     pub agents: Vec<Agent>,
     pub selected: Option<usize>,
     pub sort_mode: SortMode,
@@ -282,20 +361,21 @@ pub struct AppState {
     visible_agent_cache: RefCell<VisibleAgentCache>,
     agents_version: Cell<u64>,
     codex_profiles_last_reload: Cell<std::time::Instant>,
+    claude_profiles_last_reload: Cell<std::time::Instant>,
 }
 
 impl AppState {
     pub fn new(config: Config) -> Self {
-        let mut codex_tab = CodexTabState::default();
+        let mut accounts_tab = AccountsTabState::default();
 
         // Load cached quota from file
         if let Ok(cache) = load_quota_cache(&config.codex_quota_cache_file) {
-            codex_tab.quota_cache = Some(cache);
+            accounts_tab.codex_quota_cache = Some(cache);
         }
 
         let mut state = Self {
             active_tab: ActiveTab::Overview,
-            codex_tab,
+            accounts_tab,
             agents: Vec::new(),
             selected: None,
             sort_mode: SortMode::Name,
@@ -313,8 +393,12 @@ impl AppState {
             codex_profiles_last_reload: Cell::new(
                 std::time::Instant::now() - std::time::Duration::from_secs(10),
             ),
+            claude_profiles_last_reload: Cell::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(60),
+            ),
         };
         state.reload_codex_profiles();
+        state.reload_claude_profiles();
         state
     }
 
@@ -333,14 +417,14 @@ impl AppState {
     pub fn active_filter_mode(&self) -> bool {
         match self.active_tab {
             ActiveTab::Overview => self.filter_mode,
-            ActiveTab::Codex => self.codex_tab.filter_mode,
+            ActiveTab::Accounts => self.accounts_tab.filter_mode,
         }
     }
 
     pub fn active_rename_mode(&self) -> bool {
         match self.active_tab {
             ActiveTab::Overview => self.rename_mode,
-            ActiveTab::Codex => false,
+            ActiveTab::Accounts => false,
         }
     }
 
@@ -404,7 +488,7 @@ impl AppState {
             AgentEvent::CodexQuotaRefreshed { profile_id, quota } => {
                 if let Some(selected_id) = self.selected_codex_profile_id() {
                     if selected_id == profile_id {
-                        self.codex_tab.quota = quota;
+                        self.accounts_tab.quota = quota;
                     }
                 }
             }
@@ -453,11 +537,15 @@ impl AppState {
     }
 
     pub fn handle_codex_move_down(&mut self) {
-        self.codex_tab.next_profile();
+        let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+        let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+        self.accounts_tab.next_profile(&codex_ids, &claude_ids);
     }
 
     pub fn handle_codex_move_up(&mut self) {
-        self.codex_tab.previous_profile();
+        let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+        let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+        self.accounts_tab.previous_profile(&codex_ids, &claude_ids);
     }
 
     pub fn cycle_sort_mode(&mut self) {
@@ -480,8 +568,8 @@ impl AppState {
 
     pub fn dismiss_codex_overlay(&mut self) {
         self.show_help = false;
-        self.codex_tab.filter_mode = false;
-        self.codex_tab.filter_input.clear();
+        self.accounts_tab.filter_mode = false;
+        self.accounts_tab.filter_input.clear();
     }
 
     pub fn start_filter(&mut self) {
@@ -491,67 +579,67 @@ impl AppState {
     }
 
     pub fn start_codex_filter(&mut self) {
-        self.codex_tab.filter_mode = true;
-        self.codex_tab.filter_input.clear();
+        self.accounts_tab.filter_mode = true;
+        self.accounts_tab.filter_input.clear();
     }
 
     pub fn start_session_picker(&mut self) {
-        self.codex_tab.session_picker_mode = true;
-        self.codex_tab.session_picker_selected = self.codex_tab.selected_profile_index;
+        self.accounts_tab.session_picker_mode = true;
+        self.accounts_tab.session_picker_selected = self.accounts_tab.selected_index;
     }
 
     pub fn dismiss_session_picker(&mut self) {
-        self.codex_tab.session_picker_mode = false;
-        self.codex_tab.session_picker_selected = None;
-        self.codex_tab.session_picker_sessions = None;
+        self.accounts_tab.session_picker_mode = false;
+        self.accounts_tab.session_picker_selected = None;
+        self.accounts_tab.session_picker_sessions = None;
     }
 
     pub fn session_picker_move_up(&mut self) {
-        let is_profiles = self.codex_tab.session_picker_sessions.is_none();
+        let is_profiles = self.accounts_tab.session_picker_sessions.is_none();
         let items: &[String] = if is_profiles {
-            &self.codex_tab.profile_ids
+            &self.accounts_tab.codex_profile_ids
         } else {
-            self.codex_tab.session_picker_sessions.as_ref().unwrap()
+            self.accounts_tab.session_picker_sessions.as_ref().unwrap()
         };
 
         let len = items.len();
         if len == 0 {
-            self.codex_tab.session_picker_selected = None;
+            self.accounts_tab.session_picker_selected = None;
             return;
         }
-        let new_index = match self.codex_tab.session_picker_selected {
+        let new_index = match self.accounts_tab.session_picker_selected {
             Some(index) => (index + len - 1) % len,
             None => len - 1,
         };
-        self.codex_tab.session_picker_selected = Some(new_index);
+        self.accounts_tab.session_picker_selected = Some(new_index);
     }
 
     pub fn session_picker_move_down(&mut self) {
-        let is_profiles = self.codex_tab.session_picker_sessions.is_none();
+        let is_profiles = self.accounts_tab.session_picker_sessions.is_none();
         let items: &[String] = if is_profiles {
-            &self.codex_tab.profile_ids
+            &self.accounts_tab.codex_profile_ids
         } else {
-            self.codex_tab.session_picker_sessions.as_ref().unwrap()
+            self.accounts_tab.session_picker_sessions.as_ref().unwrap()
         };
 
         let len = items.len();
         if len == 0 {
-            self.codex_tab.session_picker_selected = None;
+            self.accounts_tab.session_picker_selected = None;
             return;
         }
-        let new_index = match self.codex_tab.session_picker_selected {
+        let new_index = match self.accounts_tab.session_picker_selected {
             Some(index) => (index + 1) % len,
             None => 0,
         };
-        self.codex_tab.session_picker_selected = Some(new_index);
+        self.accounts_tab.session_picker_selected = Some(new_index);
     }
 
     pub fn confirm_session_picker(&mut self) {
-        if let Some(index) = self.codex_tab.session_picker_selected {
-            if self.codex_tab.session_picker_sessions.is_some() {
+        if let Some(index) = self.accounts_tab.session_picker_selected {
+            if self.accounts_tab.session_picker_sessions.is_some() {
                 // Confirming session resume - extract session_id first
                 let session_id = self
-                    .codex_tab
+                    .accounts_tab
                     .session_picker_sessions
                     .as_ref()
                     .and_then(|sessions| sessions.get(index).map(|s| s.to_string()));
@@ -563,11 +651,13 @@ impl AppState {
                 }
             } else {
                 // Confirming profile selection
-                self.codex_tab.selected_profile_index = Some(index);
-                self.codex_tab.active_profile_id = self.codex_tab.profile_ids.get(index).cloned();
-                self.codex_tab.view_mode = true;
+                self.accounts_tab.selected_index = Some(index);
+                self.accounts_tab.codex_active_profile_id = self.accounts_tab.codex_profile_ids.get(index).cloned();
+                self.accounts_tab.view_mode = true;
                 self.dismiss_session_picker();
-                self.codex_tab.load_quota_from_cache();
+                let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+                let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+                self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
             }
         } else {
             self.dismiss_session_picker();
@@ -637,13 +727,13 @@ impl AppState {
     pub fn start_session_picker_for_resume(&mut self) {
         let sessions = self.get_repo_sessions();
         if sessions.is_empty() {
-            self.codex_tab.status_message = Some("No sessions found in current repo".to_string());
+            self.accounts_tab.status_message = Some("No sessions found in current repo".to_string());
             return;
         }
 
-        self.codex_tab.session_picker_mode = true;
-        self.codex_tab.session_picker_sessions = Some(sessions);
-        self.codex_tab.session_picker_selected = None;
+        self.accounts_tab.session_picker_mode = true;
+        self.accounts_tab.session_picker_sessions = Some(sessions);
+        self.accounts_tab.session_picker_selected = None;
     }
 
     pub fn start_codex_edit(&mut self) {
@@ -665,7 +755,7 @@ impl AppState {
         }
 
         if let Ok(metadata) = load_profile_metadata(&profile_dir) {
-            self.codex_tab.start_edit(
+            self.accounts_tab.start_edit(
                 metadata.label.as_deref().unwrap_or(&profile_id),
                 edit_email.as_deref(),
                 edit_plan.as_deref(),
@@ -674,7 +764,7 @@ impl AppState {
             );
             return;
         }
-        self.codex_tab.start_edit(
+        self.accounts_tab.start_edit(
             &profile_id,
             edit_email.as_deref(),
             edit_plan.as_deref(),
@@ -684,7 +774,7 @@ impl AppState {
     }
 
     pub fn confirm_codex_edit(&mut self) -> Result<()> {
-        if !self.codex_tab.edit_mode {
+        if !self.accounts_tab.edit_mode {
             return Ok(());
         }
         let profile_id = match self.selected_codex_profile_id() {
@@ -695,22 +785,22 @@ impl AppState {
 
         let metadata = ProfileMetadata {
             id: profile_id.clone(),
-            label: Some(self.codex_tab.edit_label.clone()),
+            label: Some(self.accounts_tab.edit_label.clone()),
             email: None,
             plan: None,
-            notes: if self.codex_tab.edit_notes.is_empty() {
+            notes: if self.accounts_tab.edit_notes.is_empty() {
                 None
             } else {
-                Some(self.codex_tab.edit_notes.clone())
+                Some(self.accounts_tab.edit_notes.clone())
             },
-            enabled: self.codex_tab.edit_enabled,
+            enabled: self.accounts_tab.edit_enabled,
             created_at: None,
             updated_at: Some(Utc::now()),
         };
 
         save_profile_metadata(&profile_dir, &metadata)?;
-        self.codex_tab.edit_mode = false;
-        self.codex_tab.status_message = Some(format!("Saved profile {}", profile_id));
+        self.accounts_tab.edit_mode = false;
+        self.accounts_tab.status_message = Some(format!("Saved profile {}", profile_id));
         Ok(())
     }
 
@@ -725,145 +815,23 @@ impl AppState {
             fs::remove_dir_all(&profile_dir)?;
         }
 
-        if let Some(active) = &self.codex_tab.active_profile_id {
+        if let Some(active) = &self.accounts_tab.codex_active_profile_id {
             if active == &profile_id {
-                self.codex_tab.active_profile_id = None;
+                self.accounts_tab.codex_active_profile_id = None;
             }
         }
 
-        self.codex_tab.profile_ids.retain(|id| id != &profile_id);
-        self.codex_tab.selected_profile_index = None;
-        self.codex_tab.view_mode = false;
-        self.codex_tab.status_message = Some(format!("Deleted profile {}", profile_id));
+        self.accounts_tab.codex_profile_ids.retain(|id| id != &profile_id);
+        self.accounts_tab.selected_index = None;
+        self.accounts_tab.view_mode = false;
+        self.accounts_tab.status_message = Some(format!("Deleted profile {}", profile_id));
         Ok(())
     }
 
     pub fn cancel_codex_edit(&mut self) {
-        self.codex_tab.cancel_edit();
+        self.accounts_tab.cancel_edit();
     }
 
-    pub fn refresh_codex_quota(&mut self) {
-        let profile_id = match self.selected_codex_profile_id() {
-            Some(id) => id.to_string(),
-            None => {
-                self.codex_tab.quota = None;
-                return;
-            }
-        };
-
-        tracing::debug!("refreshing quota for profile: {}", profile_id);
-
-        // First try API for the selected profile
-        let profile_auth_path = self
-            .config
-            .codex_profiles_dir
-            .join(&profile_id)
-            .join("auth.json");
-
-        let api_quota = if profile_auth_path.exists() {
-            match ProfileAuth::load(&profile_auth_path) {
-                Ok(auth) => fetch_quota_from_api_sync(&auth),
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
-
-        // If API succeeded, use it
-        let quota = api_quota.or_else(|| {
-            // Fall back to sessions-based parse
-            let sessions_dir = &self.config.codex_sessions_dir;
-            parse_quota_from_sessions(sessions_dir).or_else(|| {
-                // Fall back to CLI-based parse
-                let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-                let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
-                let repo_dir = self.config.codex_repos_dir.join("current-repo");
-                let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
-
-                let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())
-                    .map_err(|e| {
-                        tracing::debug!("codex binary not found: {}", e);
-                    })
-                    .ok()?;
-
-                match get_codex_quota(&codex_bin, &runtime) {
-                    Ok(Some(q)) => Some(q),
-                    Ok(None) => {
-                        tracing::debug!("no quota returned from codex status");
-                        None
-                    }
-                    Err(e) => {
-                        tracing::debug!("failed to get codex quota: {}", e);
-                        None
-                    }
-                }
-            })
-        });
-
-        if let Some(quota) = quota {
-            let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
-            cache.by_profile.insert(profile_id.clone(), quota.clone());
-            if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
-                tracing::warn!("failed to save quota cache: {}", e);
-            } else {
-                self.codex_tab.quota_cache = Some(cache);
-            }
-            self.codex_tab.quota = Some(quota);
-        } else {
-            self.codex_tab.quota = None;
-        }
-    }
-
-    pub fn refresh_all_codex_quotas(&mut self) {
-        let profile_ids = self.codex_tab.profile_ids.clone();
-        let mut all_refreshed: Vec<(String, QuotaSnapshot)> = Vec::new();
-
-        for profile_id in &profile_ids {
-            // Try API for each profile
-            let profile_auth_path = self
-                .config
-                .codex_profiles_dir
-                .join(profile_id)
-                .join("auth.json");
-
-            let api_quota = if profile_auth_path.exists() {
-                match ProfileAuth::load(&profile_auth_path) {
-                    Ok(auth) => fetch_quota_from_api_sync(&auth),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            };
-
-            if let Some(quota) = api_quota {
-                all_refreshed.push((profile_id.clone(), quota));
-            } else {
-                // Fall back to sessions for this profile
-                let sessions_dir = &self.config.codex_sessions_dir;
-                if let Some(snap) = parse_quota_from_sessions(sessions_dir) {
-                    all_refreshed.push((profile_id.clone(), snap));
-                }
-            }
-        }
-
-        // Update cache with all refreshed quotas
-        let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
-        for (profile_id, quota) in all_refreshed {
-            cache.by_profile.insert(profile_id, quota);
-        }
-        if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
-            tracing::warn!("failed to save quota cache: {}", e);
-        } else {
-            self.codex_tab.quota_cache = Some(cache);
-        }
-
-        // If there's a selected profile, update its current quota display
-        if let Some(selected_id) = self.selected_codex_profile_id() {
-            if let Some(ref cache) = self.codex_tab.quota_cache {
-                self.codex_tab.quota = cache.by_profile.get(selected_id).cloned();
-            }
-        }
-    }
 
     pub fn start_codex_quota_edit(&mut self) {
         let _profile_id = match self.selected_codex_profile_id() {
@@ -872,27 +840,27 @@ impl AppState {
         };
 
         // Initialize with current quota values or defaults
-        if let Some(ref quota) = self.codex_tab.quota {
-            self.codex_tab.quota_five_hour = match quota.five_hour_state {
+        if let Some(ref quota) = self.accounts_tab.quota {
+            self.accounts_tab.quota_five_hour = match quota.five_hour_state {
                 crate::codex_profiles::quota::LimitState::Hit => "HIT".to_string(),
                 crate::codex_profiles::quota::LimitState::Available => "ok".to_string(),
                 crate::codex_profiles::quota::LimitState::Unknown => "?".to_string(),
             };
-            self.codex_tab.quota_weekly = match quota.weekly_state {
+            self.accounts_tab.quota_weekly = match quota.weekly_state {
                 crate::codex_profiles::quota::LimitState::Hit => "HIT".to_string(),
                 crate::codex_profiles::quota::LimitState::Available => "ok".to_string(),
                 crate::codex_profiles::quota::LimitState::Unknown => "?".to_string(),
             };
         } else {
-            self.codex_tab.quota_five_hour = "ok".to_string();
-            self.codex_tab.quota_weekly = "ok".to_string();
+            self.accounts_tab.quota_five_hour = "ok".to_string();
+            self.accounts_tab.quota_weekly = "ok".to_string();
         }
-        self.codex_tab.quota_edit_mode = true;
+        self.accounts_tab.quota_edit_mode = true;
     }
 
     pub fn dismiss_codex_quota_edit(&mut self) {
-        self.codex_tab.quota_edit_mode = false;
-        self.codex_tab.quota_edit_field_weekly = false;
+        self.accounts_tab.quota_edit_mode = false;
+        self.accounts_tab.quota_edit_field_weekly = false;
     }
 
     pub fn codex_quota_edit_push_char(&mut self, _c: char) {
@@ -903,17 +871,17 @@ impl AppState {
     fn cycle_quota_edit_field(&mut self) {
         fn cycle(val: &str) -> &'static str {
             match val.to_uppercase().as_str() {
-                "OK" | "ok" => "HIT",
+                "OK" => "HIT",
                 "HIT" => "?",
                 _ => "ok",
             }
         }
-        if self.codex_tab.quota_edit_field_weekly {
-            let next = cycle(&self.codex_tab.quota_weekly).to_string();
-            self.codex_tab.quota_weekly = next;
+        if self.accounts_tab.quota_edit_field_weekly {
+            let next = cycle(&self.accounts_tab.quota_weekly).to_string();
+            self.accounts_tab.quota_weekly = next;
         } else {
-            let next = cycle(&self.codex_tab.quota_five_hour).to_string();
-            self.codex_tab.quota_five_hour = next;
+            let next = cycle(&self.accounts_tab.quota_five_hour).to_string();
+            self.accounts_tab.quota_five_hour = next;
         }
     }
 
@@ -923,11 +891,11 @@ impl AppState {
     }
 
     pub fn codex_quota_edit_next_field(&mut self) {
-        self.codex_tab.quota_edit_field_weekly = !self.codex_tab.quota_edit_field_weekly;
+        self.accounts_tab.quota_edit_field_weekly = !self.accounts_tab.quota_edit_field_weekly;
     }
 
     pub fn codex_quota_edit_prev_field(&mut self) {
-        self.codex_tab.quota_edit_field_weekly = !self.codex_tab.quota_edit_field_weekly;
+        self.accounts_tab.quota_edit_field_weekly = !self.accounts_tab.quota_edit_field_weekly;
     }
 
     pub fn confirm_codex_quota_edit(&mut self) -> Result<()> {
@@ -937,13 +905,13 @@ impl AppState {
         };
 
         // Parse the input strings to create a QuotaSnapshot
-        let five_hour_state = match self.codex_tab.quota_five_hour.to_uppercase().as_str() {
+        let five_hour_state = match self.accounts_tab.quota_five_hour.to_uppercase().as_str() {
             "HIT" => crate::codex_profiles::quota::LimitState::Hit,
             "?" => crate::codex_profiles::quota::LimitState::Unknown,
             _ => crate::codex_profiles::quota::LimitState::Available,
         };
 
-        let weekly_state = match self.codex_tab.quota_weekly.to_uppercase().as_str() {
+        let weekly_state = match self.accounts_tab.quota_weekly.to_uppercase().as_str() {
             "HIT" => crate::codex_profiles::quota::LimitState::Hit,
             "?" => crate::codex_profiles::quota::LimitState::Unknown,
             _ => crate::codex_profiles::quota::LimitState::Available,
@@ -964,54 +932,54 @@ impl AppState {
         };
 
         // Save to cache
-        let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
+        let mut cache = self.accounts_tab.codex_quota_cache.take().unwrap_or_default();
         cache.by_profile.insert(profile_id.clone(), quota.clone());
         if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
             tracing::warn!("failed to save quota cache: {}", e);
         } else {
-            self.codex_tab.quota_cache = Some(cache);
+            self.accounts_tab.codex_quota_cache = Some(cache);
         }
 
-        self.codex_tab.quota = Some(quota);
-        self.codex_tab.quota_edit_mode = false;
-        self.codex_tab.status_message = Some(format!("Saved quota for {}", profile_id));
+        self.accounts_tab.quota = Some(quota);
+        self.accounts_tab.quota_edit_mode = false;
+        self.accounts_tab.status_message = Some(format!("Saved quota for {}", profile_id));
         Ok(())
     }
 
     pub fn codex_edit_push_char(&mut self, c: char) {
-        match self.codex_tab.edit_field {
-            EditField::Label => self.codex_tab.edit_label.push(c),
-            EditField::Notes => self.codex_tab.edit_notes.push(c),
+        match self.accounts_tab.edit_field {
+            EditField::Label => self.accounts_tab.edit_label.push(c),
+            EditField::Notes => self.accounts_tab.edit_notes.push(c),
             EditField::Enabled => {}
         }
     }
 
     pub fn codex_edit_pop_char(&mut self) {
-        match self.codex_tab.edit_field {
+        match self.accounts_tab.edit_field {
             EditField::Label => {
-                self.codex_tab.edit_label.pop();
+                self.accounts_tab.edit_label.pop();
             }
             EditField::Notes => {
-                self.codex_tab.edit_notes.pop();
+                self.accounts_tab.edit_notes.pop();
             }
             EditField::Enabled => {}
         }
     }
 
     pub fn codex_edit_toggle_enabled(&mut self) {
-        self.codex_tab.edit_enabled = !self.codex_tab.edit_enabled;
+        self.accounts_tab.edit_enabled = !self.accounts_tab.edit_enabled;
     }
 
     pub fn codex_edit_next_field(&mut self) {
-        self.codex_tab.edit_field = EditField::Notes;
+        self.accounts_tab.edit_field = EditField::Notes;
     }
 
     pub fn codex_edit_prev_field(&mut self) {
-        self.codex_tab.edit_field = EditField::Label;
+        self.accounts_tab.edit_field = EditField::Label;
     }
 
     pub fn dismiss_codex_edit(&mut self) {
-        self.codex_tab.cancel_edit();
+        self.accounts_tab.cancel_edit();
     }
 
     pub fn filter_push_char(&mut self, c: char) {
@@ -1020,7 +988,7 @@ impl AppState {
     }
 
     pub fn codex_filter_push_char(&mut self, c: char) {
-        self.codex_tab.filter_input.push(c);
+        self.accounts_tab.filter_input.push(c);
     }
 
     pub fn filter_pop_char(&mut self) {
@@ -1029,7 +997,7 @@ impl AppState {
     }
 
     pub fn codex_filter_pop_char(&mut self) {
-        self.codex_tab.filter_input.pop();
+        self.accounts_tab.filter_input.pop();
     }
 
     fn sync_filter(&mut self) {
@@ -1048,7 +1016,7 @@ impl AppState {
     }
 
     pub fn confirm_codex_filter(&mut self) {
-        self.codex_tab.filter_mode = false;
+        self.accounts_tab.filter_mode = false;
     }
 
     pub fn import_codex_auth(&mut self) -> Result<()> {
@@ -1065,7 +1033,7 @@ impl AppState {
             )
         })?;
 
-        let next_index = self.codex_tab.profile_ids.len() + 1;
+        let next_index = self.accounts_tab.codex_profile_ids.len() + 1;
         let profile_id = format!("profile-{next_index:02}");
         let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
         let profile = CodexProfile::import_from_auth(
@@ -1089,8 +1057,97 @@ impl AppState {
 
         self.reload_codex_profiles();
         self.select_codex_profile_id(&profile.id);
-        self.codex_tab.status_message = Some(format!("Imported {}", profile.id));
+        self.accounts_tab.status_message = Some(format!("Imported {}", profile.id));
         Ok(())
+    }
+
+    pub fn import_claude_auth(&mut self) -> anyhow::Result<()> {
+        use crate::claude_profiles::profile::{
+            ClaudeProfile, ClaudeProfileMetadata, save_claude_profile_metadata,
+        };
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+        let creds_file = home.join(".claude").join(".credentials.json");
+
+        let creds_source = if creds_file.is_file() {
+            creds_file
+        } else {
+            let output = std::process::Command::new("security")
+                .args(["find-generic-password", "-l", "Claude Code-credentials", "-w"])
+                .output()
+                .context("failed to run security CLI")?;
+            if !output.status.success() {
+                anyhow::bail!("No Claude credentials found. Run `claude` once to log in first.");
+            }
+            let json_str = String::from_utf8(output.stdout)
+                .context("keychain output is not valid UTF-8")?
+                .trim()
+                .to_string();
+            let tmp_path = std::env::temp_dir().join("nexus-claude-creds.json");
+            std::fs::write(&tmp_path, json_str)?;
+            tmp_path
+        };
+
+        std::fs::create_dir_all(&self.config.claude_profiles_dir).with_context(|| {
+            format!("failed to create {}", self.config.claude_profiles_dir.display())
+        })?;
+
+        let next_index = self.accounts_tab.claude_profile_ids.len() + 1;
+        let profile_id = format!("profile-{next_index:02}");
+        let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
+        let profile = ClaudeProfile::import_from_credentials(
+            &profile_id,
+            &profile_id,
+            profile_dir.clone(),
+            &creds_source,
+        )?;
+
+        let metadata = ClaudeProfileMetadata {
+            id: profile.id.clone(),
+            label: Some(profile.label.clone()),
+            email: profile.email.clone(),
+            plan: profile.plan.clone(),
+            notes: profile.notes.clone(),
+            enabled: profile.enabled,
+            created_at: Some(profile.created_at),
+            updated_at: Some(profile.updated_at),
+        };
+        save_claude_profile_metadata(&profile.profile_dir, &metadata)?;
+
+        self.reload_claude_profiles();
+        self.accounts_tab.status_message = Some(format!("Imported Claude {}", profile.id));
+        Ok(())
+    }
+
+    pub fn write_active_claude_profile_to_home(&mut self) -> anyhow::Result<()> {
+        let profile_id = self
+            .accounts_tab
+            .claude_active_profile_id
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no active Claude profile"))?;
+        let source = self
+            .config
+            .claude_profiles_dir
+            .join(&profile_id)
+            .join(".credentials.json");
+        if !source.is_file() {
+            anyhow::bail!("profile .credentials.json not found at {}", source.display());
+        }
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+        let target = home.join(".claude").join(".credentials.json");
+        std::fs::copy(&source, &target)?;
+        self.accounts_tab.status_message = Some(format!(
+            "Wrote {} to ~/.claude/.credentials.json",
+            profile_id
+        ));
+        Ok(())
+    }
+
+    pub fn cycle_accounts_filter(&mut self) {
+        self.accounts_tab.active_filter = self.accounts_tab.active_filter.next();
+        self.clamp_accounts_selection();
+        let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+        let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+        self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
     }
 
     pub fn launch_selected_codex_profile(&mut self) -> Result<()> {
@@ -1112,7 +1169,7 @@ impl AppState {
             working_dir.as_path(),
         )?;
 
-        self.codex_tab.status_message = Some(if status.success() {
+        self.accounts_tab.status_message = Some(if status.success() {
             format!("Codex exited successfully for {profile_id}")
         } else {
             format!("Codex exited with status {status} for {profile_id}")
@@ -1124,7 +1181,7 @@ impl AppState {
         let profile_id = match self.selected_codex_profile_id() {
             Some(id) => id.to_string(),
             None => {
-                self.codex_tab.status_message = Some("No profile selected".to_string());
+                self.accounts_tab.status_message = Some("No profile selected".to_string());
                 return;
             }
         };
@@ -1135,7 +1192,7 @@ impl AppState {
         let working_dir = match std::env::current_dir() {
             Ok(d) => d,
             Err(e) => {
-                self.codex_tab.status_message = Some(format!("failed to resolve cwd: {}", e));
+                self.accounts_tab.status_message = Some(format!("failed to resolve cwd: {}", e));
                 return;
             }
         };
@@ -1145,7 +1202,7 @@ impl AppState {
         let codex_bin = match require_codex_binary(self.config.codex_binary.as_deref()) {
             Ok(b) => b,
             Err(e) => {
-                self.codex_tab.status_message = Some(format!("failed to find codex: {}", e));
+                self.accounts_tab.status_message = Some(format!("failed to find codex: {}", e));
                 return;
             }
         };
@@ -1159,14 +1216,14 @@ impl AppState {
         // The caller should handle this
         match result {
             Ok(status) => {
-                self.codex_tab.status_message = Some(if status.success() {
+                self.accounts_tab.status_message = Some(if status.success() {
                     format!("Resumed session {} with {}", session_id, profile_id)
                 } else {
                     format!("Session exited with status {} for {}", status, profile_id)
                 });
             }
             Err(e) => {
-                self.codex_tab.status_message = Some(format!("Failed to resume: {}", e));
+                self.accounts_tab.status_message = Some(format!("Failed to resume: {}", e));
             }
         }
     }
@@ -1182,8 +1239,7 @@ impl AppState {
         let selected_profile_id = self.selected_codex_profile_id().map(ToOwned::to_owned);
         let profiles_dir = self.config.codex_profiles_dir.clone();
 
-        // Run directory scan in spawn_blocking to avoid blocking
-        let profile_ids = std::thread::spawn(move || {
+        let profile_ids = tokio::task::block_in_place(|| {
             let mut ids = Vec::new();
             if let Ok(entries) = fs::read_dir(&profiles_dir) {
                 for entry in entries.flatten() {
@@ -1197,62 +1253,145 @@ impl AppState {
             }
             ids.sort();
             ids
-        })
-        .join()
-        .unwrap_or_default();
+        });
 
-        self.codex_tab.profile_ids = profile_ids;
+        self.accounts_tab.codex_profile_ids = profile_ids;
 
         // After setting profile IDs, select and load quota from cache
         if let Some(profile_id) = selected_profile_id.as_deref() {
             self.select_codex_profile_id(profile_id);
         } else {
-            self.clamp_codex_selection();
+            self.clamp_accounts_selection();
             // Try to load quota from cache for selected profile
-            self.load_quota_from_cache();
+            let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+            let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+            self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
         }
+    }
+
+    pub fn reload_claude_profiles(&mut self) {
+        if self.claude_profiles_last_reload.get().elapsed() < std::time::Duration::from_secs(5) {
+            return;
+        }
+        self.claude_profiles_last_reload.set(std::time::Instant::now());
+
+        let profiles_dir = self.config.claude_profiles_dir.clone();
+        let mut ids = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() && path.join(".credentials.json").is_file() {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        ids.push(name.to_string());
+                    }
+                }
+            }
+        }
+        ids.sort();
+
+        self.accounts_tab.claude_profile_ids = ids;
+        self.clamp_accounts_selection();
+        let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+        let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+        self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
     }
 
     /// Load quota from cache for currently selected profile
     pub fn load_quota_from_cache(&mut self) {
-        if let Some(profile_id) = self.selected_codex_profile_id() {
-            if let Some(ref cache) = self.codex_tab.quota_cache {
-                if let Some(quota) = cache.by_profile.get(profile_id) {
-                    self.codex_tab.quota = Some(quota.clone());
-                }
-            }
-        }
+        let codex_ids = self.accounts_tab.codex_profile_ids.clone();
+        let claude_ids = self.accounts_tab.claude_profile_ids.clone();
+        self.accounts_tab.load_quota_from_cache(&codex_ids, &claude_ids);
     }
 
     pub fn selected_codex_profile_id(&self) -> Option<&str> {
-        let index = self.codex_tab.selected_profile_index?;
-        self.codex_tab.profile_ids.get(index).map(String::as_str)
+        let list = build_unified_list(
+            &self.accounts_tab.codex_profile_ids,
+            &self.accounts_tab.claude_profile_ids,
+            self.accounts_tab.active_filter,
+        );
+        let idx = self.accounts_tab.selected_index?;
+        let entry = list.get(idx)?;
+        if entry.provider == Provider::Codex {
+            // SAFETY: profile_id comes from codex_profile_ids which is borrowed from self
+            let pos = self.accounts_tab.codex_profile_ids.iter().position(|s| s == &entry.profile_id)?;
+            Some(self.accounts_tab.codex_profile_ids[pos].as_str())
+        } else {
+            None
+        }
     }
 
-    pub fn update_quota_for_profile(&mut self, profile_id: &str, quota: QuotaSnapshot) {
-        // Update cache
-        let mut cache = self.codex_tab.quota_cache.take().unwrap_or_default();
-        cache
-            .by_profile
-            .insert(profile_id.to_string(), quota.clone());
-        if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
-            tracing::warn!("failed to save quota cache: {}", e);
+    pub fn selected_claude_profile_id(&self) -> Option<&str> {
+        let list = build_unified_list(
+            &self.accounts_tab.codex_profile_ids,
+            &self.accounts_tab.claude_profile_ids,
+            self.accounts_tab.active_filter,
+        );
+        let idx = self.accounts_tab.selected_index?;
+        let entry = list.get(idx)?;
+        if entry.provider == Provider::Claude {
+            let pos = self.accounts_tab.claude_profile_ids.iter().position(|s| s == &entry.profile_id)?;
+            Some(self.accounts_tab.claude_profile_ids[pos].as_str())
         } else {
-            self.codex_tab.quota_cache = Some(cache);
+            None
         }
+    }
 
-        // Update current display if this is the selected profile
+    pub fn selected_account(&self) -> Option<(Provider, &str)> {
+        let list = build_unified_list(
+            &self.accounts_tab.codex_profile_ids,
+            &self.accounts_tab.claude_profile_ids,
+            self.accounts_tab.active_filter,
+        );
+        let idx = self.accounts_tab.selected_index?;
+        let entry = list.get(idx)?;
+        let provider = entry.provider;
+        let profile_id_ref = match provider {
+            Provider::Codex => {
+                let pos = self.accounts_tab.codex_profile_ids.iter().position(|s| s == &entry.profile_id)?;
+                self.accounts_tab.codex_profile_ids[pos].as_str()
+            }
+            Provider::Claude => {
+                let pos = self.accounts_tab.claude_profile_ids.iter().position(|s| s == &entry.profile_id)?;
+                self.accounts_tab.claude_profile_ids[pos].as_str()
+            }
+        };
+        Some((provider, profile_id_ref))
+    }
+
+    pub fn update_codex_quota_for_profile(&mut self, profile_id: &str, quota: QuotaSnapshot) {
+        self.accounts_tab.quota_loading = false;
+        let mut cache = self.accounts_tab.codex_quota_cache.take().unwrap_or_default();
+        cache.by_profile.insert(profile_id.to_string(), quota.clone());
+        if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
+            tracing::warn!("failed to save codex quota cache: {}", e);
+        } else {
+            self.accounts_tab.codex_quota_cache = Some(cache);
+        }
         if self.selected_codex_profile_id() == Some(profile_id) {
-            self.codex_tab.quota = Some(quota);
+            self.accounts_tab.quota = Some(quota);
+        }
+    }
+
+    pub fn update_claude_quota_for_profile(&mut self, profile_id: &str, quota: QuotaSnapshot) {
+        self.accounts_tab.quota_loading = false;
+        let mut cache = self.accounts_tab.claude_quota_cache.take().unwrap_or_default();
+        cache.by_profile.insert(profile_id.to_string(), quota.clone());
+        if let Err(e) = save_quota_cache(&cache, &self.config.claude_quota_cache_file) {
+            tracing::warn!("failed to save claude quota cache: {}", e);
+        } else {
+            self.accounts_tab.claude_quota_cache = Some(cache);
+        }
+        if self.selected_claude_profile_id() == Some(profile_id) {
+            self.accounts_tab.quota = Some(quota);
         }
     }
 
     pub fn set_active_codex_profile(&mut self, profile_id: Option<String>) {
-        self.codex_tab.set_active(profile_id);
+        self.accounts_tab.set_active(profile_id);
     }
 
     pub fn active_codex_profile_id(&self) -> Option<&str> {
-        self.codex_tab.active_profile_id.as_deref()
+        self.accounts_tab.codex_active_profile_id.as_deref()
     }
 
     pub fn write_active_profile_to_codex_home(&mut self) -> Result<()> {
@@ -1274,7 +1413,7 @@ impl AppState {
         fs::create_dir_all(&target_codex)?;
         fs::copy(&source_auth, &target_auth)?;
 
-        self.codex_tab.status_message =
+        self.accounts_tab.status_message =
             Some(format!("Wrote {} to ~/.codex/auth.json", active_profile_id));
         Ok(())
     }
@@ -1321,7 +1460,7 @@ impl AppState {
             }
         }
 
-        self.codex_tab.status_message = Some(format!(
+        self.accounts_tab.status_message = Some(format!(
             "Restarted {} session(s) with {}",
             restarted, active_profile_id
         ));
@@ -1329,20 +1468,27 @@ impl AppState {
     }
 
     fn select_codex_profile_id(&mut self, profile_id: &str) {
-        self.codex_tab.selected_profile_index = self
-            .codex_tab
-            .profile_ids
+        let list = build_unified_list(
+            &self.accounts_tab.codex_profile_ids,
+            &self.accounts_tab.claude_profile_ids,
+            self.accounts_tab.active_filter,
+        );
+        self.accounts_tab.selected_index = list
             .iter()
-            .position(|candidate| candidate == profile_id);
-        self.clamp_codex_selection();
-        // Quota will be loaded via background fetcher and cached in memory
+            .position(|e| e.provider == Provider::Codex && e.profile_id == profile_id);
+        self.clamp_accounts_selection();
     }
 
-    fn clamp_codex_selection(&mut self) {
-        let len = self.codex_tab.profile_ids.len();
-        self.codex_tab.selected_profile_index = match (self.codex_tab.selected_profile_index, len) {
+    fn clamp_accounts_selection(&mut self) {
+        let list = build_unified_list(
+            &self.accounts_tab.codex_profile_ids,
+            &self.accounts_tab.claude_profile_ids,
+            self.accounts_tab.active_filter,
+        );
+        let len = list.len();
+        self.accounts_tab.selected_index = match (self.accounts_tab.selected_index, len) {
             (_, 0) => None,
-            (Some(index), len) if index < len => Some(index),
+            (Some(i), len) if i < len => Some(i),
             _ => Some(0),
         };
     }
@@ -1471,7 +1617,7 @@ impl AppState {
         &self,
         tool: AgentTool,
         pid: u32,
-        cwd: &PathBuf,
+        cwd: &Path,
     ) -> Vec<usize> {
         self.agents
             .iter()
@@ -1481,7 +1627,7 @@ impl AppState {
                     && a.id.is_session()
                     && a.pid == Some(pid)
                     && a.status != PrimaryStatus::Exited
-                    && (a.cwd.as_os_str().is_empty() || a.cwd == *cwd)
+                    && (a.cwd.as_os_str().is_empty() || a.cwd == cwd)
             })
             .map(|(idx, _)| idx)
             .collect()
@@ -1772,6 +1918,35 @@ impl AppState {
         pid: Option<u32>,
         now: chrono::DateTime<chrono::Local>,
     ) {
+        // Claude and OpenCode agents are always process-type; remove them immediately
+        // so they leave the dashboard when the session closes.
+        if (id.tool() == AgentTool::Claude || id.tool() == AgentTool::OpenCode)
+            && id.is_process()
+        {
+            let pid = pid.or_else(|| id.pid());
+            if let Some(idx) = self.agents.iter().position(|a| a.id == id) {
+                self.agents.remove(idx);
+                self.mark_agents_dirty();
+                self.clamp_selection();
+                return;
+            }
+            if let Some(pid) = pid {
+                let indices: Vec<usize> = self
+                    .agents
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, a)| a.id.tool() == id.tool() && a.pid == Some(pid))
+                    .map(|(idx, _)| idx)
+                    .collect();
+                for idx in indices.into_iter().rev() {
+                    self.agents.remove(idx);
+                }
+                self.mark_agents_dirty();
+                self.clamp_selection();
+            }
+            return;
+        }
+
         if id.tool() == AgentTool::Codex && id.is_process() {
             let pid = pid.or_else(|| id.pid());
 
@@ -2081,11 +2256,7 @@ impl AppState {
         started_at: Option<chrono::DateTime<chrono::Local>>,
         now: chrono::DateTime<chrono::Local>,
     ) {
-        if agent.id.tool() == AgentTool::Codex && agent.id.is_session() {
-            agent.pid = pid;
-        } else {
-            agent.pid = pid.or(agent.pid);
-        }
+        agent.pid = pid.or(agent.pid);
         if !session_id.is_empty() {
             agent.session_id = Some(session_id);
         }

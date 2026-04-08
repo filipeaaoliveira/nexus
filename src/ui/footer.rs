@@ -36,11 +36,11 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
-    if state.codex_tab.filter_mode {
+    if state.accounts_tab.filter_mode {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
             Span::styled(
-                &state.codex_tab.filter_input,
+                &state.accounts_tab.filter_input,
                 theme::bar_style().fg(theme::FG_DEFAULT),
             ),
             Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
@@ -68,7 +68,7 @@ pub fn shortcut_text(state: &AppState) -> String {
 fn shortcut_line(state: &AppState) -> Line<'static> {
     match state.active_tab() {
         crate::app::ActiveTab::Overview => overview_shortcut_line(state),
-        crate::app::ActiveTab::Codex => codex_shortcut_line(),
+        crate::app::ActiveTab::Accounts => codex_shortcut_line(),
     }
 }
 

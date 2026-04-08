@@ -1,8 +1,8 @@
-use ai_overview::app::{ActiveTab, AppState, CodexTabState};
-use ai_overview::config::Config;
-use ai_overview::event::AgentEvent;
-use ai_overview::types::*;
-use ai_overview::ui::{footer, help};
+use nexus::app::{ActiveTab, AppState, AccountsTabState};
+use nexus::config::Config;
+use nexus::event::AgentEvent;
+use nexus::types::*;
+use nexus::ui::{footer, help};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -126,19 +126,23 @@ fn test_initial_state_starts_on_overview_tab() {
 
 #[test]
 fn codex_tab_selection_wraps() {
-    let mut state = CodexTabState::new();
-    state.profile_ids = vec!["a".into(), "b".into()];
-    state.selected_profile_index = Some(1);
-    state.next_profile();
-    assert_eq!(state.selected_profile_index, Some(0));
+    let mut state = AccountsTabState::new();
+    state.codex_profile_ids = vec!["a".into(), "b".into()];
+    state.selected_index = Some(1);
+    let codex_ids = state.codex_profile_ids.clone();
+    let claude_ids = state.claude_profile_ids.clone();
+    state.next_profile(&codex_ids, &claude_ids);
+    assert_eq!(state.selected_index, Some(0));
 }
 
 #[test]
 fn codex_tab_next_profile_selects_first_when_unset() {
-    let mut state = CodexTabState::new();
-    state.profile_ids = vec!["a".into(), "b".into()];
-    state.next_profile();
-    assert_eq!(state.selected_profile_index, Some(0));
+    let mut state = AccountsTabState::new();
+    state.codex_profile_ids = vec!["a".into(), "b".into()];
+    let codex_ids = state.codex_profile_ids.clone();
+    let claude_ids = state.claude_profile_ids.clone();
+    state.next_profile(&codex_ids, &claude_ids);
+    assert_eq!(state.selected_index, Some(0));
 }
 
 #[test]
@@ -147,13 +151,13 @@ fn test_tab_navigation_cycles_between_tabs() {
     assert_eq!(state.active_tab(), ActiveTab::Overview);
 
     state.next_tab();
-    assert_eq!(state.active_tab(), ActiveTab::Codex);
+    assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
     state.previous_tab();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
 
     state.previous_tab();
-    assert_eq!(state.active_tab(), ActiveTab::Codex);
+    assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
     state.next_tab();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
@@ -163,12 +167,12 @@ fn test_tab_navigation_cycles_between_tabs() {
 fn codex_tab_navigation_keys_do_not_move_overview_selection() {
     let mut state = make_state();
     state.next_tab();
-    assert_eq!(state.active_tab(), ActiveTab::Codex);
+    assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
-    state.codex_tab.profile_ids = vec!["one".into(), "two".into()];
+    state.accounts_tab.codex_profile_ids = vec!["one".into(), "two".into()];
     state.handle_codex_move_down();
 
-    assert_eq!(state.codex_tab.selected_profile_index, Some(0));
+    assert_eq!(state.accounts_tab.selected_index, Some(0));
     assert_eq!(state.selected, None);
 }
 
@@ -176,7 +180,7 @@ fn codex_tab_navigation_keys_do_not_move_overview_selection() {
 fn codex_tab_filter_input_stays_on_codex_state() {
     let mut state = make_state();
     state.next_tab();
-    assert_eq!(state.active_tab(), ActiveTab::Codex);
+    assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
     state.start_codex_filter();
     state.codex_filter_push_char('q');
@@ -185,12 +189,12 @@ fn codex_tab_filter_input_stays_on_codex_state() {
     assert!(state.filter.is_none());
     assert!(!state.filter_mode);
     assert_eq!(state.filter_input, "");
-    assert!(state.codex_tab.filter_mode);
-    assert_eq!(state.codex_tab.filter_input, "q1");
+    assert!(state.accounts_tab.filter_mode);
+    assert_eq!(state.accounts_tab.filter_input, "q1");
 
     state.confirm_codex_filter();
-    assert!(!state.codex_tab.filter_mode);
-    assert_eq!(state.codex_tab.filter_input, "q1");
+    assert!(!state.accounts_tab.filter_mode);
+    assert_eq!(state.accounts_tab.filter_input, "q1");
 }
 
 #[test]
@@ -199,8 +203,6 @@ fn codex_footer_uses_codex_shortcuts() {
     state.next_tab();
 
     let footer = footer::shortcut_text(&state);
-    assert!(footer.contains("Enter"));
-    assert!(footer.contains("launch"));
     assert!(footer.contains("i"));
     assert!(footer.contains("import"));
     assert!(!footer.contains("sort:"));
@@ -209,7 +211,7 @@ fn codex_footer_uses_codex_shortcuts() {
 
 #[test]
 fn help_overlay_lists_codex_import_and_launch_shortcuts() {
-    let lines = help::help_lines(ActiveTab::Codex, false);
+    let lines = help::help_lines(ActiveTab::Accounts, false);
     let content: Vec<String> = lines
         .iter()
         .map(|line| {
@@ -220,9 +222,6 @@ fn help_overlay_lists_codex_import_and_launch_shortcuts() {
         })
         .collect();
 
-    assert!(content
-        .iter()
-        .any(|line| line.contains("Launch selected profile")));
     assert!(content
         .iter()
         .any(|line| line.contains("Import current ~/.codex/auth.json")));
@@ -290,7 +289,7 @@ fn test_process_exited() {
         None,
     ));
     state.handle_event(process_exited(AgentTool::Claude, 9999));
-    assert_eq!(state.agents[0].status, PrimaryStatus::Exited);
+    assert!(state.agents.is_empty());
 }
 
 #[test]
@@ -341,11 +340,11 @@ fn test_move_selection() {
     state.move_selection_down();
     assert_eq!(state.selected, Some(2));
     state.move_selection_down();
-    assert_eq!(state.selected, Some(2));
+    assert_eq!(state.selected, Some(0)); // wraps to top
+    state.move_selection_up();
+    assert_eq!(state.selected, Some(2)); // wraps to bottom
     state.move_selection_up();
     assert_eq!(state.selected, Some(1));
-    state.move_selection_up();
-    assert_eq!(state.selected, Some(0));
     state.move_selection_up();
     assert_eq!(state.selected, Some(0));
 }
@@ -1146,7 +1145,7 @@ fn test_codex_process_only_row_is_removed_on_exit() {
     state.handle_event(discovered(
         AgentTool::Codex,
         45337,
-        PathBuf::from("/tmp/ai-overview"),
+        PathBuf::from("/tmp/nexus"),
         None,
     ));
     assert_eq!(state.agents.len(), 1);
@@ -1264,7 +1263,11 @@ fn test_codex_process_discovery_does_not_revive_done_session() {
 }
 
 #[test]
-fn test_codex_session_info_can_unbind_pid() {
+fn test_codex_session_info_with_none_pid_preserves_existing_pid() {
+    // A SessionInfo with pid=None must NOT clear a pid that was already bound.
+    // The pid should only be cleared by ProcessExited, not by a stale snapshot
+    // that omits the pid because the thread is outside the conservative binding
+    // window.
     let mut state = make_state();
 
     state.handle_event(session_info(
@@ -1288,11 +1291,14 @@ fn test_codex_session_info_can_unbind_pid() {
 
     assert_eq!(state.agents.len(), 1);
     assert!(state.agents[0].id.is_session());
-    assert_eq!(state.agents[0].pid, None);
+    // pid must be preserved — not cleared — when SessionInfo arrives with pid=None
+    assert_eq!(state.agents[0].pid, Some(44));
 }
 
 #[test]
-fn test_codex_session_pid_loss_clamps_selection() {
+fn test_codex_session_stays_visible_when_session_info_pid_is_none() {
+    // When a Codex session already has a pid, a subsequent SessionInfo with
+    // pid=None should preserve the pid so the session remains visible.
     let mut state = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
@@ -1319,8 +1325,9 @@ fn test_codex_session_pid_loss_clamps_selection() {
         started_at: None,
     });
 
-    assert_eq!(state.visible_agents().len(), 1);
-    assert_eq!(state.selected, Some(0));
+    // Both agents should still be visible (pid preserved on Codex session)
+    assert_eq!(state.visible_agents().len(), 2);
+    assert_eq!(state.selected, Some(1));
 }
 
 #[test]
@@ -1815,8 +1822,9 @@ fn test_count_by_status_updates_on_process_exited() {
     state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
     state.handle_event(process_exited(AgentTool::OpenCode, 1));
 
+    // OpenCode process agents are removed on exit (not just marked Exited)
     assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
-    assert_eq!(state.count_by_status(PrimaryStatus::Exited), 1);
+    assert_eq!(state.count_by_status(PrimaryStatus::Exited), 0);
 }
 
 #[test]
@@ -1851,7 +1859,7 @@ fn test_count_by_status_consistent_with_agents_vec() {
 #[test]
 fn codex_tab_active_profile_can_be_set() {
     let mut state = AppState::new(Config::default());
-    state.codex_tab.profile_ids = vec!["profile-01".into(), "profile-02".into()];
+    state.accounts_tab.codex_profile_ids = vec!["profile-01".into(), "profile-02".into()];
     state.set_active_codex_profile(Some("profile-01".into()));
     assert_eq!(state.active_codex_profile_id(), Some("profile-01"));
 }

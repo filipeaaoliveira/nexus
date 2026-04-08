@@ -37,8 +37,15 @@ impl ClaudeAuth {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)
-            .with_context(|| format!("failed to write {}", path.display()))
+        std::fs::write(path, &content)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+        }
+        Ok(())
     }
 
     pub fn access_token(&self) -> Option<&str> {

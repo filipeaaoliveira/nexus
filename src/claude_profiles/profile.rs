@@ -80,6 +80,12 @@ impl ClaudeProfile {
                 auth_path.display()
             )
         })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600))
+                .with_context(|| format!("failed to set permissions on {}", auth_path.display()))?;
+        }
 
         let now = Utc::now();
         let plan = auth.subscription_type().map(str::to_string);

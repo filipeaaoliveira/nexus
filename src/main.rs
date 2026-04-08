@@ -312,17 +312,8 @@ async fn run_loop(
             }
             Some(input::Action::AccountsImportAuth) => {
                 if state.active_tab() == ActiveTab::Accounts {
-                    match state.selected_account() {
-                        Some((nexus::app::Provider::Claude, _)) => {
-                            if let Err(e) = state.import_claude_auth() {
-                                state.accounts_tab.status_message = Some(e.to_string());
-                            }
-                        }
-                        Some((nexus::app::Provider::Codex, _)) | None => {
-                            if let Err(e) = state.import_codex_auth() {
-                                state.accounts_tab.status_message = Some(e.to_string());
-                            }
-                        }
+                    if let Err(e) = state.import_codex_auth() {
+                        state.accounts_tab.status_message = Some(e.to_string());
                     }
                 }
             }
@@ -495,7 +486,13 @@ async fn run_loop(
                     }
                 }
             }
-            Some(input::Action::AccountsImportClaudeAuth) => {}
+            Some(input::Action::AccountsImportClaudeAuth) => {
+                if state.active_tab() == ActiveTab::Accounts {
+                    if let Err(e) = state.import_claude_auth() {
+                        state.accounts_tab.status_message = Some(e.to_string());
+                    }
+                }
+            }
             Some(input::Action::Tick) | None => {}
         }
     }

@@ -4,7 +4,7 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "ai-overview",
+    name = "nexus",
     about = "Read-only terminal dashboard for monitoring AI coding agents"
 )]
 pub struct Cli {
@@ -34,6 +34,9 @@ pub struct Config {
     pub codex_sessions_dir: PathBuf,
     pub codex_quota_cache_file: PathBuf,
     pub opencode_data_dir: PathBuf,
+    pub claude_management_dir: PathBuf,
+    pub claude_profiles_dir: PathBuf,
+    pub claude_quota_cache_file: PathBuf,
 }
 
 impl Default for Config {
@@ -42,12 +45,13 @@ impl Default for Config {
         let data_dir = dirs::data_dir().unwrap_or_else(|| home.join(".local/share"));
         let cache_dir = dirs::cache_dir().unwrap_or_else(|| home.join(".cache"));
         let codex_data_dir = home.join(".codex");
-        let codex_management_dir = data_dir.join("ai-overview").join("codex");
+        let codex_management_dir = data_dir.join("nexus").join("codex");
+        let claude_management_dir = data_dir.join("nexus").join("claude");
         let opencode_data_dir = home.join(".local/share/opencode");
         Self {
             poll_interval_secs: 5,
             worktree_scan_interval_secs: 10,
-            log_file: cache_dir.join("ai-overview").join("ai-overview.log"),
+            log_file: cache_dir.join("nexus").join("nexus.log"),
             opencode_api_url: None,
             claude_data_dir: home.join(".claude"),
             codex_data_dir: codex_data_dir.clone(),
@@ -60,19 +64,20 @@ impl Default for Config {
             codex_sessions_dir: codex_data_dir.join("sessions"),
             codex_quota_cache_file: codex_management_dir.join("quota-cache.json"),
             opencode_data_dir,
+            claude_management_dir: claude_management_dir.clone(),
+            claude_profiles_dir: claude_management_dir.join("profiles"),
+            claude_quota_cache_file: claude_management_dir.join("quota-cache.json"),
         }
     }
 }
 
 impl Config {
     pub fn from_cli(cli: &Cli) -> Self {
+        let defaults = Config::default();
         Config {
             poll_interval_secs: cli.poll_interval,
-            log_file: cli
-                .log_file
-                .clone()
-                .unwrap_or_else(|| Config::default().log_file),
-            ..Config::default()
+            log_file: cli.log_file.clone().unwrap_or(defaults.log_file),
+            ..defaults
         }
     }
 }
@@ -85,9 +90,17 @@ mod tests {
 
     #[test]
     fn test_from_cli_uses_explicit_log_file() {
-        let cli = Cli::parse_from(["ai-overview", "--log-file", "/tmp/custom.log"]);
+        let cli = Cli::parse_from(["nexus", "--log-file", "/tmp/custom.log"]);
         let config = Config::from_cli(&cli);
         assert_eq!(config.log_file, PathBuf::from("/tmp/custom.log"));
+    }
+
+    #[test]
+    fn test_claude_profiles_dir_under_nexus() {
+        let config = Config::default();
+        let s = config.claude_profiles_dir.to_string_lossy();
+        assert!(s.contains("nexus"), "claude_profiles_dir must be under nexus data dir");
+        assert!(s.ends_with("profiles"), "claude_profiles_dir must end with profiles");
     }
 
     #[test]
@@ -95,8 +108,8 @@ mod tests {
         let config = Config::default();
         assert_eq!(
             config.log_file.file_name().and_then(|name| name.to_str()),
-            Some("ai-overview.log")
+            Some("nexus.log")
         );
-        assert!(config.log_file.to_string_lossy().contains("ai-overview"));
+        assert!(config.log_file.to_string_lossy().contains("nexus"));
     }
 }

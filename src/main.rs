@@ -6,6 +6,8 @@ use nexus::event::AgentEvent;
 use nexus::input;
 use nexus::codex_profiles::quota::fetch_quota_from_api;
 use nexus::codex_profiles::ProfileAuth;
+use nexus::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed};
+use nexus::claude_profiles::auth::ClaudeAuth;
 use clap::Parser;
 use futures::future::join_all;
 use std::io::{stdout, IsTerminal};
@@ -119,17 +121,17 @@ async fn run_loop(
     // Channel for async quota fetch results. Carries Option so a None result
     // (API failure) can still clear the quota_loading flag on the UI.
     let (quota_tx, mut quota_rx) = tokio::sync::mpsc::channel::<(String, Option<nexus::codex_profiles::quota::QuotaSnapshot>)>(10);
-    
+
     // Spawn background quota fetcher
     let config = state.config.clone();
     let profiles_dir = config.codex_profiles_dir.clone();
-    
+
     let bg_quota_tx = quota_tx.clone();
     tokio::spawn(async move {
         let quota_tx = bg_quota_tx;
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-            
+
             // Get list of profiles
             let profiles: Vec<String> = match std::fs::read_dir(&profiles_dir) {
                 Ok(entries) => entries
@@ -139,7 +141,7 @@ async fn run_loop(
                     .collect(),
                 Err(_) => continue,
             };
-            
+
             // Fetch all quotas in parallel using join_all
             let fetch_futures: Vec<_> = profiles.iter()
                 .filter_map(|profile_id| {
@@ -152,9 +154,9 @@ async fn run_loop(
                     Some(async move { (pid, fetch_quota_from_api(&auth).await) })
                 })
                 .collect();
-            
+
             let results = join_all(fetch_futures).await;
-            
+
             for (profile_id, quota) in results {
                 if quota.is_some() {
                     let _ = quota_tx.send((profile_id, quota)).await;
@@ -162,7 +164,52 @@ async fn run_loop(
             }
         }
     });
-    
+
+    let (claude_quota_tx, mut claude_quota_rx) =
+        tokio::sync::mpsc::channel::<(String, Option<nexus::codex_profiles::quota::QuotaSnapshot>)>(10);
+
+    let claude_profiles_dir = config.claude_profiles_dir.clone();
+    let bg_claude_tx = claude_quota_tx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+
+            let profiles: Vec<String> = match std::fs::read_dir(&claude_profiles_dir) {
+                Ok(entries) => entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .collect(),
+                Err(_) => continue,
+            };
+
+            let fetch_futures: Vec<_> = profiles
+                .iter()
+                .filter_map(|profile_id| {
+                    let creds_path = claude_profiles_dir.join(profile_id).join(".credentials.json");
+                    if !creds_path.exists() {
+                        return None;
+                    }
+                    let auth = ClaudeAuth::load(&creds_path).ok()?;
+                    let pid = profile_id.clone();
+                    Some(async move {
+                        let refreshed = refresh_token_if_needed(auth).await;
+                        let _ = refreshed.save(&creds_path);
+                        let quota = fetch_claude_quota(&refreshed).await;
+                        (pid, quota)
+                    })
+                })
+                .collect();
+
+            let results = join_all(fetch_futures).await;
+            for (profile_id, quota) in results {
+                if quota.is_some() {
+                    let _ = bg_claude_tx.send((profile_id, quota)).await;
+                }
+            }
+        }
+    });
+
     loop {
         // Drain all pending events
         while let Ok(event) = rx.try_recv() {
@@ -174,6 +221,14 @@ async fn run_loop(
         while let Ok((profile_id, quota)) = quota_rx.try_recv() {
             if let Some(quota) = quota {
                 state.update_codex_quota_for_profile(&profile_id, quota);
+            } else {
+                state.accounts_tab.quota_loading = false;
+            }
+        }
+
+        while let Ok((profile_id, quota)) = claude_quota_rx.try_recv() {
+            if let Some(quota) = quota {
+                state.update_claude_quota_for_profile(&profile_id, quota);
             } else {
                 state.accounts_tab.quota_loading = false;
             }
@@ -246,15 +301,33 @@ async fn run_loop(
             }
             Some(input::Action::AccountsImportAuth) => {
                 if state.active_tab() == ActiveTab::Accounts {
-                    if let Err(error) = state.import_codex_auth() {
-                        state.accounts_tab.status_message = Some(error.to_string());
+                    match state.selected_account() {
+                        Some((nexus::app::Provider::Claude, _)) => {
+                            if let Err(e) = state.import_claude_auth() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
+                        Some((nexus::app::Provider::Codex, _)) | None => {
+                            if let Err(e) = state.import_codex_auth() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
                     }
                 }
             }
             Some(input::Action::AccountsWriteToHome) => {
                 if state.active_tab() == ActiveTab::Accounts {
-                    if let Err(e) = state.write_active_profile_to_codex_home() {
-                        state.accounts_tab.status_message = Some(e.to_string());
+                    match state.selected_account() {
+                        Some((nexus::app::Provider::Claude, _)) => {
+                            if let Err(e) = state.write_active_claude_profile_to_home() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
+                        Some((nexus::app::Provider::Codex, _)) | None => {
+                            if let Err(e) = state.write_active_profile_to_codex_home() {
+                                state.accounts_tab.status_message = Some(e.to_string());
+                            }
+                        }
                     }
                 }
             }
@@ -373,20 +446,39 @@ async fn run_loop(
                 }
             }
             Some(input::Action::AccountsRefreshQuota) => {
-                let Some(profile_id) = state.selected_codex_profile_id().map(|s| s.to_string()) else {
-                    continue;
-                };
-                let auth_path = state.config.codex_profiles_dir.join(&profile_id).join("auth.json");
-                if auth_path.exists() {
-                    if let Ok(auth) = ProfileAuth::load(&auth_path) {
-                        state.accounts_tab.quota_loading = true;
-                        let tx = quota_tx.clone();
-                        tokio::spawn(async move {
-                            // Always send — even None — so quota_loading is cleared
-                            // on API failure rather than staying stuck at true.
-                            let quota = fetch_quota_from_api(&auth).await;
-                            let _ = tx.send((profile_id, quota)).await;
-                        });
+                if state.active_tab() == ActiveTab::Accounts {
+                    match state.selected_account() {
+                        Some((nexus::app::Provider::Claude, profile_id)) => {
+                            let profile_id = profile_id.to_string();
+                            let creds_path = state.config.claude_profiles_dir.join(&profile_id).join(".credentials.json");
+                            if creds_path.exists() {
+                                if let Ok(auth) = ClaudeAuth::load(&creds_path) {
+                                    state.accounts_tab.quota_loading = true;
+                                    let tx = claude_quota_tx.clone();
+                                    tokio::spawn(async move {
+                                        let refreshed = refresh_token_if_needed(auth).await;
+                                        let _ = refreshed.save(&creds_path);
+                                        let quota = fetch_claude_quota(&refreshed).await;
+                                        let _ = tx.send((profile_id, quota)).await;
+                                    });
+                                }
+                            }
+                        }
+                        Some((nexus::app::Provider::Codex, profile_id)) => {
+                            let profile_id = profile_id.to_string();
+                            let auth_path = state.config.codex_profiles_dir.join(&profile_id).join("auth.json");
+                            if auth_path.exists() {
+                                if let Ok(auth) = ProfileAuth::load(&auth_path) {
+                                    state.accounts_tab.quota_loading = true;
+                                    let tx = quota_tx.clone();
+                                    tokio::spawn(async move {
+                                        let quota = fetch_quota_from_api(&auth).await;
+                                        let _ = tx.send((profile_id, quota)).await;
+                                    });
+                                }
+                            }
+                        }
+                        None => {}
                     }
                 }
             }

@@ -495,6 +495,7 @@ async fn run_loop(
                     }
                 }
             }
+            Some(input::Action::AccountsImportClaudeAuth) => {}
             Some(input::Action::Tick) | None => {}
         }
     }

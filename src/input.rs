@@ -44,6 +44,7 @@ pub enum Action {
     CodexQuotaEditCancel,
     AccountsFilterCycle,
     AccountsImportAuth,
+    AccountsImportClaudeAuth,
     AccountsWriteToHome,
     AccountsRefreshQuota,
 }
@@ -151,6 +152,7 @@ fn action_for_key(
         KeyCode::Char('D') => Some(Action::RemoveExited),
         KeyCode::Char('r') => Some(Action::StartRename),
         KeyCode::Char('i') => Some(Action::AccountsImportAuth),
+        KeyCode::Char('I') => Some(Action::AccountsImportClaudeAuth),
         KeyCode::Char('w') => Some(Action::AccountsWriteToHome),
         KeyCode::Char('e') => Some(Action::CodexEditStart),
         KeyCode::Char('Q') => Some(Action::CodexQuotaEditStart),
@@ -190,6 +192,21 @@ mod tests {
                 false
             ),
             Some(Action::CodexLaunchSelected)
+        );
+    }
+
+    #[test]
+    fn test_uppercase_i_maps_to_import_claude_auth() {
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                false,
+                false
+            ),
+            Some(Action::AccountsImportClaudeAuth)
         );
     }
 

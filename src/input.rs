@@ -45,6 +45,10 @@ pub enum Action {
     CodexQuotaEditConfirm,
     CodexQuotaEditCancel,
     CodexRefreshQuota,
+    AccountsFilterCycle,
+    AccountsImportAuth,
+    AccountsWriteToHome,
+    AccountsRefreshQuota,
 }
 
 pub fn poll_action(
@@ -149,11 +153,12 @@ fn action_for_key(
         KeyCode::Char('d') => Some(Action::RemoveAgent),
         KeyCode::Char('D') => Some(Action::RemoveExited),
         KeyCode::Char('r') => Some(Action::StartRename),
-        KeyCode::Char('i') => Some(Action::CodexImportAuth),
-        KeyCode::Char('w') => Some(Action::CodexWriteToHome),
+        KeyCode::Char('i') => Some(Action::AccountsImportAuth),
+        KeyCode::Char('w') => Some(Action::AccountsWriteToHome),
         KeyCode::Char('e') => Some(Action::CodexEditStart),
         KeyCode::Char('Q') => Some(Action::CodexQuotaEditStart),
-        KeyCode::Char('R') => Some(Action::CodexRefreshQuota),
+        KeyCode::Char('R') => Some(Action::AccountsRefreshQuota),
+        KeyCode::Char('f') => Some(Action::AccountsFilterCycle),
         KeyCode::Enter => Some(Action::CodexLaunchSelected),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,
@@ -176,7 +181,7 @@ mod tests {
                 false,
                 false
             ),
-            Some(Action::CodexImportAuth)
+            Some(Action::AccountsImportAuth)
         );
         assert_eq!(
             action_for_key(

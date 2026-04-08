@@ -495,6 +495,13 @@ impl AppState {
                     }
                 }
             }
+            AgentEvent::ClaudeQuotaRefreshed { profile_id, quota } => {
+                if let Some(selected_id) = self.selected_claude_profile_id() {
+                    if selected_id == profile_id {
+                        self.accounts_tab.quota = quota;
+                    }
+                }
+            }
         }
     }
 

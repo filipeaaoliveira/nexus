@@ -239,14 +239,19 @@ async fn run_loop(
                 ActiveTab::Overview => state.start_rename(),
                 ActiveTab::Accounts => {}
             },
-            Some(input::Action::CodexImportAuth) => {
+            Some(input::Action::AccountsFilterCycle) => {
+                if state.active_tab() == ActiveTab::Accounts {
+                    state.cycle_accounts_filter();
+                }
+            }
+            Some(input::Action::AccountsImportAuth) => {
                 if state.active_tab() == ActiveTab::Accounts {
                     if let Err(error) = state.import_codex_auth() {
                         state.accounts_tab.status_message = Some(error.to_string());
                     }
                 }
             }
-            Some(input::Action::CodexWriteToHome) => {
+            Some(input::Action::AccountsWriteToHome) => {
                 if state.active_tab() == ActiveTab::Accounts {
                     if let Err(e) = state.write_active_profile_to_codex_home() {
                         state.accounts_tab.status_message = Some(e.to_string());
@@ -367,7 +372,7 @@ async fn run_loop(
                     state.dismiss_codex_quota_edit();
                 }
             }
-            Some(input::Action::CodexRefreshQuota) => {
+            Some(input::Action::AccountsRefreshQuota) => {
                 let Some(profile_id) = state.selected_codex_profile_id().map(|s| s.to_string()) else {
                     continue;
                 };
@@ -384,6 +389,11 @@ async fn run_loop(
                         });
                     }
                 }
+            }
+            Some(input::Action::CodexImportAuth)
+            | Some(input::Action::CodexWriteToHome)
+            | Some(input::Action::CodexRefreshQuota) => {
+                // Superseded by Accounts* variants; key bindings no longer emit these
             }
             Some(input::Action::Tick) | None => {}
         }

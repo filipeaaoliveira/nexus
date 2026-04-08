@@ -70,4 +70,8 @@ pub enum AgentEvent {
         profile_id: String,
         quota: Option<crate::codex_profiles::quota::QuotaSnapshot>,
     },
+    ClaudeQuotaRefreshed {
+        profile_id: String,
+        quota: Option<crate::codex_profiles::quota::QuotaSnapshot>,
+    },
 }

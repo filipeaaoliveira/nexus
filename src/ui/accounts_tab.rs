@@ -452,7 +452,7 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
             None,
         ));
         let captured_local = chrono::DateTime::<chrono::Local>::from(quota.captured_at);
-        let captured_str = format!("  at {}", captured_local.format("%H:%M"));
+        let captured_str = format!(" at {}", captured_local.format("%H:%M"));
         lines.push(quota_row(
             "  quota (7d):  ",
             quota.weekly_used_pct.map(|p| 100 - p),
@@ -778,7 +778,7 @@ mod tests {
             Some(75),
             &LimitState::Available,
             None,
-            Some("  at 18:47".to_string()),
+            Some(" at 18:47".to_string()),
         );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("75%"), "percentage must appear in the line");

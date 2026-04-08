@@ -364,6 +364,27 @@ pub struct AppState {
     claude_profiles_last_reload: Cell<std::time::Instant>,
 }
 
+/// Returns the next available "profile-NN" ID by scanning the profiles directory
+/// on disk. Ensures no collision even after profiles are deleted.
+fn next_profile_id(profiles_dir: &std::path::Path) -> String {
+    let used: std::collections::BTreeSet<u32> = std::fs::read_dir(profiles_dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .strip_prefix("profile-")
+                        .and_then(|s| s.parse::<u32>().ok())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let next = (1u32..).find(|n| !used.contains(n)).unwrap_or(1);
+    format!("profile-{next:02}")
+}
+
 impl AppState {
     pub fn new(config: Config) -> Self {
         let mut accounts_tab = AccountsTabState::default();
@@ -1088,8 +1109,7 @@ impl AppState {
             )
         })?;
 
-        let next_index = self.accounts_tab.codex_profile_ids.len() + 1;
-        let profile_id = format!("profile-{next_index:02}");
+        let profile_id = next_profile_id(&self.config.codex_profiles_dir);
         let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
         let profile = CodexProfile::import_from_auth(
             &profile_id,
@@ -1146,8 +1166,7 @@ impl AppState {
             format!("failed to create {}", self.config.claude_profiles_dir.display())
         })?;
 
-        let next_index = self.accounts_tab.claude_profile_ids.len() + 1;
-        let profile_id = format!("profile-{next_index:02}");
+        let profile_id = next_profile_id(&self.config.claude_profiles_dir);
         let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
         let profile = ClaudeProfile::import_from_credentials(
             &profile_id,
@@ -2381,6 +2400,36 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_next_profile_id_empty_dir() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert_eq!(next_profile_id(tmp.path()), "profile-01");
+    }
+
+    #[test]
+    fn test_next_profile_id_fills_gap() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("profile-01")).unwrap();
+        std::fs::create_dir(tmp.path().join("profile-03")).unwrap();
+        // Gap at 02
+        assert_eq!(next_profile_id(tmp.path()), "profile-02");
+    }
+
+    #[test]
+    fn test_next_profile_id_sequential() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("profile-01")).unwrap();
+        std::fs::create_dir(tmp.path().join("profile-02")).unwrap();
+        assert_eq!(next_profile_id(tmp.path()), "profile-03");
+    }
+
+    #[test]
+    fn test_next_profile_id_nonexistent_dir() {
+        let path = std::path::PathBuf::from("/tmp/nexus-test-nonexistent-dir-xyz");
+        // read_dir fails → default to profile-01
+        assert_eq!(next_profile_id(&path), "profile-01");
+    }
 
     fn discovered(tool: AgentTool, pid: u32, cwd: &str) -> AgentEvent {
         AgentEvent::Discovered {

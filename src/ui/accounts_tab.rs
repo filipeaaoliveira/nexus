@@ -256,6 +256,60 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
+/// Build one quota row line. Uses a progress bar when `pct` is available,
+/// otherwise falls back to a text label. If `suffix` is provided it is
+/// appended as a final styled span (used to attach the "as of HH:MM" caption).
+pub(crate) fn quota_row(
+    label: &'static str,
+    pct: Option<u8>,
+    limit_state: &crate::codex_profiles::quota::LimitState,
+    reset_at: Option<chrono::DateTime<chrono::Utc>>,
+    suffix: Option<String>,
+) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = if let Some(pct) = pct {
+        let (bar, bar_color) = quota_bar_spans(pct, 20);
+        let mut s = vec![
+            Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(bar, Style::default().fg(bar_color)),
+            Span::styled(format!(" {}%", pct), Style::default().fg(theme::FG_DEFAULT)),
+        ];
+        if let Some(reset) = reset_at {
+            s.push(Span::styled(
+                format!("  resets in {}", format_reset_duration(reset)),
+                Style::default().fg(theme::FG_COMMENT),
+            ));
+        }
+        s
+    } else {
+        let text_label = match limit_state {
+            crate::codex_profiles::quota::LimitState::Hit => "HIT",
+            crate::codex_profiles::quota::LimitState::Available => "ok",
+            crate::codex_profiles::quota::LimitState::Unknown => "?",
+        };
+        let text_color = match limit_state {
+            crate::codex_profiles::quota::LimitState::Hit => theme::STATUS_ERROR,
+            crate::codex_profiles::quota::LimitState::Available => theme::STATUS_RUNNING,
+            crate::codex_profiles::quota::LimitState::Unknown => theme::FG_COMMENT,
+        };
+        let mut s = vec![
+            Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(text_label, Style::default().fg(text_color)),
+        ];
+        if let Some(reset) = reset_at {
+            let reset_local = chrono::DateTime::<chrono::Local>::from(reset);
+            s.push(Span::styled(
+                format!("  resets {}", reset_local.format("%a %H:%M")),
+                Style::default().fg(theme::FG_COMMENT),
+            ));
+        }
+        s
+    };
+    if let Some(s) = suffix {
+        spans.push(Span::styled(s, Style::default().fg(theme::FG_COMMENT)));
+    }
+    Line::from(spans)
+}
+
 fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
     let Some((provider, profile_id)) = state.selected_account() else {
         render_detail_placeholder(frame, state, area);
@@ -390,74 +444,22 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
 
     if let Some(ref quota) = state.accounts_tab.quota {
         lines.push(Line::from(Span::raw("")));
-
-        // Helper closure: build one quota row, using a progress bar if pct is known,
-        // otherwise falling back to the Hit/Available/? text label.
-        let quota_row = |label: &'static str,
-                         pct: Option<u8>,
-                         state: &crate::codex_profiles::quota::LimitState,
-                         reset_at: Option<chrono::DateTime<chrono::Utc>>|
-         -> Line {
-            if let Some(pct) = pct {
-                let (bar, bar_color) = quota_bar_spans(pct, 20);
-                let mut spans = vec![
-                    Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
-                    Span::styled(bar, Style::default().fg(bar_color)),
-                    Span::styled(format!(" {}%", pct), Style::default().fg(theme::FG_DEFAULT)),
-                ];
-                if let Some(reset) = reset_at {
-                    spans.push(Span::styled(
-                        format!("  resets in {}", format_reset_duration(reset)),
-                        Style::default().fg(theme::FG_COMMENT),
-                    ));
-                }
-                Line::from(spans)
-            } else {
-                // Fallback: no percentage data (old cache or CLI-only snapshot).
-                let text_label = match state {
-                    crate::codex_profiles::quota::LimitState::Hit => "HIT",
-                    crate::codex_profiles::quota::LimitState::Available => "ok",
-                    crate::codex_profiles::quota::LimitState::Unknown => "?",
-                };
-                let text_color = match state {
-                    crate::codex_profiles::quota::LimitState::Hit => theme::STATUS_ERROR,
-                    crate::codex_profiles::quota::LimitState::Available => theme::STATUS_RUNNING,
-                    crate::codex_profiles::quota::LimitState::Unknown => theme::FG_COMMENT,
-                };
-                let mut spans = vec![
-                    Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
-                    Span::styled(text_label, Style::default().fg(text_color)),
-                ];
-                if let Some(reset) = reset_at {
-                    let reset_local = chrono::DateTime::<chrono::Local>::from(reset);
-                    spans.push(Span::styled(
-                        format!("  resets {}", reset_local.format("%a %H:%M")),
-                        Style::default().fg(theme::FG_COMMENT),
-                    ));
-                }
-                Line::from(spans)
-            }
-        };
-
         lines.push(quota_row(
             "  quota (5h):  ",
             quota.five_hour_used_pct.map(|p| 100 - p),
             &quota.five_hour_state,
             quota.five_hour_reset_at,
+            None,
         ));
+        let captured_local = chrono::DateTime::<chrono::Local>::from(quota.captured_at);
+        let captured_str = format!("  as of {}", captured_local.format("%H:%M"));
         lines.push(quota_row(
             "  quota (7d):  ",
             quota.weekly_used_pct.map(|p| 100 - p),
             &quota.weekly_state,
             quota.weekly_reset_at,
+            Some(captured_str),
         ));
-
-        // Show when quota was last captured.
-        let captured_local = chrono::DateTime::<chrono::Local>::from(quota.captured_at);
-        lines.push(Line::from(Span::styled(
-            format!("  as of {}", captured_local.format("%H:%M")),
-            Style::default().fg(theme::FG_COMMENT),
-        )));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -766,5 +768,34 @@ mod tests {
     fn test_provider_badge_claude() {
         let badge = provider_badge(crate::app::Provider::Claude);
         assert_eq!(badge, "[CL]");
+    }
+
+    #[test]
+    fn quota_weekly_line_includes_as_of_in_same_line() {
+        use crate::codex_profiles::quota::LimitState;
+        let line = quota_row(
+            "  quota (7d):  ",
+            Some(75),
+            &LimitState::Available,
+            None,
+            Some("  as of 18:47".to_string()),
+        );
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("75%"), "percentage must appear in the line");
+        assert!(text.contains("as of 18:47"), "as of must appear in the same line as the bar");
+    }
+
+    #[test]
+    fn quota_five_hour_line_has_no_as_of() {
+        use crate::codex_profiles::quota::LimitState;
+        let line = quota_row(
+            "  quota (5h):  ",
+            Some(40),
+            &LimitState::Available,
+            None,
+            None,
+        );
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(!text.contains("as of"), "5h line must not contain as of");
     }
 }

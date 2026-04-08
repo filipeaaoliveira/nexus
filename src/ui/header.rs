@@ -14,7 +14,6 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
     let waiting = render_data.header.waiting;
     let error = render_data.header.error;
     let done = render_data.header.done;
-    let exited = render_data.header.exited;
     let subagent_count = render_data.header.subagent_count;
 
     let mut spans = vec![
@@ -29,28 +28,23 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         ),
         Span::styled("  ", theme::bar_style()),
         Span::styled(
-            format!("●{running}"),
+            format!("● {running}"),
             theme::bar_style().fg(theme::STATUS_RUNNING),
         ),
         Span::styled(" ", theme::bar_style()),
         Span::styled(
-            format!("◌{waiting}"),
+            format!("◌ {waiting}"),
             theme::bar_style().fg(theme::STATUS_WAITING),
         ),
         Span::styled(" ", theme::bar_style()),
         Span::styled(
-            format!("✕{error}"),
+            format!("✕ {error}"),
             theme::bar_style().fg(theme::STATUS_ERROR),
         ),
         Span::styled(" ", theme::bar_style()),
         Span::styled(
-            format!("✓{done}"),
+            format!("✓ {done}"),
             theme::bar_style().fg(theme::STATUS_DONE),
-        ),
-        Span::styled(" ", theme::bar_style()),
-        Span::styled(
-            format!("⏏{exited}"),
-            theme::bar_style().fg(theme::STATUS_EXITED),
         ),
         Span::styled("  ", theme::bar_style()),
         Span::styled(

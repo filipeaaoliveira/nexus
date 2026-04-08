@@ -57,6 +57,13 @@ impl ClaudeAuth {
         tokens.expires_at <= now_ms + margin_ms
     }
 
+    /// Returns true if the access token is currently expired.
+    pub fn is_expired(&self) -> bool {
+        let Some(tokens) = &self.claude_ai_oauth else { return true };
+        let now_ms = Utc::now().timestamp_millis();
+        tokens.expires_at <= now_ms
+    }
+
     pub fn subscription_type(&self) -> Option<&str> {
         self.claude_ai_oauth.as_ref()?.subscription_type.as_deref()
     }
@@ -132,6 +139,35 @@ mod tests {
         auth.save(&path).unwrap();
         let loaded = ClaudeAuth::load(&path).unwrap();
         assert_eq!(loaded.access_token(), Some("access"));
+    }
+
+    #[test]
+    fn test_is_expired_past() {
+        let auth = ClaudeAuth {
+            claude_ai_oauth: Some(ClaudeOAuthTokens {
+                access_token: "t".into(),
+                refresh_token: "r".into(),
+                expires_at: 0,
+                scopes: vec![],
+                subscription_type: None,
+            }),
+        };
+        assert!(auth.is_expired());
+    }
+
+    #[test]
+    fn test_is_expired_future() {
+        let future_ms = Utc::now().timestamp_millis() + 60 * 60 * 1000;
+        let auth = ClaudeAuth {
+            claude_ai_oauth: Some(ClaudeOAuthTokens {
+                access_token: "t".into(),
+                refresh_token: "r".into(),
+                expires_at: future_ms,
+                scopes: vec![],
+                subscription_type: None,
+            }),
+        };
+        assert!(!auth.is_expired());
     }
 
     #[test]

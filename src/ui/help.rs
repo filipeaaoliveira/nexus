@@ -53,7 +53,7 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
         keybind_line("r", "Rename selected agent"),
         Line::from(""),
         Line::from(Span::styled(
-            "  Codex",
+            "  Accounts",
             Style::default()
                 .fg(theme::FG_DEFAULT)
                 .add_modifier(Modifier::BOLD),

@@ -224,7 +224,11 @@ fn help_overlay_lists_codex_import_and_launch_shortcuts() {
 
     assert!(content
         .iter()
-        .any(|line| line.contains("Import current ~/.codex/auth.json")));
+        .any(|line| line.contains("Import ~/.codex/auth.json")));
+    assert!(content
+        .iter()
+        .any(|line| line.contains("Import Claude credentials")));
+    assert!(content.iter().any(|line| line.contains("Accounts")));
 }
 
 #[test]

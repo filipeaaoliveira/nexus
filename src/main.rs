@@ -194,7 +194,9 @@ async fn run_loop(
                     let pid = profile_id.clone();
                     Some(async move {
                         let refreshed = refresh_token_if_needed(auth).await;
-                        let _ = refreshed.save(&creds_path);
+                        if let Err(e) = refreshed.save(&creds_path) {
+                            tracing::warn!("failed to persist refreshed Claude token: {}", e);
+                        }
                         let quota = fetch_claude_quota(&refreshed).await;
                         (pid, quota)
                     })
@@ -457,7 +459,9 @@ async fn run_loop(
                                     let tx = claude_quota_tx.clone();
                                     tokio::spawn(async move {
                                         let refreshed = refresh_token_if_needed(auth).await;
-                                        let _ = refreshed.save(&creds_path);
+                                        if let Err(e) = refreshed.save(&creds_path) {
+                                            tracing::warn!("failed to persist refreshed Claude token: {}", e);
+                                        }
                                         let quota = fetch_claude_quota(&refreshed).await;
                                         let _ = tx.send((profile_id, quota)).await;
                                     });

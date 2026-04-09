@@ -46,6 +46,19 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
         {
             format!("{} · tool call", agent.normalized.status.as_str())
         }
+        // Reachable via two paths:
+        //  1. Last entry is CompactBoundary → normalize returns Working(None),
+        //     activity returns Compacting.
+        //  2. Last entry is the restore user message that follows compact_boundary
+        //     → normalize returns Working(None) (User branch), activity returns
+        //     Compacting (content check).  normalize_claude_state only returns
+        //     Working(Compacting) when CompactBoundary is the *last* entry; the
+        //     restore message arrives immediately after and clears the reason.
+        None if agent.normalized.status == NormalizedStatus::Working
+            && agent.activity == Some(Activity::Compacting) =>
+        {
+            format!("{} · compacting", agent.normalized.status.as_str())
+        }
         None => agent.normalized.status.as_str().to_string(),
     };
 

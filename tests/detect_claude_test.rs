@@ -155,7 +155,7 @@ fn test_normalize_claude_recent_generic_assistant_text_maps_to_working() {
 }
 
 #[test]
-fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
+fn test_normalize_claude_stale_without_other_evidence_maps_to_done() {
     let entries = vec![TranscriptEntry::User {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "Do something".to_string(),
@@ -163,8 +163,10 @@ fn test_normalize_claude_stale_without_other_evidence_maps_to_unknown() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Unknown);
-    assert_eq!(normalized.reason, None);
+    // Stale after a user message: agent was interrupted mid-turn. The session
+    // is available for input — show Done so the user can send the next task.
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -261,7 +263,7 @@ fn test_normalize_claude_retrospective_unable_to_continue_does_not_map_to_blocke
 }
 
 #[test]
-fn test_normalize_claude_stale_generic_assistant_text_maps_to_unknown() {
+fn test_normalize_claude_stale_generic_assistant_text_maps_to_done() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "I have reviewed the files and I am moving on.".to_string(),
@@ -269,8 +271,8 @@ fn test_normalize_claude_stale_generic_assistant_text_maps_to_unknown() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Unknown);
-    assert_eq!(normalized.reason, None);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -291,6 +293,26 @@ fn test_normalize_claude_active_tool_use_maps_to_working_tool_call() {
 
     assert_eq!(normalized.status, NormalizedStatus::Working);
     assert_eq!(normalized.reason, Some(NormalizedReason::ToolCall));
+}
+
+#[test]
+fn test_normalize_claude_agent_tool_use_maps_to_working_subagent() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            content: "Please delegate this task".to_string(),
+        },
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            tool_name: "Agent".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Subagent));
 }
 
 #[test]
@@ -356,11 +378,43 @@ fn test_normalize_claude_newer_tool_result_overrides_older_assistant_review() {
     let normalized = normalize_claude_state(&entries, false);
 
     assert_eq!(normalized.status, NormalizedStatus::Working);
-    assert_eq!(normalized.reason, None);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ToolCall));
 }
 
 #[test]
-fn test_normalize_claude_stale_trailing_tool_use_maps_to_unknown() {
+fn test_normalize_claude_stale_empty_entries_maps_to_done() {
+    let entries: Vec<TranscriptEntry> = vec![];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_normalize_claude_stale_trailing_tool_result_maps_to_done() {
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+            tool_name: "read".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+        TranscriptEntry::ToolResult {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            tool_name: "read".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, true);
+
+    // Stale after a tool result: agent was mid-turn when it went quiet.
+    // The session is available for input — show Done.
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_normalize_claude_stale_trailing_tool_use_maps_to_needs_input_approval() {
     let entries = vec![TranscriptEntry::ToolUse {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         tool_name: "read".to_string(),
@@ -369,12 +423,12 @@ fn test_normalize_claude_stale_trailing_tool_use_maps_to_unknown() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Unknown);
-    assert_eq!(normalized.reason, None);
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
 }
 
 #[test]
-fn test_normalize_claude_stale_trailing_user_activity_maps_to_unknown() {
+fn test_normalize_claude_stale_trailing_user_activity_maps_to_done() {
     let entries = vec![TranscriptEntry::User {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "Please keep going.".to_string(),
@@ -382,12 +436,12 @@ fn test_normalize_claude_stale_trailing_user_activity_maps_to_unknown() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Unknown);
-    assert_eq!(normalized.reason, None);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
-fn test_normalize_claude_stale_generic_assistant_after_older_review_does_not_revive_review() {
+fn test_normalize_claude_stale_generic_assistant_after_older_review_maps_to_done() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -402,8 +456,8 @@ fn test_normalize_claude_stale_generic_assistant_after_older_review_does_not_rev
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Unknown);
-    assert_eq!(normalized.reason, None);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
 
 #[test]
@@ -491,6 +545,26 @@ fn test_infer_activity_normal_user_entry_not_compaction() {
     }];
     let activity = infer_activity_from_last_entry(&entries);
     assert_eq!(activity, Some(Activity::Generating));
+}
+
+/// After a compact_boundary event the agent emits a synthetic user message to
+/// restore session context.  That restore message should still report
+/// Activity::Compacting — not Generating — so the UI shows "compacting" until
+/// the agent actually starts generating again.
+#[test]
+fn test_infer_activity_restore_message_after_compaction_is_compacting() {
+    let entries = vec![
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-02T10:00:00Z".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-02T10:00:01Z".to_string(),
+            content: "[restore checkpointed session agent configuration after compaction]"
+                .to_string(),
+        },
+    ];
+    let activity = infer_activity_from_last_entry(&entries);
+    assert_eq!(activity, Some(Activity::Compacting));
 }
 
 #[test]
@@ -808,4 +882,653 @@ fn test_extract_todos_handles_missing_fields() {
     assert_eq!(todos[0].content, "Has content only");
     assert_eq!(todos[0].status, TodoStatus::Pending); // default
     assert_eq!(todos[0].priority, TodoPriority::Medium); // default
+}
+
+// ── Nested project-file format ──────────────────────────────────────────────
+
+#[test]
+fn test_parse_project_file_nested_format_extracts_tool_use_from_assistant() {
+    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let entries = parse_transcript(content);
+
+    // Expect: User, ToolUse(Read), ToolUse(Bash), Assistant(""), ToolResult×2, Assistant(text)
+    let tool_uses: Vec<_> = entries
+        .iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::ToolUse { tool_name, .. } => Some(tool_name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tool_uses, vec!["Read", "Bash"],
+        "should extract tool_use blocks from assistant message.content");
+}
+
+#[test]
+fn test_parse_project_file_nested_format_extracts_tool_result_from_user() {
+    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let entries = parse_transcript(content);
+
+    let tool_results: Vec<_> = entries
+        .iter()
+        .filter(|e| matches!(e, TranscriptEntry::ToolResult { .. }))
+        .collect();
+    assert_eq!(tool_results.len(), 2,
+        "should extract tool_result blocks from user message.content");
+}
+
+#[test]
+fn test_parse_project_file_nested_format_normalizes_to_done() {
+    // The fixture ends with an assistant message containing "Ready for the next task."
+    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let entries = parse_transcript(content);
+
+    let state = normalize_claude_state(&entries, false);
+    assert_eq!(state.status, NormalizedStatus::Done,
+        "should classify final assistant text as Done");
+}
+
+#[test]
+fn test_parse_project_file_nested_format_thinking_blocks_not_emitted() {
+    // "thinking" content blocks must not be emitted as Assistant entries
+    // (they are internal monologue and should be invisible to state inference).
+    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let entries = parse_transcript(content);
+
+    let assistant_entries: Vec<_> = entries
+        .iter()
+        .filter_map(|e| match e {
+            TranscriptEntry::Assistant { content, .. } => Some(content.as_str()),
+            _ => None,
+        })
+        .collect();
+    // None of the assistant entries should contain the raw thinking text.
+    for content in &assistant_entries {
+        assert!(
+            !content.contains("The README says"),
+            "thinking block text must not appear in Assistant entries"
+        );
+    }
+}
+
+// ── system entry parsing tests ─────────────────────────────────────
+
+#[test]
+fn test_parse_transcript_system_turn_duration_emits_turn_completed() {
+    let content = concat!(
+        "{\"type\":\"user\",\"timestamp\":\"2026-04-09T10:00:00Z\",\"content\":\"hello\"}\n",
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-09T10:00:05Z\",\"content\":[{\"type\":\"text\",\"text\":\"Done.\"}]}\n",
+        "{\"type\":\"system\",\"subtype\":\"turn_duration\",\"timestamp\":\"2026-04-09T10:00:06Z\",\"durationMs\":6000}\n",
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        matches!(entries.last(), Some(TranscriptEntry::TurnCompleted { .. })),
+        "system:turn_duration should produce TurnCompleted entry"
+    );
+}
+
+#[test]
+fn test_parse_transcript_system_api_error_emits_api_error() {
+    let content = concat!(
+        "{\"type\":\"user\",\"timestamp\":\"2026-04-09T10:00:00Z\",\"content\":\"hello\"}\n",
+        "{\"type\":\"system\",\"subtype\":\"api_error\",\"timestamp\":\"2026-04-09T10:00:02Z\",",
+        "\"error\":\"overloaded\",\"retryInMs\":5000,\"retryAttempt\":1,\"maxRetries\":3}\n",
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        matches!(
+            entries.last(),
+            Some(TranscriptEntry::ApiError {
+                retry_attempt: Some(1),
+                max_retries: Some(3),
+                ..
+            })
+        ),
+        "system:api_error should produce ApiError entry"
+    );
+}
+
+#[test]
+fn test_parse_transcript_ignores_unknown_system_subtypes() {
+    let content = concat!(
+        "{\"type\":\"system\",\"subtype\":\"local_command\",\"timestamp\":\"2026-04-09T10:00:00Z\",\"content\":\"ls\"}\n",
+    );
+    let entries = parse_transcript(content);
+    assert!(entries.is_empty(), "local_command should be ignored");
+}
+
+#[test]
+fn test_parse_transcript_compact_boundary_emits_entry() {
+    let content = concat!(
+        "{\"type\":\"system\",\"subtype\":\"compact_boundary\",\"timestamp\":\"2026-04-09T10:00:01Z\"}\n",
+    );
+    let entries = parse_transcript(content);
+    assert_eq!(entries.len(), 1, "compact_boundary should produce one entry");
+    assert!(
+        matches!(entries[0], TranscriptEntry::CompactBoundary { .. }),
+        "compact_boundary should produce a CompactBoundary entry"
+    );
+}
+
+// ── normalize: TurnCompleted ──────────────────────────────────────
+
+#[test]
+fn test_normalize_turn_completed_maps_to_done() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-09T10:00:05Z".to_string(),
+            content: "I've made the changes you requested.".to_string(),
+        },
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T10:00:06Z".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_normalize_stale_turn_completed_maps_to_done() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-09T10:00:05Z".to_string(),
+            content: "I've made the changes you requested.".to_string(),
+        },
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T10:00:06Z".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_normalize_turn_completed_after_user_message_maps_to_done() {
+    // User sends a follow-up, assistant responds, turn completes
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "Do something".to_string(),
+        },
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-09T10:00:05Z".to_string(),
+            content: "Done.".to_string(),
+        },
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T10:00:06Z".to_string(),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+// ── normalize: ApiError ───────────────────────────────────────────
+
+#[test]
+fn test_normalize_api_error_maps_to_working_retrying() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "Do something".to_string(),
+        },
+        TranscriptEntry::ApiError {
+            timestamp: "2026-04-09T10:00:02Z".to_string(),
+            retry_attempt: Some(1),
+            max_retries: Some(3),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Retrying));
+}
+
+#[test]
+fn test_normalize_stale_api_error_maps_to_working_retrying() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "Do something".to_string(),
+        },
+        TranscriptEntry::ApiError {
+            timestamp: "2026-04-09T10:00:02Z".to_string(),
+            retry_attempt: Some(2),
+            max_retries: Some(3),
+        },
+    ];
+
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Retrying));
+}
+
+// ── normalize: stale ToolUse → NeedsInput(Approval) ──────────────
+
+#[test]
+fn test_normalize_stale_agent_tool_use_maps_to_needs_input_approval() {
+    let entries = vec![TranscriptEntry::ToolUse {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+        tool_name: "Agent".to_string(),
+        tool_input: serde_json::Map::new(),
+    }];
+
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
+}
+
+// ── infer_activity: new variants are transparent ─────────────────
+
+#[test]
+fn test_infer_activity_skips_turn_completed() {
+    // TurnCompleted should be transparent to activity inference — it should
+    // look through to the user entry underneath.
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "hello".to_string(),
+        },
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T10:00:06Z".to_string(),
+        },
+    ];
+
+    // last_non_assistant_entry skips TurnCompleted, so we see User → Generating
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(Activity::Generating)
+    );
+}
+
+#[test]
+fn test_infer_activity_skips_api_error() {
+    let entries = vec![
+        TranscriptEntry::ToolUse {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            tool_name: "read".to_string(),
+            tool_input: serde_json::Map::new(),
+        },
+        TranscriptEntry::ApiError {
+            timestamp: "2026-04-09T10:00:02Z".to_string(),
+            retry_attempt: Some(1),
+            max_retries: Some(3),
+        },
+    ];
+
+    // last_non_assistant_entry skips ApiError, so we see ToolUse → ToolCall
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(Activity::ToolCall)
+    );
+}
+
+// ── CompactBoundary ───────────────────────────────────────────────
+
+#[test]
+fn test_infer_activity_compact_boundary_entry() {
+    let entries = vec![TranscriptEntry::CompactBoundary {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+    }];
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(Activity::Compacting)
+    );
+}
+
+#[test]
+fn test_normalize_compact_boundary_maps_to_working_compacting() {
+    let entries = vec![TranscriptEntry::CompactBoundary {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+    }];
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Compacting));
+}
+
+#[test]
+fn test_normalize_stale_compact_boundary_maps_to_working_compacting() {
+    let entries = vec![TranscriptEntry::CompactBoundary {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+    }];
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Compacting));
+}
+
+// ── TurnBlocked (stop_reason: max_tokens / refusal / pause_turn) ──
+
+#[test]
+fn test_parse_transcript_stop_reason_max_tokens_emits_turn_blocked() {
+    let content = concat!(
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I was in the middle\"}],",
+        "\"stop_reason\":\"max_tokens\"}}\n"
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        entries.iter().any(|e| matches!(
+            e,
+            TranscriptEntry::TurnBlocked { stop_reason, .. } if stop_reason == "max_tokens"
+        )),
+        "max_tokens stop_reason should produce a TurnBlocked entry"
+    );
+}
+
+#[test]
+fn test_parse_transcript_stop_reason_refusal_emits_turn_blocked() {
+    let content = concat!(
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"message\":{\"role\":\"assistant\",\"content\":[],",
+        "\"stop_reason\":\"refusal\"}}\n"
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        entries.iter().any(|e| matches!(
+            e,
+            TranscriptEntry::TurnBlocked { stop_reason, .. } if stop_reason == "refusal"
+        )),
+        "refusal stop_reason should produce a TurnBlocked entry"
+    );
+}
+
+#[test]
+fn test_parse_transcript_stop_reason_pause_turn_emits_turn_blocked() {
+    let content = concat!(
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Paused.\"}],",
+        "\"stop_reason\":\"pause_turn\"}}\n"
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        entries.iter().any(|e| matches!(
+            e,
+            TranscriptEntry::TurnBlocked { stop_reason, .. } if stop_reason == "pause_turn"
+        )),
+        "pause_turn stop_reason should produce a TurnBlocked entry"
+    );
+}
+
+#[test]
+fn test_parse_transcript_stop_reason_end_turn_does_not_emit_turn_blocked() {
+    let content = concat!(
+        "{\"type\":\"assistant\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Done.\"}],",
+        "\"stop_reason\":\"end_turn\"}}\n"
+    );
+    let entries = parse_transcript(content);
+    assert!(
+        !entries
+            .iter()
+            .any(|e| matches!(e, TranscriptEntry::TurnBlocked { .. })),
+        "end_turn should NOT produce a TurnBlocked entry"
+    );
+}
+
+#[test]
+fn test_normalize_turn_blocked_maps_to_blocked_error() {
+    let entries = vec![
+        TranscriptEntry::Assistant {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "I was mid-sentence when".to_string(),
+        },
+        TranscriptEntry::TurnBlocked {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            stop_reason: "max_tokens".to_string(),
+        },
+    ];
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Blocked);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
+fn test_normalize_stale_turn_blocked_maps_to_blocked_error() {
+    let entries = vec![TranscriptEntry::TurnBlocked {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+        stop_reason: "refusal".to_string(),
+    }];
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::Blocked);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Error));
+}
+
+#[test]
+fn test_infer_activity_turn_blocked_returns_none() {
+    let entries = vec![TranscriptEntry::TurnBlocked {
+        timestamp: "2026-04-09T10:00:00Z".to_string(),
+        stop_reason: "max_tokens".to_string(),
+    }];
+    assert_eq!(infer_activity_from_last_entry(&entries), None);
+}
+
+// ── LocalCommand entries ──────────────────────────────────────────
+
+#[test]
+fn test_parse_transcript_local_command_caveat_emits_local_command() {
+    let content = concat!(
+        "{\"type\":\"user\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"content\":\"<local-command-caveat>Caveat: The messages below were generated by the user while running local commands.</local-command-caveat>\"}\n"
+    );
+    let entries = parse_transcript(content);
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(entries[0], TranscriptEntry::LocalCommand { .. }),
+        "<local-command-caveat> content should emit LocalCommand"
+    );
+}
+
+#[test]
+fn test_parse_transcript_local_command_stdout_emits_local_command() {
+    let content = concat!(
+        "{\"type\":\"user\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"content\":\"<local-command-stdout>Compacted</local-command-stdout>\"}\n"
+    );
+    let entries = parse_transcript(content);
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(entries[0], TranscriptEntry::LocalCommand { .. }),
+        "<local-command-stdout> content should emit LocalCommand"
+    );
+}
+
+#[test]
+fn test_parse_transcript_command_name_emits_local_command() {
+    let content = concat!(
+        "{\"type\":\"user\",\"timestamp\":\"2026-04-09T10:00:00Z\",",
+        "\"content\":\"<command-name>/compact</command-name>\"}\n"
+    );
+    let entries = parse_transcript(content);
+    assert_eq!(entries.len(), 1);
+    assert!(
+        matches!(entries[0], TranscriptEntry::LocalCommand { .. }),
+        "<command-name> content should emit LocalCommand"
+    );
+}
+
+#[test]
+fn test_last_non_assistant_entry_skips_local_command() {
+    // LocalCommand between TurnCompleted and CompactBoundary: should be skipped,
+    // so we see CompactBoundary as the last meaningful entry.
+    let entries = vec![
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+        },
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-09T10:00:01Z".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T10:00:02Z".to_string(),
+        },
+    ];
+    // infer_activity uses last_non_assistant_entry; LocalCommand is excluded,
+    // so we fall through to CompactBoundary → Compacting.
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(Activity::Compacting)
+    );
+}
+
+// ── Compaction restore message ────────────────────────────────────
+
+#[test]
+fn test_normalize_compaction_restore_message_maps_to_done_non_stale() {
+    let entries = vec![
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.".to_string(),
+        },
+    ];
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_normalize_stale_compaction_restore_message_maps_to_done() {
+    let entries = vec![
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.".to_string(),
+        },
+    ];
+    let normalized = normalize_claude_state(&entries, true);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+/// Full `/compact` sequence as written to the transcript: TurnCompleted (before
+/// compact), then compact_boundary + restore + LocalCommand entries.  The final
+/// state should be "done · ready for next task" — not "working" or "unknown".
+#[test]
+fn test_normalize_manual_compact_sequence_shows_done() {
+    let entries = vec![
+        TranscriptEntry::TurnCompleted {
+            timestamp: "2026-04-09T09:12:12Z".to_string(),
+        },
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-09T09:16:10Z".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T09:16:10Z".to_string(),
+            content: "This session is being continued from a previous conversation that ran out of context.".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T09:14:44Z".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T09:14:44Z".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T09:16:10Z".to_string(),
+        },
+    ];
+
+    // Non-stale: restore message is last meaningful entry → Done
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+
+    // Stale: same result
+    let normalized_stale = normalize_claude_state(&entries, true);
+    assert_eq!(normalized_stale.status, NormalizedStatus::Done);
+    assert_eq!(
+        normalized_stale.reason,
+        Some(NormalizedReason::ReadyForNextTask)
+    );
+}
+
+#[test]
+fn test_infer_activity_manual_compact_restore_message_is_compacting() {
+    let entries = vec![
+        TranscriptEntry::CompactBoundary {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+        },
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "This session is being continued from a previous conversation that ran out of context.".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T09:58:00Z".to_string(),
+        },
+    ];
+    // LocalCommand is skipped, restore message is last → Compacting
+    assert_eq!(
+        infer_activity_from_last_entry(&entries),
+        Some(Activity::Compacting)
+    );
+}
+
+// ── scan_session_registry ─────────────────────────────────────────
+
+#[test]
+fn test_scan_session_registry_reads_valid_file() {
+    use nexus::detect::claude::scan_session_registry;
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let file_path = dir.path().join("3846.json");
+    let mut f = std::fs::File::create(&file_path).unwrap();
+    writeln!(
+        f,
+        r#"{{"pid":3846,"sessionId":"abc-123","cwd":"/home/user/proj","startedAt":0,"kind":"interactive","entrypoint":"cli"}}"#
+    )
+    .unwrap();
+
+    let map = scan_session_registry(dir.path());
+    assert_eq!(map.len(), 1);
+    let entry = map.get("abc-123").expect("should find by session_id");
+    assert_eq!(entry.pid, 3846);
+    assert_eq!(entry.session_id, "abc-123");
+    assert_eq!(entry.cwd.to_str().unwrap(), "/home/user/proj");
+    assert_eq!(entry.kind, "interactive");
+}
+
+#[test]
+fn test_scan_session_registry_skips_invalid_files() {
+    use nexus::detect::claude::scan_session_registry;
+    use std::io::Write;
+
+    let dir = tempfile::tempdir().expect("create temp dir");
+    // non-json extension
+    let f1 = dir.path().join("README.txt");
+    std::fs::File::create(&f1).unwrap();
+    // invalid JSON
+    let f2 = dir.path().join("9999.json");
+    let mut f = std::fs::File::create(&f2).unwrap();
+    writeln!(f, "not json").unwrap();
+    // non-numeric pid
+    let f3 = dir.path().join("foo.json");
+    let mut f = std::fs::File::create(&f3).unwrap();
+    writeln!(f, r#"{{"pid":0,"sessionId":"x","cwd":"/","kind":"interactive"}}"#).unwrap();
+
+    let map = scan_session_registry(dir.path());
+    assert!(map.is_empty(), "no valid entries should be found");
+}
+
+#[test]
+fn test_scan_session_registry_empty_dir() {
+    use nexus::detect::claude::scan_session_registry;
+
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let map = scan_session_registry(dir.path());
+    assert!(map.is_empty());
+}
+
+#[test]
+fn test_scan_session_registry_nonexistent_dir() {
+    use nexus::detect::claude::scan_session_registry;
+
+    let map = scan_session_registry(std::path::Path::new("/nonexistent/path/sessions"));
+    assert!(map.is_empty(), "nonexistent directory should return empty map");
 }

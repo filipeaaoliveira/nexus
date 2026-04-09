@@ -1,13 +1,13 @@
 # nexus
 
-Terminal dashboard and control surface for local AI coding agents.
+Terminal dashboard and monitor for local AI coding agents, with partial account-management surfaces for Codex and Claude profiles.
 
 `nexus` now combines two workspaces in one TUI:
 
 - `Overview`: passive monitoring for local agent sessions
-- `Codex`: Codex profile management, best-effort quota inspection, and safe Codex launch workflows
+- `Accounts`: manages Codex and Claude profiles, best-effort quota inspection, and partial Codex launch/profile workflows
 
-The goal is one terminal surface for both observing active agents and continuing Codex work under another account without opening a second TUI.
+The goal is one terminal surface for both observing active agents and managing Codex and Claude account workflows without opening a second TUI.
 
 ## Status
 
@@ -17,23 +17,9 @@ Current focus:
 
 - local terminal-first workflow
 - passive monitoring for multiple agent tools
-- Codex-specific operational controls isolated to the `Codex` tab
+- account-specific operational controls isolated to the `Accounts` tab
 
 ## Installation
-
-### Quick install (recommended)
-
-```bash
-curl -sL https://raw.githubusercontent.com/filipeaaoliveira/nexus/main/install.sh | bash
-```
-
-Or manually:
-
-```bash
-git clone https://github.com/filipeaaoliveira/nexus.git
-cd nexus
-./install.sh
-```
 
 ### From source
 
@@ -44,7 +30,7 @@ cargo build --release
 ./target/release/nexus
 ```
 
-### Directly from Git
+### From Git
 
 ```bash
 cargo install --git https://github.com/filipeaaoliveira/nexus.git
@@ -53,17 +39,17 @@ nexus
 
 ## Requirements
 
-- Rust `1.94.1`
+- Rust `1.94`
 - macOS or another environment with compatible `ps`, `lsof`, and `git` command behavior
 - an interactive terminal
-- Codex installed locally if you want to use the `Codex` workspace launch flow
+- Codex installed locally if you want to use Codex-specific actions in the `Accounts` workspace
 
 Default local state roots:
 
 - Claude: `~/.claude`
 - Codex agent detection: `~/.codex`
 - nexus Codex management data: platform local data dir under `nexus/codex/`
-- OpenCode: platform local data dir under `nexus/opencode/`
+- OpenCode: `~/.local/share/opencode`
 
 ## Usage
 
@@ -97,41 +83,43 @@ The `Overview` workspace is the original monitor:
 - right pane: details and recent activity
 - detector-driven and read-heavy
 
-### Codex
+### Accounts
 
-The `Codex` workspace is the operational workspace for Codex account switching:
+The `Accounts` workspace is the operational workspace for Codex and Claude profile management:
 
 - profile list
 - selected profile details
 - best-effort quota state
-- launch-oriented Codex session flow
+- launch/profile actions are still being layered in
 
-The intent is to keep Codex mutation and launch behavior out of the `Overview` workspace.
+> Codex detection and session continuity are currently in recovery after storage/runtime drift, and some Codex state remains best-effort until the app-server-backed integration lands.
 
-## Codex Tab
+The intent is to keep account-management behavior out of the `Overview` workspace.
 
-The `Codex` tab is designed around per-profile auth and repo-shared session continuity.
+## Accounts Tab
+
+The `Accounts` tab is designed around per-profile auth and repo-shared session continuity for Codex workflows.
 
 Primary workflow:
 
-1. Import or manage a Codex profile
-2. Select the desired profile in the `Codex` tab
-3. Launch Codex for the current repo through `nexus`
+1. Import or manage a Codex or Claude profile
+2. Select the desired profile in the `Accounts` tab
+3. Launch and resume workflows are still being layered in
 4. When one account hits a limit, switch profiles and continue the same repo work
 
-This is built specifically so `codex resume <id>` can continue working across account switches for the same repository.
+This is the intended model for `codex resume <id>` across account switches for the same repository, but the full workflow is still being layered in.
 
 ## Safe Launch Model
 
-Codex account switching is implemented with:
+The intended Codex account-switching model is built around:
 
-- profile-specific auth/config state
+- profile-specific auth state
 - repo-shared session state
 - repo-shared sqlite runtime state
 
-`nexus` does not rely on swapping a single shared `~/.codex/auth.json` during the normal flow.
+The current TUI does not expose this as a fully active end-to-end launch flow.
 
-Instead, launch behavior is intended to:
+The underlying model is meant to:
 
 - keep profile auth isolated
 - keep repo session continuity stable
@@ -141,22 +129,11 @@ Compatibility/global activation remains a separate, explicit workflow rather tha
 
 ## Quota Limitations
 
-Quota information in the `Codex` tab is best-effort only.
+Quota data in the `Accounts` workspace is best-effort.
 
-Rules:
+It may come from API-backed refreshes, parsing, cached values, or be unavailable. The underlying model tracks confidence, but the current UI does not surface those confidence states yet.
 
-- it is based on local Codex-visible output only
-- it may be parsed, cached, stale, or unavailable
-- it should not be treated as authoritative billing or quota truth
-
-The UI should distinguish:
-
-- exact
-- parsed
-- cached
-- unavailable
-
-If quota parsing fails, the app should prefer showing stale cached data or “unavailable” rather than claiming precision it cannot justify.
+Quota should not be treated as authoritative billing or quota truth.
 
 ## Keybindings
 
@@ -177,12 +154,20 @@ Overview:
 - `D`: remove all exited agents from the view
 - `r`: rename selected agent locally in the UI
 
-Codex:
+Accounts:
 
 - `j` / `Down`: move selected profile
 - `k` / `Up`: move selected profile
-- `/`: start Codex profile filter
-- additional Codex launch/profile actions are being layered in behind this workspace
+- `/`: start filter input
+- `f`: cycle provider filter
+- `i`: import Codex auth
+- `I`: import Claude credentials
+- `w`: write selected profile to home auth file
+- `e`: edit selected profile
+- `d`: delete selected profile
+- `Q`: quota edit
+- `R`: refresh quota
+- `Enter`: currently a no-op
 
 ## Development
 
@@ -213,7 +198,7 @@ cargo build --locked
 ## Notes
 
 - `Overview` remains a passive monitor for agent discovery and activity.
-- `Codex` is no longer passive-only; it is the explicit control surface for Codex profile workflows.
+- `Accounts` is the explicit control surface for Codex and Claude profile workflows.
 - The app requires a real terminal for startup.
 - Logs default to a cache location such as `~/.cache/nexus/nexus.log` and can be overridden with `--log-file`.
 - Process discovery still depends on Unix-like `ps`, `lsof`, and `git` output formats. macOS remains the primary supported environment.

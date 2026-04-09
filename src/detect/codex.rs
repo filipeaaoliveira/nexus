@@ -10,8 +10,8 @@ use tracing::debug;
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 use crate::types::{
-    from_epoch_secs, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
-    PrimaryStatus, TodoItem, TodoPriority, TodoStatus,
+    from_epoch_secs, Activity, AgentId, AgentTool, NormalizedReason, NormalizedState,
+    NormalizedStatus, PrimaryStatus, TodoItem, TodoPriority, TodoStatus, CodexBackendHealth,
 };
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
@@ -143,6 +143,7 @@ pub struct ObservedCodexSubagent {
     pub name: String,
     pub description: Option<String>,
     pub status: PrimaryStatus,
+    pub reason: Option<NormalizedReason>,
 }
 
 /// Event-facing snapshot for a top-level Codex session.
@@ -164,6 +165,13 @@ pub struct ObservedCodexSession {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CodexEventSnapshot {
     pub sessions: Vec<ObservedCodexSession>,
+}
+
+/// Result of loading a Codex backend snapshot from sqlite.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexDetectionResult {
+    pub backend_health: CodexBackendHealth,
+    pub snapshot: CodexEventSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -829,6 +837,7 @@ pub fn build_codex_snapshot(
     snapshot
 }
 
+#[cfg(test)]
 fn load_spawn_edges_snapshot(db_path: &Path) -> Vec<SpawnEdge> {
     match query_all_spawn_edges(db_path) {
         Ok(edges) => edges,
@@ -836,6 +845,103 @@ fn load_spawn_edges_snapshot(db_path: &Path) -> Vec<SpawnEdge> {
             debug!("failed to load codex spawn edges: {error}");
             Vec::new()
         }
+    }
+}
+
+fn degraded_backend_session(reason: &str) -> ObservedCodexSession {
+    ObservedCodexSession {
+        agent_id: AgentId::session(AgentTool::Codex, "codex-backend"),
+        pid: Some(0),
+        cwd: PathBuf::from("/"),
+        branch: None,
+        started_at: None,
+        status: PrimaryStatus::Error,
+        final_output: Some(format!("Codex backend is degraded: {reason}")),
+        latest_tool_call: None,
+        todos: Vec::new(),
+        subagents: Vec::new(),
+    }
+}
+
+fn materialize_backend_health(
+    mut snapshot: CodexEventSnapshot,
+    backend_health: &CodexBackendHealth,
+) -> CodexEventSnapshot {
+    if let CodexBackendHealth::Degraded { reason } = backend_health {
+        snapshot
+            .sessions
+            .insert(0, degraded_backend_session(reason));
+    }
+
+    snapshot
+}
+
+pub fn detect_codex_backend(
+    db_path: &Path,
+    registry: &AgentRegistry,
+) -> CodexDetectionResult {
+    detect_codex_backend_with_history(db_path, registry, false)
+}
+
+pub fn detect_codex_backend_with_history(
+    db_path: &Path,
+    registry: &AgentRegistry,
+    has_previous_state: bool,
+) -> CodexDetectionResult {
+    if !db_path.exists() {
+        if has_previous_state {
+            let backend_health = CodexBackendHealth::degraded("sqlite state is missing");
+            return CodexDetectionResult {
+                snapshot: materialize_backend_health(
+                    CodexEventSnapshot::default(),
+                    &backend_health,
+                ),
+                backend_health,
+            };
+        }
+
+        return CodexDetectionResult {
+            backend_health: CodexBackendHealth::Healthy,
+            snapshot: CodexEventSnapshot::default(),
+        };
+    }
+
+    let threads = match query_codex_threads(db_path) {
+        Ok(threads) => threads,
+        Err(error) => {
+            let backend_health = CodexBackendHealth::degraded(format!(
+                "sqlite threads query failed: {error}"
+            ));
+            return CodexDetectionResult {
+                snapshot: materialize_backend_health(
+                    CodexEventSnapshot::default(),
+                    &backend_health,
+                ),
+                backend_health,
+            };
+        }
+    };
+
+    let mut backend_health = CodexBackendHealth::Healthy;
+    let spawn_edges = match query_all_spawn_edges(db_path) {
+        Ok(edges) => edges,
+        Err(error) => {
+            backend_health = CodexBackendHealth::degraded(format!(
+                "sqlite spawn edges query failed: {error}"
+            ));
+            Vec::new()
+        }
+    };
+
+    let snapshot = build_codex_snapshot(&threads, &spawn_edges, registry);
+    let snapshot = materialize_backend_health(
+        build_codex_event_snapshot(&snapshot, &spawn_edges),
+        &backend_health,
+    );
+
+    CodexDetectionResult {
+        backend_health,
+        snapshot,
     }
 }
 
@@ -1005,6 +1111,42 @@ fn looks_like_input_request_output(text: &str) -> Option<NormalizedReason> {
     None
 }
 
+/// Infer the current `Activity` for a codex session from its observed state.
+///
+/// - Running + active tool call → ToolCall
+/// - Running, no tool call, running subagent → ToolCall (subagent is using tools)
+/// - Running, nothing active → Generating (model is thinking/writing)
+/// - Not Running → Idle
+fn infer_codex_activity(session: &ObservedCodexSession) -> Option<Activity> {
+    match session.status {
+        PrimaryStatus::Running => {
+            if session.latest_tool_call.is_some() {
+                Some(Activity::ToolCall)
+            } else if session
+                .subagents
+                .iter()
+                .any(|s| s.status == PrimaryStatus::Running)
+            {
+                Some(Activity::ToolCall)
+            } else {
+                Some(Activity::Generating)
+            }
+        }
+        _ => Some(Activity::Idle),
+    }
+}
+
+fn waiting_subagent_reason(session: &ObservedCodexSession) -> Option<NormalizedReason> {
+    session
+        .subagents
+        .iter()
+        .find(|subagent| {
+            matches!(subagent.status, PrimaryStatus::Waiting | PrimaryStatus::Done)
+                && subagent.reason.is_some()
+        })
+        .and_then(|subagent| subagent.reason.clone())
+}
+
 pub fn normalize_codex_session(
     session: &ObservedCodexSession,
     final_output: Option<&str>,
@@ -1024,6 +1166,8 @@ pub fn normalize_codex_session(
         PrimaryStatus::Running => {
             if session.latest_tool_call.is_some() {
                 NormalizedState::new(NormalizedStatus::Working, Some(NormalizedReason::ToolCall))
+            } else if let Some(reason) = waiting_subagent_reason(session) {
+                NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
             } else if session
                 .subagents
                 .iter()
@@ -1036,6 +1180,8 @@ pub fn normalize_codex_session(
         }
         PrimaryStatus::Waiting => {
             if let Some(reason) = final_output.and_then(looks_like_input_request_output) {
+                NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
+            } else if let Some(reason) = waiting_subagent_reason(session) {
                 NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
             } else if session
                 .subagents
@@ -1051,6 +1197,8 @@ pub fn normalize_codex_session(
         }
         PrimaryStatus::Done => {
             if let Some(reason) = final_output.and_then(looks_like_input_request_output) {
+                NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
+            } else if let Some(reason) = waiting_subagent_reason(session) {
                 NormalizedState::new(NormalizedStatus::NeedsInput, Some(reason))
             } else if session
                 .subagents
@@ -1104,6 +1252,7 @@ fn rollout_summary_for_thread(thread: &CodexThread) -> RolloutThreadSummary {
                             thread_id: thread_id.clone(),
                             description: Some(thread_id),
                             status: PrimaryStatus::Waiting,
+                            reason: None,
                         }
                     })
                     .collect();
@@ -1136,14 +1285,23 @@ fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Optio
     (name, Some(child.thread.id.clone()))
 }
 
-fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -> PrimaryStatus {
+fn child_thread_state(
+    child: &ObservedCodexThread,
+    edge_status: Option<&str>,
+) -> (PrimaryStatus, Option<NormalizedReason>) {
     let edge_indicates_closed = matches!(edge_status, Some("completed" | "closed"));
 
     if let Some(ref rollout_path) = child.thread.rollout_path {
         let rp = PathBuf::from(rollout_path);
         if rp.exists() {
             if let Ok(content) = std::fs::read_to_string(&rp) {
-                return match infer_rollout_status(&parse_rollout(&content)) {
+                let events = parse_rollout(&content);
+                let final_output = extract_final_output_text(&events);
+                let reason = final_output
+                    .as_deref()
+                    .and_then(looks_like_input_request_output);
+
+                let status = match infer_rollout_status(&events) {
                     CodexInferredStatus::Running => PrimaryStatus::Running,
                     CodexInferredStatus::Done => PrimaryStatus::Done,
                     CodexInferredStatus::Error => PrimaryStatus::Error,
@@ -1152,14 +1310,19 @@ fn child_thread_status(child: &ObservedCodexThread, edge_status: Option<&str>) -
                     CodexInferredStatus::Unknown if edge_indicates_closed => PrimaryStatus::Done,
                     CodexInferredStatus::Unknown => PrimaryStatus::Waiting,
                 };
+
+                return (status, reason);
             }
         }
     }
 
-    match edge_status {
-        Some("completed" | "closed") => PrimaryStatus::Done,
-        _ => PrimaryStatus::Waiting,
-    }
+    (
+        match edge_status {
+            Some("completed" | "closed") => PrimaryStatus::Done,
+            _ => PrimaryStatus::Waiting,
+        },
+        None,
+    )
 }
 
 fn observed_subagents_for_parent(
@@ -1175,7 +1338,7 @@ fn observed_subagents_for_parent(
             .flatten()
             .map(|child| {
                 let (name, description) = child_thread_subagent_metadata(child);
-                let status = child_thread_status(
+                let (status, reason) = child_thread_state(
                     child,
                     spawn_status_by_child.get(child.thread.id.as_str()).copied(),
                 );
@@ -1185,6 +1348,7 @@ fn observed_subagents_for_parent(
                     name,
                     description,
                     status,
+                    reason,
                 }
             })
             .map(|subagent| (subagent.thread_id.clone(), subagent))
@@ -1321,6 +1485,24 @@ pub fn reconcile_codex_snapshots(
             });
         }
 
+        let current_activity = infer_codex_activity(session);
+        let previous_activity = previous_session.map(infer_codex_activity);
+        // Only emit when the activity actually changed.  For newly discovered
+        // sessions (previous_session = None) suppress the event when the
+        // session is already idle — there is no meaningful transition to
+        // announce and it avoids a spurious event flood on startup.
+        let activity_changed = match previous_activity {
+            Some(ref prev) => prev != &current_activity,
+            None => current_activity != Some(Activity::Idle),
+        };
+        if activity_changed {
+            events.push(AgentEvent::ActivityChanged {
+                id: session.agent_id.clone(),
+                pid: session.pid,
+                activity: current_activity,
+            });
+        }
+
         let previous_tool_call =
             previous_session.and_then(|session| session.latest_tool_call.as_ref());
         match (previous_tool_call, session.latest_tool_call.as_ref()) {
@@ -1372,6 +1554,7 @@ pub fn reconcile_codex_snapshots(
                         subagent: crate::types::Subagent {
                             name: subagent.name.clone(),
                             status: subagent.status,
+                            reason: subagent.reason.clone(),
                             description: subagent.description.clone(),
                             started_at: Local::now(),
                             ended_at: (subagent.status == PrimaryStatus::Done).then(Local::now),
@@ -1393,6 +1576,18 @@ pub fn reconcile_codex_snapshots(
         }
     }
 
+    if previous_sessions.contains_key("codex-backend")
+        && !current
+            .sessions
+            .iter()
+            .any(|session| session.agent_id.session_id() == Some("codex-backend"))
+    {
+        events.push(AgentEvent::ProcessExited {
+            id: AgentId::session(AgentTool::Codex, "codex-backend"),
+            pid: Some(0),
+        });
+    }
+
     events
 }
 
@@ -1410,35 +1605,27 @@ pub async fn run_codex_detector(
 ) -> anyhow::Result<()> {
     let db_path = codex_data_dir.join("state_5.sqlite");
     let mut previous_snapshot: Option<CodexEventSnapshot> = None;
+    let mut has_seen_db = false;
 
     loop {
+        let db = db_path.clone();
+        let registry = registry.clone();
         if db_path.exists() {
-            let db = db_path.clone();
-            let registry = registry.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                let threads = query_codex_threads(&db)?;
-                let edges = load_spawn_edges_snapshot(&db);
-                let snapshot = build_codex_snapshot(&threads, &edges, &registry);
-                Ok::<_, anyhow::Error>(build_codex_event_snapshot(&snapshot, &edges))
-            })
+            has_seen_db = true;
+        }
+        let result = tokio::task::spawn_blocking(move || {
+            detect_codex_backend_with_history(&db, &registry, has_seen_db)
+        })
             .await?;
 
-            match result {
-                Ok(current_snapshot) => {
-                    let events =
-                        reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);
+        let current_snapshot = result.snapshot;
+        let events = reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);
 
-                    for event in events {
-                        let _ = tx.send(event).await;
-                    }
-
-                    previous_snapshot = Some(current_snapshot);
-                }
-                Err(e) => {
-                    debug!("Failed to query Codex DB: {e}");
-                }
-            }
+        for event in events {
+            let _ = tx.send(event).await;
         }
+
+        previous_snapshot = Some(current_snapshot);
 
         tokio::time::sleep(poll_interval).await;
     }
@@ -1639,6 +1826,7 @@ mod tests {
                     name: "child-a".into(),
                     description: Some("worker".into()),
                     status: PrimaryStatus::Running,
+                    reason: None,
                 }],
             }],
         };

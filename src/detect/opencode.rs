@@ -719,6 +719,7 @@ pub fn collect_subagent_events(
                     } else {
                         crate::types::PrimaryStatus::Running
                     },
+                    reason: None,
                     description: sub.title.clone(),
                     started_at: from_epoch_millis(sub.time_created)
                         .unwrap_or_else(chrono::Local::now),
@@ -757,6 +758,13 @@ pub async fn run_opencode_detector(
             // spawn_blocking call to avoid the repeated open/close overhead.
             let db2 = db_path.clone();
             let registry2 = registry.clone();
+            // Sessions where session_info_sent=true are already initialised; new ones
+            // need a one-shot query for the most-recent tool part to seed recent_events.
+            let known_sessions: HashSet<String> = session_states
+                .iter()
+                .filter(|(_, s)| s.session_info_sent)
+                .map(|(id, _)| id.clone())
+                .collect();
             type SessionData = (
                 OpenCodeSession,
                 u32,                                     // pid
@@ -766,6 +774,7 @@ pub async fn run_opencode_detector(
                 Vec<TodoItem>,                           // todos
                 Vec<OpenCodeSession>,                    // subagent sessions
                 Option<chrono::DateTime<chrono::Local>>, // process_started_at
+                Option<PartData>,                        // initial tool call (new sessions only)
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
             let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<PollData> {
@@ -834,6 +843,40 @@ pub async fn run_opencode_detector(
                     let todos = query_session_todos_conn(&conn, &session.id)?;
                     let subs = query_subagent_sessions_conn(&conn, &session.id)?;
 
+                    // For new (not-yet-initialised) sessions, fetch the most recent
+                    // *running or pending* tool/tool-invocation part so we can seed
+                    // recent_events even when the last active tool call is beyond the
+                    // LIMIT 5 recent-parts window.
+                    //
+                    // We restrict to running/pending because ToolCallStarted also
+                    // sets agent.activity = ToolCall in the app; seeding from a
+                    // completed tool would flash a misleading "tool call" activity
+                    // state until the next ActivityChanged poll corrects it.
+                    // Sessions with no in-progress tools are left with empty
+                    // recent_events on first detection, which is accurate.
+                    let initial_tool_call: Option<PartData> =
+                        if !known_sessions.contains(&session.id) {
+                            let mut tool_stmt = conn.prepare_cached(
+                                "SELECT data, time_created FROM part \
+                                 WHERE session_id = ?1 \
+                                   AND (json_extract(data, '$.type') = 'tool' \
+                                        OR json_extract(data, '$.type') = 'tool-invocation') \
+                                   AND (json_extract(data, '$.state.status') = 'running' \
+                                        OR json_extract(data, '$.state.status') = 'pending') \
+                                 ORDER BY time_created DESC LIMIT 1",
+                            )?;
+                            let rows: Vec<(String, i64)> = tool_stmt
+                                .query_map(rusqlite::params![&session.id], |row| {
+                                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                                })?
+                                .filter_map(|r| r.ok())
+                                .collect();
+                            rows.into_iter()
+                                .find_map(|(json, tc)| parse_part_data(&json, tc))
+                        } else {
+                            None
+                        };
+
                     results.push((
                         session,
                         pid,
@@ -843,6 +886,7 @@ pub async fn run_opencode_detector(
                         todos,
                         subs,
                         process_started_at,
+                        initial_tool_call,
                     ));
                 }
                 Ok((active_session_ids, results))
@@ -860,6 +904,7 @@ pub async fn run_opencode_detector(
                         todos,
                         subs,
                         process_started_at,
+                        initial_tool_call,
                     ) in session_data
                     {
                         let state = session_states.entry(session.id.clone()).or_default();
@@ -877,6 +922,29 @@ pub async fn run_opencode_detector(
                                 })
                                 .await;
                             state.session_info_sent = true;
+
+                            // Seed recent_events with the last known tool call so the
+                            // detail panel doesn't show "no events yet" for sessions
+                            // whose most recent tool call is beyond the LIMIT 5 window.
+                            if let Some(ref part) = initial_tool_call {
+                                if let Some(ref tool_name) = part.tool_name {
+                                    let key = format!(
+                                        "{}:{}:{}",
+                                        tool_name,
+                                        part.tool_input_summary.as_deref().unwrap_or(""),
+                                        part.time_created,
+                                    );
+                                    let _ = tx
+                                        .send(AgentEvent::ToolCallStarted {
+                                            id: AgentId::new(AgentTool::OpenCode, pid),
+                                            pid: Some(pid),
+                                            tool_name: tool_name.clone(),
+                                            args_summary: part.tool_input_summary.clone(),
+                                        })
+                                        .await;
+                                    state.last_tool_call = Some(key);
+                                }
+                            }
                         }
 
                         // ── Parts / status / activity ──────────────────────────────

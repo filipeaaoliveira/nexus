@@ -2,8 +2,10 @@ use nexus::detect::codex::*;
 use nexus::detect::registry::AgentRegistry;
 use nexus::event::AgentEvent;
 use nexus::types::{
-    AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
+    AgentId, AgentTool, CodexBackendHealth, NormalizedReason, NormalizedStatus, PrimaryStatus,
+    TodoPriority, TodoStatus,
 };
+use rusqlite::Connection;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -612,6 +614,249 @@ fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
 }
 
 #[test]
+fn test_detect_codex_backend_missing_db_on_clean_start_is_not_degraded() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-missing-db-{unique}.sqlite"));
+
+    let result = detect_codex_backend(&db_path, &registry);
+
+    assert_eq!(result.backend_health, CodexBackendHealth::Healthy);
+    assert!(result.snapshot.sessions.is_empty());
+}
+
+#[test]
+fn test_detect_codex_backend_missing_db_stays_healthy_across_repeated_clean_start_polls() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-missing-db-repeat-{unique}.sqlite"));
+
+    let first = detect_codex_backend_with_history(&db_path, &registry, false);
+    let second = detect_codex_backend_with_history(&db_path, &registry, false);
+
+    assert_eq!(first.backend_health, CodexBackendHealth::Healthy);
+    assert_eq!(second.backend_health, CodexBackendHealth::Healthy);
+    assert!(first.snapshot.sessions.is_empty());
+    assert!(second.snapshot.sessions.is_empty());
+}
+
+#[test]
+fn test_detect_codex_backend_reports_degraded_for_missing_db_after_previous_state() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-missing-db-late-{unique}.sqlite"));
+
+    let result = detect_codex_backend_with_history(&db_path, &registry, true);
+
+    assert!(matches!(
+        result.backend_health,
+        CodexBackendHealth::Degraded { ref reason } if reason.contains("missing")
+    ));
+    assert_eq!(result.snapshot.sessions.len(), 1);
+    assert_eq!(result.snapshot.sessions[0].pid, Some(0));
+    assert_eq!(
+        result.snapshot.sessions[0]
+            .agent_id
+            .session_id(),
+        Some("codex-backend")
+    );
+    assert_eq!(
+        result.snapshot.sessions[0].final_output.as_deref(),
+        Some("Codex backend is degraded: sqlite state is missing")
+    );
+}
+
+#[test]
+fn test_detect_codex_backend_reports_degraded_for_threads_schema_drift() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-schema-drift-{unique}.sqlite"));
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute("CREATE TABLE not_threads (id INTEGER);", [])
+        .unwrap();
+
+    let result = detect_codex_backend(&db_path, &registry);
+
+    assert!(matches!(
+        result.backend_health,
+        CodexBackendHealth::Degraded { ref reason } if reason.contains("threads")
+    ));
+    assert_eq!(result.snapshot.sessions.len(), 1);
+    assert_eq!(result.snapshot.sessions[0].status, PrimaryStatus::Error);
+}
+
+#[test]
+fn test_detect_codex_backend_reports_degraded_explicitly_when_threads_load_but_edges_fail() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-partial-drift-{unique}.sqlite"));
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE threads (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            cwd TEXT,
+            source TEXT,
+            model TEXT,
+            git_branch TEXT,
+            agent_nickname TEXT,
+            agent_role TEXT,
+            created_at INTEGER,
+            updated_at INTEGER,
+            archived INTEGER,
+            tokens_used INTEGER,
+            rollout_path TEXT
+        );
+        INSERT INTO threads (
+            id, title, cwd, source, model, git_branch, agent_nickname, agent_role,
+            created_at, updated_at, archived, tokens_used, rollout_path
+        ) VALUES (
+            'thread-a', 'Thread A', '/tmp/project', 'cli', 'gpt-5', 'main',
+            NULL, NULL, 10, 20, 0, NULL, NULL
+        );
+        "#,
+    )
+    .unwrap();
+
+    let result = detect_codex_backend(&db_path, &registry);
+
+    assert!(matches!(
+        result.backend_health,
+        CodexBackendHealth::Degraded { ref reason } if reason.contains("spawn edges")
+    ));
+    assert_eq!(result.snapshot.sessions.len(), 2);
+    assert_eq!(result.snapshot.sessions[0].pid, Some(0));
+    assert_eq!(
+        result.snapshot.sessions[0]
+            .agent_id
+            .session_id(),
+        Some("codex-backend")
+    );
+    assert!(result
+        .snapshot
+        .sessions
+        .iter()
+        .any(|session| session.agent_id.session_id() == Some("thread-a")));
+    assert!(result
+        .snapshot
+        .sessions
+        .iter()
+        .any(|session| session.agent_id.session_id() == Some("codex-backend")
+            && session.final_output.as_deref()
+                == Some("Codex backend is degraded: sqlite spawn edges query failed: no such table: thread_spawn_edges")));
+}
+
+#[test]
+fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            agent_id: AgentId::session(AgentTool::Codex, "codex-backend"),
+            pid: Some(0),
+            cwd: PathBuf::from("/"),
+            branch: None,
+            started_at: None,
+            status: PrimaryStatus::Error,
+            final_output: Some("Codex backend is degraded: sqlite state is missing".into()),
+            latest_tool_call: None,
+            todos: Vec::new(),
+            subagents: Vec::new(),
+        }],
+    };
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            agent_id: AgentId::session(AgentTool::Codex, "thread-a"),
+            pid: Some(41),
+            cwd: PathBuf::from("/tmp/project"),
+            branch: Some("main".into()),
+            started_at: nexus::types::from_epoch_secs(10),
+            status: PrimaryStatus::Waiting,
+            final_output: None,
+            latest_tool_call: None,
+            todos: Vec::new(),
+            subagents: Vec::new(),
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::ProcessExited { id, pid }
+            if id == &AgentId::session(AgentTool::Codex, "codex-backend")
+                && pid == &Some(0)
+    )));
+}
+
+#[test]
+fn test_detect_codex_backend_healthy_snapshot_stays_healthy() {
+    let registry = AgentRegistry::new();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let db_path = std::env::temp_dir().join(format!("codex-healthy-{unique}.sqlite"));
+    let conn = Connection::open(&db_path).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE threads (
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            cwd TEXT,
+            source TEXT,
+            model TEXT,
+            git_branch TEXT,
+            agent_nickname TEXT,
+            agent_role TEXT,
+            created_at INTEGER,
+            updated_at INTEGER,
+            archived INTEGER,
+            tokens_used INTEGER,
+            rollout_path TEXT
+        );
+        CREATE TABLE thread_spawn_edges (
+            parent_thread_id TEXT,
+            child_thread_id TEXT,
+            status TEXT
+        );
+        INSERT INTO threads (
+            id, title, cwd, source, model, git_branch, agent_nickname, agent_role,
+            created_at, updated_at, archived, tokens_used, rollout_path
+        ) VALUES (
+            'thread-a', 'Thread A', '/tmp/project', 'cli', 'gpt-5', 'main',
+            NULL, NULL, 10, 20, 0, NULL, NULL
+        );
+        "#,
+    )
+    .unwrap();
+
+    let result = detect_codex_backend(&db_path, &registry);
+
+    assert_eq!(result.backend_health, CodexBackendHealth::Healthy);
+    assert_eq!(result.snapshot.sessions.len(), 1);
+    assert_eq!(result.snapshot.sessions[0].status, PrimaryStatus::Waiting);
+    assert_eq!(
+        result.snapshot.sessions[0].agent_id,
+        AgentId::session(AgentTool::Codex, "thread-a")
+    );
+}
+
+#[test]
 fn test_codex_open_subagent_maps_to_working_subagent() {
     use nexus::types::{NormalizedReason, NormalizedStatus};
 
@@ -621,6 +866,7 @@ fn test_codex_open_subagent_maps_to_working_subagent() {
             name: "Darwin".to_string(),
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
+            reason: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Running)
     };
@@ -640,6 +886,7 @@ fn test_codex_done_review_output_beats_running_subagent() {
             name: "Darwin".to_string(),
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
+            reason: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Done)
     };
@@ -659,6 +906,7 @@ fn test_codex_waiting_question_output_beats_running_subagent() {
             name: "Darwin".to_string(),
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
+            reason: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
     };
@@ -667,6 +915,46 @@ fn test_codex_waiting_question_output_beats_running_subagent() {
         &session,
         Some("I can continue either way. Which option do you want me to take?"),
     );
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Decision));
+}
+
+#[test]
+fn test_codex_waiting_subagent_approval_maps_parent_to_needs_input() {
+    use nexus::types::{NormalizedReason, NormalizedStatus};
+
+    let session = ObservedCodexSession {
+        subagents: vec![ObservedCodexSubagent {
+            thread_id: "child-1".to_string(),
+            name: "Darwin".to_string(),
+            description: Some("child-1".to_string()),
+            status: PrimaryStatus::Waiting,
+            reason: Some(NormalizedReason::Approval),
+        }],
+        ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
+    };
+
+    let normalized = normalize_codex_session(&session, Some("waiting on subagent"));
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
+}
+
+#[test]
+fn test_codex_waiting_subagent_decision_maps_parent_to_needs_input() {
+    use nexus::types::{NormalizedReason, NormalizedStatus};
+
+    let session = ObservedCodexSession {
+        subagents: vec![ObservedCodexSubagent {
+            thread_id: "child-1".to_string(),
+            name: "Darwin".to_string(),
+            description: Some("child-1".to_string()),
+            status: PrimaryStatus::Waiting,
+            reason: Some(NormalizedReason::Decision),
+        }],
+        ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
+    };
+
+    let normalized = normalize_codex_session(&session, Some("waiting on subagent"));
     assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
     assert_eq!(normalized.reason, Some(NormalizedReason::Decision));
 }
@@ -685,6 +973,7 @@ fn test_codex_running_tool_call_beats_running_subagent() {
             name: "Darwin".to_string(),
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
+            reason: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Running)
     };
@@ -899,6 +1188,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
                 name: "Nash".to_string(),
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
+                reason: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Done)
         }],
@@ -1044,6 +1334,7 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
                 name: "Nash".to_string(),
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
+                reason: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
         }],
@@ -1055,6 +1346,7 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
                 name: "Nash".to_string(),
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Done,
+                reason: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
         }],
@@ -1062,20 +1354,24 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
 
     let events = reconcile_codex_snapshots(Some(&previous), &current);
 
-    assert_eq!(events.len(), 2);
     assert!(matches!(
-        &events[0],
-        AgentEvent::NormalizedStateChanged { id, state, .. }
+        events.iter().find(|e| matches!(e, AgentEvent::NormalizedStateChanged { .. })),
+        Some(AgentEvent::NormalizedStateChanged { id, state, .. })
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && state.status == NormalizedStatus::Working
                 && state.reason.is_none()
     ));
-    assert!(matches!(
-        &events[1],
+    assert!(events.iter().any(|e| matches!(
+        e,
+        AgentEvent::ActivityChanged { id, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+    )));
+    assert!(events.iter().any(|e| matches!(
+        e,
         AgentEvent::SubagentCompleted { id, subagent_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagent_name == "child-a"
-    ));
+    )));
 }
 
 #[test]
@@ -1088,12 +1384,14 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     name: "Nash".to_string(),
                     description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
+                    reason: None,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
                     name: "Nash".to_string(),
                     description: Some("child-b".to_string()),
                     status: PrimaryStatus::Running,
+                    reason: None,
                 },
             ],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -1107,12 +1405,14 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     name: "Nash".to_string(),
                     description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
+                    reason: None,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
                     name: "Nash".to_string(),
                     description: Some("child-b".to_string()),
                     status: PrimaryStatus::Done,
+                    reason: None,
                 },
             ],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -1389,6 +1689,91 @@ fn test_codex_rollout_only_spawn_does_not_force_parent_working() {
     assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 
     std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_child_waiting_for_approval_bubbles_to_parent_needs_input() {
+    use nexus::types::{NormalizedReason, NormalizedStatus};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let child_rollout =
+        std::env::temp_dir().join(format!("codex-child-approval-{unique}.jsonl"));
+    std::fs::write(
+        &child_rollout,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"child\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:10.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"turn_aborted\",\"turn_id\":\"turn_1\"}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:11.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn_1\",\"last_agent_message\":\"Need your approval before I continue.\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: 10,
+                updated_at: 20,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: None,
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: Some(41),
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "child".into(),
+                title: Some("Child".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some(
+                    "{\"subagent\":{\"thread_spawn\":{\"parent_thread_id\":\"parent\"}}}".into(),
+                ),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: Some("Euclid".into()),
+                agent_role: Some("worker".into()),
+                created_at: 11,
+                updated_at: 21,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(child_rollout.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "child"),
+            pid: None,
+            classification: CodexThreadClassification::Child {
+                parent_thread_id: Some("parent".into()),
+            },
+        }],
+    };
+    let spawn_edges = vec![SpawnEdge {
+        parent_thread_id: "parent".into(),
+        child_thread_id: "child".into(),
+        status: "open".into(),
+    }];
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &spawn_edges);
+    let session = &event_snapshot.sessions[0];
+    let normalized = normalize_codex_session(session, session.final_output.as_deref());
+
+    assert_eq!(session.subagents.len(), 1);
+    assert_eq!(session.subagents[0].status, PrimaryStatus::Done);
+    assert_eq!(session.subagents[0].reason, Some(NormalizedReason::Approval));
+    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
+
+    std::fs::remove_file(child_rollout).unwrap();
 }
 
 #[test]

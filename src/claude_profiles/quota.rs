@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::claude_profiles::auth::ClaudeAuth;
-use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot, QuotaWindow};
 
 #[derive(Debug, Deserialize)]
 struct ClaudeUsageResponse {
@@ -105,53 +105,29 @@ async fn fetch_claude_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
 
     let usage: ClaudeUsageResponse = response.json().await.ok()?;
     let rate_limits = usage.rate_limits?;
+    let windows = [
+        rate_limits
+            .primary
+            .as_ref()
+            .map(|window| window_response_to_quota_window("5h", window)),
+        rate_limits
+            .secondary
+            .as_ref()
+            .map(|window| window_response_to_quota_window("weekly", window)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
 
-    let five_hour_pct_raw = rate_limits
-        .primary
-        .as_ref()
-        .and_then(|w| w.used_percent)
-        .map(|f| f.round().clamp(0.0, 100.0) as u8);
-    let weekly_pct_raw = rate_limits
-        .secondary
-        .as_ref()
-        .and_then(|w| w.used_percent)
-        .map(|f| f.round().clamp(0.0, 100.0) as u8);
+    let summary = summarize_windows(&windows);
 
-    let five_hour_state = pct_to_state(five_hour_pct_raw);
-    let weekly_state = pct_to_state(weekly_pct_raw);
-
-    let five_hour_reset_at = rate_limits
-        .primary
-        .as_ref()
-        .and_then(|w| w.resets_at)
-        .and_then(|secs| DateTime::from_timestamp(secs, 0));
-    let weekly_reset_at = rate_limits
-        .secondary
-        .as_ref()
-        .and_then(|w| w.resets_at)
-        .and_then(|secs| DateTime::from_timestamp(secs, 0));
-
-    let summary = format!(
-        "5h={}%; weekly={}%",
-        five_hour_pct_raw
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "?".to_string()),
-        weekly_pct_raw
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| "?".to_string()),
-    );
-
-    Some(QuotaSnapshot {
-        captured_at: chrono::Utc::now(),
-        confidence: Confidence::Exact,
-        five_hour_state,
-        five_hour_reset_at,
-        five_hour_used_pct: five_hour_pct_raw,
-        weekly_state,
-        weekly_reset_at,
-        weekly_used_pct: weekly_pct_raw,
+    Some(QuotaSnapshot::from_windows(
+        chrono::Utc::now(),
+        Confidence::Exact,
+        windows,
+        None,
         summary,
-    })
+    ))
 }
 
 fn pct_to_state(pct: Option<u8>) -> LimitState {
@@ -160,6 +136,37 @@ fn pct_to_state(pct: Option<u8>) -> LimitState {
         Some(_) => LimitState::Available,
         None => LimitState::Unknown,
     }
+}
+
+fn window_response_to_quota_window(label: &str, window: &ClaudeWindow) -> QuotaWindow {
+    let used_pct = window
+        .used_percent
+        .map(|f| f.round().clamp(0.0, 100.0) as u8);
+    let state = pct_to_state(used_pct);
+    let reset_at = window
+        .resets_at
+        .and_then(|secs| DateTime::from_timestamp(secs, 0));
+
+    QuotaWindow {
+        label: label.to_string(),
+        used_pct,
+        reset_at,
+        state,
+    }
+}
+
+fn summarize_windows(windows: &[QuotaWindow]) -> String {
+    windows
+        .iter()
+        .map(|window| {
+            let pct = window
+                .used_pct
+                .map(|value| format!("{value}%"))
+                .unwrap_or_else(|| "?".to_string());
+            format!("{}={}", window.label, pct)
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 #[cfg(test)]

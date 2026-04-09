@@ -137,6 +137,35 @@ impl std::fmt::Display for PrimaryStatus {
     }
 }
 
+// ── CodexBackendHealth ────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexBackendHealth {
+    Healthy,
+    Degraded { reason: String },
+}
+
+impl CodexBackendHealth {
+    pub fn degraded(reason: impl Into<String>) -> Self {
+        Self::Degraded {
+            reason: reason.into(),
+        }
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Healthy => None,
+            Self::Degraded { reason } => Some(reason.as_str()),
+        }
+    }
+}
+
+impl Default for CodexBackendHealth {
+    fn default() -> Self {
+        Self::Healthy
+    }
+}
+
 // ── NormalizedStatus / NormalizedReason ────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -175,6 +204,7 @@ pub enum NormalizedReason {
     Decision,
     Review,
     Error,
+    Compacting,
     ReadyForNextTask,
     Custom(String),
 }
@@ -189,6 +219,7 @@ impl NormalizedReason {
             NormalizedReason::Decision => "decision",
             NormalizedReason::Review => "review",
             NormalizedReason::Error => "error",
+            NormalizedReason::Compacting => "compacting",
             NormalizedReason::ReadyForNextTask => "ready for next task",
             NormalizedReason::Custom(reason) => reason.as_str(),
         }
@@ -262,6 +293,7 @@ pub struct ActivityEvent {
 pub struct Subagent {
     pub name: String,
     pub status: PrimaryStatus,
+    pub reason: Option<NormalizedReason>,
     pub description: Option<String>,
     pub started_at: DateTime<Local>,
     pub ended_at: Option<DateTime<Local>>,

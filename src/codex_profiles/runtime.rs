@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-use crate::codex_profiles::quota::{parse_status_output, QuotaSnapshot};
+use crate::codex_profiles::quota::{parse_legacy_status_output, QuotaSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePlan {
@@ -62,6 +62,24 @@ impl RuntimePlan {
 
         Ok(())
     }
+}
+
+pub fn canonical_repo_root(cwd: &Path) -> Result<PathBuf> {
+    let resolved = git_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    normalize_repo_path(&resolved)
+}
+
+pub fn repo_runtime_key(repo_root: &Path) -> String {
+    let normalized = normalize_repo_path(repo_root).unwrap_or_else(|_| repo_root.to_path_buf());
+    let repo_name = normalized
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(filesystem_safe_segment)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "repo".to_string());
+    let hash = stable_path_hash(&normalized);
+
+    format!("{repo_name}-{hash:08x}")
 }
 
 pub fn require_codex_binary(path_override: Option<&Path>) -> Result<PathBuf> {
@@ -191,5 +209,71 @@ pub fn get_codex_quota(codex_bin: &Path, runtime: &RuntimePlan) -> Result<Option
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(parse_status_output(&stdout))
+    Ok(parse_legacy_status_output(&stdout))
+}
+
+fn git_repo_root(cwd: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let root = stdout.trim();
+    if root.is_empty() {
+        return None;
+    }
+
+    Some(PathBuf::from(root))
+}
+
+fn normalize_repo_path(path: &Path) -> Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()
+            .context("failed to resolve current working directory")?
+            .join(path)
+    };
+
+    match absolute.canonicalize() {
+        Ok(path) => Ok(path),
+        Err(_) => Ok(absolute),
+    }
+}
+
+fn filesystem_safe_segment(input: &str) -> String {
+    let mut segment = String::new();
+    let mut last_was_dash = false;
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            segment.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            segment.push('-');
+            last_was_dash = true;
+        }
+    }
+
+    segment.trim_matches('-').to_string()
+}
+
+fn stable_path_hash(path: &Path) -> u32 {
+    const FNV_OFFSET: u32 = 0x811c9dc5;
+    const FNV_PRIME: u32 = 0x01000193;
+
+    let mut hash = FNV_OFFSET;
+    for byte in path.to_string_lossy().as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+
+    hash
 }

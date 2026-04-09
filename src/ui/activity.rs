@@ -67,7 +67,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
                 Span::styled(&sub.name, Style::default().fg(theme::COLOR_SUBAGENT)),
                 Span::styled("  ", Style::default()),
                 Span::styled(
-                    sub.status.as_str(),
+                    subagent_status_text(sub),
                     Style::default().fg(theme::status_color(sub.status)),
                 ),
                 Span::styled(
@@ -112,4 +112,48 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     }
 
     frame.render_widget(Paragraph::new(event_lines), chunks[1]);
+}
+
+fn subagent_status_text(subagent: &crate::types::Subagent) -> String {
+    match &subagent.reason {
+        Some(reason) => format!("{} · {}", subagent.status.as_str(), reason.as_str()),
+        None => subagent.status.as_str().to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Local;
+
+    use crate::types::{NormalizedReason, PrimaryStatus, Subagent};
+
+    use super::subagent_status_text;
+
+    #[test]
+    fn subagent_status_text_includes_reason_when_present() {
+        let subagent = Subagent {
+            name: "Euclid".to_string(),
+            status: PrimaryStatus::Waiting,
+            reason: Some(NormalizedReason::Approval),
+            description: Some("child-a".to_string()),
+            started_at: Local::now(),
+            ended_at: None,
+        };
+
+        assert_eq!(subagent_status_text(&subagent), "WAITING · approval");
+    }
+
+    #[test]
+    fn subagent_status_text_uses_plain_status_without_reason() {
+        let subagent = Subagent {
+            name: "Euclid".to_string(),
+            status: PrimaryStatus::Running,
+            reason: None,
+            description: Some("child-a".to_string()),
+            started_at: Local::now(),
+            ended_at: None,
+        };
+
+        assert_eq!(subagent_status_text(&subagent), "RUNNING");
+    }
 }

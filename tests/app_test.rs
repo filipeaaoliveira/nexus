@@ -1,7 +1,9 @@
 use nexus::app::{ActiveTab, AppState, AccountsTabState};
+use nexus::codex_profiles::runtime::repo_runtime_key;
 use nexus::config::Config;
 use nexus::event::AgentEvent;
 use nexus::types::*;
+use std::fs;
 use nexus::ui::{footer, help};
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -122,6 +124,235 @@ fn test_initial_state_is_empty() {
 fn test_initial_state_starts_on_overview_tab() {
     let state = make_state();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
+}
+
+fn init_git_repo(repo_root: &std::path::Path) {
+    fs::create_dir_all(repo_root).expect("repo root");
+    let status = std::process::Command::new("git")
+        .arg("init")
+        .arg(repo_root)
+        .status()
+        .expect("git init");
+    assert!(status.success(), "git init failed with {status}");
+}
+
+fn write_session_cwd(session_dir: &std::path::Path, cwd: &std::path::Path) {
+    fs::create_dir_all(session_dir).expect("session dir");
+    fs::write(
+        session_dir.join("session.jsonl"),
+        format!(r#"{{"cwd":"{}"}}"#, cwd.display()),
+    )
+    .expect("session metadata");
+}
+
+#[test]
+fn app_repo_runtime_dir_uses_repo_specific_key() {
+    let state = make_state();
+    let repo_root = PathBuf::from("/tmp/work/project");
+
+    let repo_dir = state.current_repo_runtime_dir(&repo_root);
+
+    assert_eq!(
+        repo_dir,
+        state.config.codex_repos_dir.join(repo_runtime_key(&repo_root))
+    );
+    assert_ne!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
+}
+
+#[test]
+fn get_repo_sessions_reads_repo_specific_directory() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path().join("project");
+    let nested = repo_root.join("nested").join("deeper");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(&nested).expect("nested cwd");
+    let repo_dir = state.current_repo_runtime_dir(&repo_root);
+    let sessions_dir = repo_dir.join("sessions/2026/04/05");
+    fs::create_dir_all(&sessions_dir).expect("session dir");
+
+    let sessions = state.get_repo_sessions_for_cwd(&nested);
+
+    assert_eq!(sessions, vec!["2026/04/05".to_string()]);
+}
+
+#[test]
+fn get_repo_sessions_falls_back_to_legacy_current_repo_directory() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path().join("project");
+    let nested = repo_root.join("nested");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(&nested).expect("nested cwd");
+    let legacy_sessions = state
+        .config
+        .codex_repos_dir
+        .join("current-repo")
+        .join("sessions/2025/12/31");
+    write_session_cwd(&legacy_sessions, &nested);
+
+    let sessions = state.get_repo_sessions_for_cwd(&nested);
+
+    assert_eq!(sessions, vec!["2025/12/31".to_string()]);
+}
+
+#[test]
+fn legacy_sessions_do_not_leak_across_repos() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_a = temp.path().join("repo-a");
+    let repo_b = temp.path().join("repo-b");
+    let repo_a_nested = repo_a.join("nested");
+    let repo_b_nested = repo_b.join("nested");
+
+    init_git_repo(&repo_a);
+    init_git_repo(&repo_b);
+    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
+    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
+
+    let legacy_session = state
+        .config
+        .codex_repos_dir
+        .join("current-repo")
+        .join("sessions/2025/12/31");
+    write_session_cwd(&legacy_session, &repo_b_nested);
+
+    let sessions = state.get_repo_sessions_for_cwd(&repo_a_nested);
+
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn duplicate_sessions_prefer_hashed_store_over_legacy() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path().join("project");
+    let nested = repo_root.join("nested");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(&nested).expect("nested cwd");
+
+    let hashed_session = state
+        .current_repo_runtime_dir(&nested)
+        .join("sessions/2025/12/31");
+    fs::create_dir_all(&hashed_session).expect("hashed session dir");
+
+    let legacy_session = state
+        .config
+        .codex_repos_dir
+        .join("current-repo")
+        .join("sessions/2025/12/31");
+    write_session_cwd(&legacy_session, &nested);
+
+    let sessions = state.get_repo_sessions_for_cwd(&nested);
+    let repo_dir = state.repo_runtime_dir_for_session(&nested, "2025/12/31");
+
+    assert_eq!(sessions, vec!["2025/12/31".to_string()]);
+    assert_eq!(repo_dir, state.current_repo_runtime_dir(&nested));
+}
+
+#[test]
+fn current_repo_launch_dir_stays_hashed_even_when_legacy_exists() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path().join("project");
+    let nested = repo_root.join("nested");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(&nested).expect("nested cwd");
+    fs::create_dir_all(state.config.codex_repos_dir.join("current-repo")).expect("legacy dir");
+
+    let repo_dir = state.current_repo_runtime_dir(&nested);
+
+    assert_eq!(repo_dir, state.config.codex_repos_dir.join(repo_runtime_key(&repo_root)));
+    assert_ne!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
+}
+
+#[test]
+fn legacy_only_session_resolves_to_legacy_runtime_dir() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_root = temp.path().join("project");
+    let nested = repo_root.join("nested");
+
+    init_git_repo(&repo_root);
+    fs::create_dir_all(&nested).expect("nested cwd");
+    let legacy_session = state
+        .config
+        .codex_repos_dir
+        .join("current-repo")
+        .join("sessions/2025/12/31");
+    write_session_cwd(&legacy_session, &nested);
+
+    let repo_dir = state.repo_runtime_dir_for_session(&nested, "2025/12/31");
+
+    assert_eq!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
+}
+
+#[test]
+fn unrelated_legacy_session_id_does_not_capture_repo_runtime_resolution() {
+    let state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_a = temp.path().join("repo-a");
+    let repo_b = temp.path().join("repo-b");
+    let repo_a_nested = repo_a.join("nested");
+    let repo_b_nested = repo_b.join("nested");
+
+    init_git_repo(&repo_a);
+    init_git_repo(&repo_b);
+    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
+    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
+
+    let legacy_session = state
+        .config
+        .codex_repos_dir
+        .join("current-repo")
+        .join("sessions/2025/12/31");
+    write_session_cwd(&legacy_session, &repo_b_nested);
+
+    let repo_dir = state.repo_runtime_dir_for_session(&repo_a_nested, "2025/12/31");
+
+    assert_eq!(repo_dir, state.current_repo_runtime_dir(&repo_a_nested));
+}
+
+#[test]
+fn running_codex_sessions_for_cwd_filters_to_current_repo() {
+    let mut state = make_state();
+    let temp = tempdir().expect("tempdir");
+    let repo_a = temp.path().join("repo-a");
+    let repo_b = temp.path().join("repo-b");
+    let repo_a_nested = repo_a.join("nested");
+    let repo_b_nested = repo_b.join("nested");
+
+    init_git_repo(&repo_a);
+    init_git_repo(&repo_b);
+    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
+    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
+
+    state.handle_event(discovered(AgentTool::Codex, 1001, &repo_a_nested, None));
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        1001,
+        "session-a",
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(discovered(AgentTool::Codex, 1002, &repo_b_nested, None));
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        1002,
+        "session-b",
+        None,
+        false,
+        None,
+    ));
+
+    let sessions = state.running_codex_sessions_for_cwd(&repo_a_nested);
+
+    assert_eq!(sessions, vec![("session-a".to_string(), Some(1001))]);
 }
 
 #[test]
@@ -311,6 +542,7 @@ fn test_subagent_spawned_and_completed() {
         Subagent {
             name: "explore".to_string(),
             status: PrimaryStatus::Running,
+            reason: None,
             description: Some("searching codebase".to_string()),
             started_at: chrono::Local::now(),
             ended_at: None,
@@ -1472,6 +1704,7 @@ fn test_codex_subagent_completion_matches_stable_key_and_keeps_human_name() {
         subagent: Subagent {
             name: "Nash".to_string(),
             status: PrimaryStatus::Running,
+            reason: None,
             description: Some("child-a".to_string()),
             started_at: chrono::Local::now(),
             ended_at: None,
@@ -1866,4 +2099,35 @@ fn codex_tab_active_profile_can_be_set() {
     state.accounts_tab.codex_profile_ids = vec!["profile-01".into(), "profile-02".into()];
     state.set_active_codex_profile(Some("profile-01".into()));
     assert_eq!(state.active_codex_profile_id(), Some("profile-01"));
+}
+
+#[test]
+fn confirm_codex_quota_edit_saves_structured_windows() {
+    let mut state = make_state();
+    let profile_dir = state.config.codex_profiles_dir.join("profile-01");
+    fs::create_dir_all(&profile_dir).expect("profile dir");
+    fs::write(
+        profile_dir.join("auth.json"),
+        r#"{"email":"dev@example.com"}"#,
+    )
+    .expect("auth json");
+
+    state.accounts_tab.codex_profile_ids = vec!["profile-01".to_string()];
+    state.accounts_tab.selected_index = Some(0);
+
+    state.start_codex_quota_edit();
+    state.accounts_tab.quota = None;
+
+    state.confirm_codex_quota_edit().expect("quota save");
+
+    let cache = state.accounts_tab.codex_quota_cache.as_ref().expect("cache");
+    let snapshot = cache.by_profile.get("profile-01").expect("snapshot");
+    assert_eq!(snapshot.confidence, nexus::codex_profiles::quota::Confidence::Cached);
+    assert_eq!(snapshot.windows.len(), 2);
+    assert_eq!(snapshot.windows[0].label, "5h");
+    assert_eq!(snapshot.windows[1].label, "weekly");
+    assert_eq!(
+        state.accounts_tab.status_message.as_deref(),
+        Some("Saved manual fallback quota for profile-01")
+    );
 }

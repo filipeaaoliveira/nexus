@@ -9,6 +9,7 @@ use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::{
     detect_live_profile_id, extract_auth_metadata, load_profile_metadata,
 };
+use crate::codex_profiles::quota::{Confidence, CreditsState, LimitState, QuotaWindow};
 use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
@@ -59,6 +60,46 @@ fn format_reset_duration(reset_at: chrono::DateTime<chrono::Utc>) -> String {
         let minutes = total_minutes % 60;
         format!("{}h {}m", hours, minutes)
     }
+}
+
+fn window_state_symbol(state: &LimitState) -> &'static str {
+    match state {
+        LimitState::Hit => "✗",
+        LimitState::Available => "✓",
+        LimitState::Unknown => "?",
+    }
+}
+
+fn confidence_label(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Exact => "exact",
+        Confidence::Parsed => "parsed",
+        Confidence::Cached => "cached",
+        Confidence::Unavailable => "unavailable",
+    }
+}
+
+fn credit_summary(credits: &CreditsState) -> Option<String> {
+    if !credits.enabled {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    if credits.unlimited {
+        parts.push("unlimited".to_string());
+    } else if let Some(balance_label) = credits.balance_label.as_ref() {
+        parts.push(balance_label.clone());
+    }
+
+    if parts.is_empty() {
+        Some("credits".to_string())
+    } else {
+        Some(format!("credits {}", parts.join(" ")))
+    }
+}
+
+fn effective_windows(quota: &crate::codex_profiles::quota::QuotaSnapshot) -> Vec<QuotaWindow> {
+    quota.effective_windows()
 }
 
 pub fn render(frame: &mut Frame, state: &AppState) {
@@ -187,17 +228,23 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
                 cache
                     .and_then(|c| c.by_profile.get(&entry.profile_id))
                     .map(|quota| {
-                        let five_h = match quota.five_hour_state {
-                            crate::codex_profiles::quota::LimitState::Hit => "✗",
-                            crate::codex_profiles::quota::LimitState::Available => "✓",
-                            crate::codex_profiles::quota::LimitState::Unknown => "?",
+                        let windows = effective_windows(quota);
+                        let window_bits = windows
+                            .iter()
+                            .map(|window| {
+                                format!("{}:{}", window.label, window_state_symbol(&window.state))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let mut indicator = if window_bits.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [{}]", window_bits)
                         };
-                        let wk = match quota.weekly_state {
-                            crate::codex_profiles::quota::LimitState::Hit => "✗",
-                            crate::codex_profiles::quota::LimitState::Available => "✓",
-                            crate::codex_profiles::quota::LimitState::Unknown => "?",
-                        };
-                        format!(" [{}/{}]", five_h, wk)
+                        if let Some(credits) = quota.credits.as_ref().and_then(credit_summary) {
+                            indicator.push_str(&format!(" {{{credits}}}"));
+                        }
+                        indicator
                     })
             };
 
@@ -260,12 +307,13 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
 /// otherwise falls back to a text label. If `suffix` is provided it is
 /// appended as a final styled span (used to attach the "as of HH:MM" caption).
 pub(crate) fn quota_row(
-    label: &'static str,
+    label: impl Into<String>,
     pct: Option<u8>,
     limit_state: &crate::codex_profiles::quota::LimitState,
     reset_at: Option<chrono::DateTime<chrono::Utc>>,
     suffix: Option<String>,
 ) -> Line<'static> {
+    let label = label.into();
     let mut spans: Vec<Span<'static>> = if let Some(pct) = pct {
         let (bar, bar_color) = quota_bar_spans(pct, 20);
         let mut s = vec![
@@ -444,22 +492,27 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
 
     if let Some(ref quota) = state.accounts_tab.quota {
         lines.push(Line::from(Span::raw("")));
-        lines.push(quota_row(
-            "  quota (5h):  ",
-            quota.five_hour_used_pct.map(|p| 100 - p),
-            &quota.five_hour_state,
-            quota.five_hour_reset_at,
-            None,
-        ));
+        for window in effective_windows(quota) {
+            let used_remaining = window.used_pct.map(|p| 100 - p);
+            let label = format!("  quota ({}):  ", window.label);
+            lines.push(quota_row(label, used_remaining, &window.state, window.reset_at, None));
+        }
+        if let Some(credits) = quota.credits.as_ref().and_then(credit_summary) {
+            lines.push(Line::from(vec![
+                Span::styled("  credits: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(credits, Style::default().fg(theme::FG_DEFAULT)),
+            ]));
+        }
         let captured_local = chrono::DateTime::<chrono::Local>::from(quota.captured_at);
         let captured_str = format!(" at {}", captured_local.format("%H:%M"));
-        lines.push(quota_row(
-            "  quota (7d):  ",
-            quota.weekly_used_pct.map(|p| 100 - p),
-            &quota.weekly_state,
-            quota.weekly_reset_at,
-            Some(captured_str),
-        ));
+        lines.push(Line::from(vec![
+            Span::styled("  confidence: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(
+                confidence_label(quota.confidence),
+                Style::default().fg(theme::FG_DEFAULT),
+            ),
+            Span::styled(captured_str, Style::default().fg(theme::FG_COMMENT)),
+        ]));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);

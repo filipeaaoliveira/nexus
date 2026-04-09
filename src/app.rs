@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::cmp::Reverse;
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,7 +15,7 @@ use crate::codex_profiles::profile::{
 };
 use crate::codex_profiles::quota::{load_quota_cache, save_quota_cache, QuotaCache, QuotaSnapshot};
 use crate::codex_profiles::runtime::{
-    launch_codex, require_codex_binary, RuntimePlan,
+    canonical_repo_root, launch_codex, repo_runtime_key, require_codex_binary, RuntimePlan,
 };
 use crate::config::Config;
 use crate::event::AgentEvent;
@@ -385,6 +385,40 @@ fn next_profile_id(profiles_dir: &std::path::Path) -> String {
     format!("profile-{next:02}")
 }
 
+fn quota_state_to_input(state: &crate::codex_profiles::quota::LimitState) -> String {
+    match state {
+        crate::codex_profiles::quota::LimitState::Hit => "HIT".to_string(),
+        crate::codex_profiles::quota::LimitState::Available => "ok".to_string(),
+        crate::codex_profiles::quota::LimitState::Unknown => "?".to_string(),
+    }
+}
+
+fn quota_input_to_window(
+    label: &str,
+    input: &str,
+) -> crate::codex_profiles::quota::QuotaWindow {
+    let state = match input.to_uppercase().as_str() {
+        "HIT" => crate::codex_profiles::quota::LimitState::Hit,
+        "?" => crate::codex_profiles::quota::LimitState::Unknown,
+        _ => crate::codex_profiles::quota::LimitState::Available,
+    };
+
+    crate::codex_profiles::quota::QuotaWindow {
+        label: label.to_string(),
+        used_pct: None,
+        reset_at: None,
+        state,
+    }
+}
+
+fn quota_summary_from_windows(windows: &[crate::codex_profiles::quota::QuotaWindow]) -> String {
+    windows
+        .iter()
+        .map(|window| format!("{}={:?}", window.label, window.state))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 impl AppState {
     pub fn new(config: Config) -> Self {
         let mut accounts_tab = AccountsTabState::default();
@@ -682,63 +716,22 @@ impl AppState {
     }
 
     pub fn get_repo_sessions(&self) -> Vec<String> {
-        let repo_dir = self.config.codex_repos_dir.join("current-repo");
-        let sessions_dir = repo_dir.join("sessions");
+        let cwd = match std::env::current_dir() {
+            Ok(path) => path,
+            Err(_) => return Vec::new(),
+        };
+        self.get_repo_sessions_for_cwd(&cwd)
+    }
 
-        if !sessions_dir.is_dir() {
-            return Vec::new();
-        }
+    pub fn get_repo_sessions_for_cwd(&self, cwd: &Path) -> Vec<String> {
+        let current_repo_dir = self.current_repo_runtime_dir(cwd);
+        let current_repo_root = canonical_repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+        let mut sessions = BTreeSet::new();
 
-        let mut sessions = Vec::new();
+        self.collect_repo_sessions(&current_repo_dir, &mut sessions);
+        self.collect_legacy_repo_sessions(&self.legacy_repo_runtime_dir(), &current_repo_root, &mut sessions);
 
-        // Read year directories (e.g., 2025, 2026)
-        if let Ok(year_entries) = fs::read_dir(&sessions_dir) {
-            for year_entry in year_entries.flatten() {
-                let year_path = year_entry.path();
-                if !year_path.is_dir() {
-                    continue;
-                }
-                let year_name = match year_path.file_name().and_then(|n| n.to_str()) {
-                    Some(n) => n.to_string(),
-                    None => continue,
-                };
-
-                // Read month directories (e.g., 01, 02, 03)
-                if let Ok(month_entries) = fs::read_dir(&year_path) {
-                    for month_entry in month_entries.flatten() {
-                        let month_path = month_entry.path();
-                        if !month_path.is_dir() {
-                            continue;
-                        }
-                        let month_name = match month_path.file_name().and_then(|n| n.to_str()) {
-                            Some(n) => n.to_string(),
-                            None => continue,
-                        };
-
-                        // Read actual session directories
-                        if let Ok(session_entries) = fs::read_dir(&month_path) {
-                            for session_entry in session_entries.flatten() {
-                                let session_path = session_entry.path();
-                                if !session_path.is_dir() {
-                                    continue;
-                                }
-                                let session_name =
-                                    match session_path.file_name().and_then(|n| n.to_str()) {
-                                        Some(n) if !n.starts_with('.') => n.to_string(),
-                                        _ => continue,
-                                    };
-                                // Format: 2026/04/04
-                                sessions
-                                    .push(format!("{}/{}/{}", year_name, month_name, session_name));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        sessions.sort();
-        sessions
+        sessions.into_iter().collect()
     }
 
     pub fn start_session_picker_for_resume(&mut self) {
@@ -916,18 +909,18 @@ impl AppState {
             return;
         };
 
-        // Initialize with current quota values or defaults
+        // Initialize with the currently displayed windows when available, otherwise
+        // fall back to the manual two-field editor.
         if let Some(ref quota) = self.accounts_tab.quota {
-            self.accounts_tab.quota_five_hour = match quota.five_hour_state {
-                crate::codex_profiles::quota::LimitState::Hit => "HIT".to_string(),
-                crate::codex_profiles::quota::LimitState::Available => "ok".to_string(),
-                crate::codex_profiles::quota::LimitState::Unknown => "?".to_string(),
-            };
-            self.accounts_tab.quota_weekly = match quota.weekly_state {
-                crate::codex_profiles::quota::LimitState::Hit => "HIT".to_string(),
-                crate::codex_profiles::quota::LimitState::Available => "ok".to_string(),
-                crate::codex_profiles::quota::LimitState::Unknown => "?".to_string(),
-            };
+            let windows = quota.effective_windows();
+            self.accounts_tab.quota_five_hour = windows
+                .first()
+                .map(|window| quota_state_to_input(&window.state))
+                .unwrap_or_else(|| "ok".to_string());
+            self.accounts_tab.quota_weekly = windows
+                .get(1)
+                .map(|window| quota_state_to_input(&window.state))
+                .unwrap_or_else(|| "ok".to_string());
         } else {
             self.accounts_tab.quota_five_hour = "ok".to_string();
             self.accounts_tab.quota_weekly = "ok".to_string();
@@ -981,32 +974,19 @@ impl AppState {
             None => return Err(anyhow!("no profile selected")),
         };
 
-        // Parse the input strings to create a QuotaSnapshot
-        let five_hour_state = match self.accounts_tab.quota_five_hour.to_uppercase().as_str() {
-            "HIT" => crate::codex_profiles::quota::LimitState::Hit,
-            "?" => crate::codex_profiles::quota::LimitState::Unknown,
-            _ => crate::codex_profiles::quota::LimitState::Available,
-        };
+        let windows = vec![
+            quota_input_to_window("5h", &self.accounts_tab.quota_five_hour),
+            quota_input_to_window("weekly", &self.accounts_tab.quota_weekly),
+        ];
+        let summary = quota_summary_from_windows(&windows);
 
-        let weekly_state = match self.accounts_tab.quota_weekly.to_uppercase().as_str() {
-            "HIT" => crate::codex_profiles::quota::LimitState::Hit,
-            "?" => crate::codex_profiles::quota::LimitState::Unknown,
-            _ => crate::codex_profiles::quota::LimitState::Available,
-        };
-
-        let summary = format!("5h={:?}; weekly={:?}", five_hour_state, weekly_state);
-
-        let quota = QuotaSnapshot {
-            captured_at: Utc::now(),
-            confidence: crate::codex_profiles::quota::Confidence::Exact,
-            five_hour_state,
-            five_hour_reset_at: None,
-            five_hour_used_pct: None,
-            weekly_state,
-            weekly_reset_at: None,
-            weekly_used_pct: None,
+        let quota = QuotaSnapshot::from_windows(
+            Utc::now(),
+            crate::codex_profiles::quota::Confidence::Cached,
+            windows,
+            None,
             summary,
-        };
+        );
 
         // Save to cache
         let mut cache = self.accounts_tab.codex_quota_cache.take().unwrap_or_default();
@@ -1018,7 +998,8 @@ impl AppState {
 
         self.accounts_tab.quota = Some(quota);
         self.accounts_tab.quota_edit_mode = false;
-        self.accounts_tab.status_message = Some(format!("Saved quota for {}", profile_id));
+        self.accounts_tab.status_message =
+            Some(format!("Saved manual fallback quota for {}", profile_id));
         Ok(())
     }
 
@@ -1238,10 +1219,10 @@ impl AppState {
             .selected_codex_profile_id()
             .ok_or_else(|| anyhow!("no Codex profile selected"))?;
         let profile_dir = self.config.codex_profiles_dir.join(profile_id);
-        let repo_dir = self.config.codex_repos_dir.join("current-repo");
         let runtime_home = self.config.codex_runtime_dir.join(profile_id);
         let working_dir =
             std::env::current_dir().context("failed to resolve current working directory")?;
+        let repo_dir = self.current_repo_runtime_dir(&working_dir);
         let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
         let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())?;
 
@@ -1270,7 +1251,6 @@ impl AppState {
         };
 
         let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-        let repo_dir = self.config.codex_repos_dir.join("current-repo");
         let runtime_home = self.config.codex_runtime_dir.join(&profile_id);
         let working_dir = match std::env::current_dir() {
             Ok(d) => d,
@@ -1279,6 +1259,7 @@ impl AppState {
                 return;
             }
         };
+        let repo_dir = self.repo_runtime_dir_for_session(&working_dir, session_id);
 
         let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
 
@@ -1495,10 +1476,12 @@ impl AppState {
 
     pub fn write_selected_profile_to_codex_home(&mut self) -> Result<()> {
         let active_profile_id = self
-            .active_codex_profile_id()
-            .ok_or_else(|| anyhow!("no active profile"))?;
+            .selected_account()
+            .filter(|(p, _)| *p == Provider::Codex)
+            .map(|(_, id)| id.to_string())
+            .ok_or_else(|| anyhow!("no codex profile selected"))?;
 
-        let profile_dir = self.config.codex_profiles_dir.join(active_profile_id);
+        let profile_dir = self.config.codex_profiles_dir.join(&active_profile_id);
         let source_auth = profile_dir.join("auth.json");
 
         if !source_auth.is_file() {
@@ -1530,27 +1513,49 @@ impl AppState {
             .collect()
     }
 
+    pub fn running_codex_sessions_for_cwd(&self, cwd: &Path) -> Vec<(String, Option<u32>)> {
+        let current_repo_root = canonical_repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+
+        self.agents
+            .iter()
+            .filter(|a| {
+                a.id.tool() == AgentTool::Codex
+                    && a.id.is_session()
+                    && a.status != PrimaryStatus::Exited
+                    && a.session_id.as_ref().is_some_and(|s| !s.is_empty())
+                    && canonical_repo_root(&a.cwd)
+                        .map(|repo_root| repo_root == current_repo_root)
+                        .unwrap_or(false)
+            })
+            .map(|a| (a.session_id.clone().unwrap(), a.pid))
+            .collect()
+    }
+
     pub fn restart_running_codex_with_profile(&mut self) -> Result<usize> {
         let active_profile_id = match self.active_codex_profile_id() {
             Some(id) => id,
             None => return Ok(0),
         };
 
-        let running_sessions = self.running_codex_sessions();
+        let working_dir =
+            std::env::current_dir().context("failed to resolve current working directory")?;
+        let running_sessions = self.running_codex_sessions_for_cwd(&working_dir);
         if running_sessions.is_empty() {
             return Ok(0);
         }
 
         let profile_dir = self.config.codex_profiles_dir.join(active_profile_id);
-        let repo_dir = self.config.codex_repos_dir.join("current-repo");
         let runtime_home = self.config.codex_runtime_dir.join(active_profile_id);
-        let working_dir =
-            std::env::current_dir().context("failed to resolve current working directory")?;
-        let runtime = RuntimePlan::new(profile_dir, repo_dir, runtime_home);
         let codex_bin = require_codex_binary(self.config.codex_binary.as_deref())?;
 
         let mut restarted = 0;
         for (session_id, _pid) in &running_sessions {
+            let repo_dir = self.repo_runtime_dir_for_session(&working_dir, session_id);
+            let runtime = RuntimePlan::new(
+                profile_dir.clone(),
+                repo_dir,
+                runtime_home.clone(),
+            );
             let args = vec!["resume".to_string(), session_id.clone()];
             let status = launch_codex(codex_bin.as_path(), &runtime, &args, working_dir.as_path())?;
 
@@ -1564,6 +1569,215 @@ impl AppState {
             restarted, active_profile_id
         ));
         Ok(restarted)
+    }
+
+    pub fn current_repo_runtime_dir(&self, cwd: &Path) -> PathBuf {
+        let repo_root = canonical_repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+        self.config.codex_repos_dir.join(repo_runtime_key(&repo_root))
+    }
+
+    pub fn repo_runtime_dir_for_session(&self, cwd: &Path, session_id: &str) -> PathBuf {
+        let current_repo_dir = self.current_repo_runtime_dir(cwd);
+        let legacy_repo_dir = self.legacy_repo_runtime_dir();
+        let current_repo_root = canonical_repo_root(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+
+        if self.session_exists_in_repo_dir(&current_repo_dir, session_id) {
+            current_repo_dir
+        } else if self.legacy_session_matches_repo(&legacy_repo_dir, session_id, &current_repo_root) {
+            legacy_repo_dir
+        } else {
+            current_repo_dir
+        }
+    }
+
+    fn legacy_repo_runtime_dir(&self) -> PathBuf {
+        self.config.codex_repos_dir.join("current-repo")
+    }
+
+    fn session_exists_in_repo_dir(&self, repo_dir: &Path, session_id: &str) -> bool {
+        repo_dir.join("sessions").join(session_id).is_dir()
+    }
+
+    fn legacy_session_matches_repo(
+        &self,
+        repo_dir: &Path,
+        session_id: &str,
+        current_repo_root: &Path,
+    ) -> bool {
+        let session_dir = repo_dir.join("sessions").join(session_id);
+        session_dir.is_dir() && self.legacy_session_belongs_to_repo(&session_dir, current_repo_root)
+    }
+
+    fn collect_repo_sessions(&self, repo_dir: &Path, sessions: &mut BTreeSet<String>) {
+        let sessions_dir = repo_dir.join("sessions");
+        if !sessions_dir.is_dir() {
+            return;
+        }
+
+        if let Ok(year_entries) = fs::read_dir(&sessions_dir) {
+            for year_entry in year_entries.flatten() {
+                let year_path = year_entry.path();
+                if !year_path.is_dir() {
+                    continue;
+                }
+                let year_name = match year_path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+
+                if let Ok(month_entries) = fs::read_dir(&year_path) {
+                    for month_entry in month_entries.flatten() {
+                        let month_path = month_entry.path();
+                        if !month_path.is_dir() {
+                            continue;
+                        }
+                        let month_name = match month_path.file_name().and_then(|n| n.to_str()) {
+                            Some(n) => n.to_string(),
+                            None => continue,
+                        };
+
+                        if let Ok(session_entries) = fs::read_dir(&month_path) {
+                            for session_entry in session_entries.flatten() {
+                                let session_path = session_entry.path();
+                                if !session_path.is_dir() {
+                                    continue;
+                                }
+                                let session_name =
+                                    match session_path.file_name().and_then(|n| n.to_str()) {
+                                        Some(n) if !n.starts_with('.') => n.to_string(),
+                                        _ => continue,
+                                    };
+                                sessions.insert(format!(
+                                    "{}/{}/{}",
+                                    year_name, month_name, session_name
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_legacy_repo_sessions(
+        &self,
+        repo_dir: &Path,
+        current_repo_root: &Path,
+        sessions: &mut BTreeSet<String>,
+    ) {
+        let sessions_dir = repo_dir.join("sessions");
+        if !sessions_dir.is_dir() {
+            return;
+        }
+
+        if let Ok(year_entries) = fs::read_dir(&sessions_dir) {
+            for year_entry in year_entries.flatten() {
+                let year_path = year_entry.path();
+                if !year_path.is_dir() {
+                    continue;
+                }
+                let year_name = match year_path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+
+                if let Ok(month_entries) = fs::read_dir(&year_path) {
+                    for month_entry in month_entries.flatten() {
+                        let month_path = month_entry.path();
+                        if !month_path.is_dir() {
+                            continue;
+                        }
+                        let month_name = match month_path.file_name().and_then(|n| n.to_str()) {
+                            Some(n) => n.to_string(),
+                            None => continue,
+                        };
+
+                        if let Ok(session_entries) = fs::read_dir(&month_path) {
+                            for session_entry in session_entries.flatten() {
+                                let session_path = session_entry.path();
+                                if !session_path.is_dir() {
+                                    continue;
+                                }
+                                let session_name =
+                                    match session_path.file_name().and_then(|n| n.to_str()) {
+                                        Some(n) if !n.starts_with('.') => n.to_string(),
+                                        _ => continue,
+                                    };
+                                let session_id =
+                                    format!("{}/{}/{}", year_name, month_name, session_name);
+                                if sessions.contains(&session_id) {
+                                    continue;
+                                }
+                                if self.legacy_session_belongs_to_repo(
+                                    &session_path,
+                                    current_repo_root,
+                                ) {
+                                    sessions.insert(session_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn legacy_session_belongs_to_repo(&self, session_dir: &Path, current_repo_root: &Path) -> bool {
+        self.session_recorded_cwd(session_dir)
+            .and_then(|cwd| canonical_repo_root(&cwd).ok())
+            .is_some_and(|repo_root| repo_root == current_repo_root)
+    }
+
+    fn session_recorded_cwd(&self, session_dir: &Path) -> Option<PathBuf> {
+        let mut stack = vec![session_dir.to_path_buf()];
+
+        while let Some(path) = stack.pop() {
+            let entries = fs::read_dir(&path).ok()?;
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    stack.push(entry_path);
+                    continue;
+                }
+                let content = fs::read_to_string(&entry_path).ok()?;
+                if let Some(cwd) = self.extract_cwd_from_content(&content) {
+                    return Some(PathBuf::from(cwd));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn extract_cwd_from_content(&self, content: &str) -> Option<String> {
+        if let Ok(value) = serde_json::from_str::<Value>(content) {
+            if let Some(cwd) = Self::extract_cwd_from_value(&value) {
+                return Some(cwd);
+            }
+        }
+
+        for line in content.lines() {
+            if let Ok(value) = serde_json::from_str::<Value>(line) {
+                if let Some(cwd) = Self::extract_cwd_from_value(&value) {
+                    return Some(cwd);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn extract_cwd_from_value(value: &Value) -> Option<String> {
+        match value {
+            Value::Object(map) => {
+                if let Some(cwd) = map.get("cwd").and_then(Value::as_str) {
+                    return Some(cwd.to_string());
+                }
+                map.values().find_map(Self::extract_cwd_from_value)
+            }
+            Value::Array(items) => items.iter().find_map(Self::extract_cwd_from_value),
+            _ => None,
+        }
     }
 
     fn select_codex_profile_id(&mut self, profile_id: &str) {

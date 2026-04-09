@@ -41,6 +41,43 @@ pub enum TranscriptEntry {
         timestamp: String,
         tool_name: String,
     },
+    /// Emitted from `system` entries with `subtype: "turn_duration"`.
+    /// Signals that the agent completed a turn and is waiting for user input.
+    TurnCompleted {
+        timestamp: String,
+    },
+    /// Emitted from `system` entries with `subtype: "api_error"`.
+    /// Signals that the API returned an error and the agent is retrying.
+    ApiError {
+        timestamp: String,
+        retry_attempt: Option<u32>,
+        max_retries: Option<u32>,
+    },
+    /// Emitted from `system` entries with `subtype: "compact_boundary"`.
+    /// Signals that context compaction is in progress.
+    CompactBoundary {
+        timestamp: String,
+    },
+    /// Emitted when an assistant message has a terminal `stop_reason` other
+    /// than `end_turn` or `tool_use` — specifically `max_tokens`, `refusal`,
+    /// or `pause_turn`. All three are treated as a blocked state in this
+    /// observer context. Note: `pause_turn` is a Claude-side pause that may be
+    /// internally resumable via the API, but from the perspective of a passive
+    /// transcript observer there is no meaningful distinction from a hard block.
+    TurnBlocked {
+        timestamp: String,
+        stop_reason: String,
+    },
+    /// Emitted when a user entry's top-level `content` string contains local
+    /// command injection metadata: `<local-command-caveat>`, `<command-name>`,
+    /// or `<local-command-stdout>`.  Claude Code injects these entries when a
+    /// slash command (e.g. `/compact`) is executed; they record the command
+    /// name and its stdout for context but carry no user intent.  They must be
+    /// excluded from state inference so that `/compact` does not drive the
+    /// session to "working" or "unknown".
+    LocalCommand {
+        timestamp: String,
+    },
 }
 
 // ── InferredStatus ────────────────────────────────────────────────
@@ -101,16 +138,96 @@ pub fn parse_transcript(content: &str) -> Vec<TranscriptEntry> {
 
         match entry_type {
             "user" => {
-                let content = obj
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                entries.push(TranscriptEntry::User { timestamp, content });
+                // Project-file format stores tool results inside
+                // message.content as an array of {type:"tool_result",...} blocks.
+                // In that case emit ToolResult entries and skip the User entry
+                // (the user turn is purely carrying tool results, not a human
+                // message).  The old flat-transcript format uses a top-level
+                // "content" string, which falls through to the User branch below.
+                let mut tool_result_emitted = false;
+                if let Some(message) = obj.get("message") {
+                    if let Some(arr) = message.get("content").and_then(|v| v.as_array()) {
+                        for block in arr {
+                            if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
+                                // The nested project-file format does not carry the
+                                // tool name in the tool_result block — only tool_use_id
+                                // (a correlation ID, not a human-readable name).
+                                // tool_name is not used by any inference logic (only
+                                // the variant matters), so leave it empty rather than
+                                // storing a misleading ID.
+                                entries.push(TranscriptEntry::ToolResult {
+                                    timestamp: timestamp.clone(),
+                                    tool_name: String::new(),
+                                });
+                                tool_result_emitted = true;
+                            }
+                        }
+                    }
+                }
+                if !tool_result_emitted {
+                    let content = obj
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if is_local_command_content(&content) {
+                        entries.push(TranscriptEntry::LocalCommand { timestamp });
+                    } else {
+                        entries.push(TranscriptEntry::User { timestamp, content });
+                    }
+                }
             }
             "assistant" => {
+                // Project-file format stores tool calls as {type:"tool_use",...}
+                // blocks inside message.content alongside text and thinking blocks.
+                // Emit each as a ToolUse entry *before* the Assistant text entry so
+                // that state-inference (which scans in reverse) sees the tool call
+                // as more recent than any preceding text.
+                let stop_reason = obj
+                    .get("message")
+                    .and_then(|m| m.get("stop_reason"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+
+                if let Some(message) = obj.get("message") {
+                    if let Some(arr) = message.get("content").and_then(|v| v.as_array()) {
+                        for block in arr {
+                            if block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                                let tool_name = block
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let tool_input = block
+                                    .get("input")
+                                    .and_then(|v| v.as_object())
+                                    .cloned()
+                                    .unwrap_or_default();
+                                entries.push(TranscriptEntry::ToolUse {
+                                    timestamp: timestamp.clone(),
+                                    tool_name,
+                                    tool_input,
+                                });
+                            }
+                        }
+                    }
+                }
                 let content = extract_transcript_text(&obj).unwrap_or_default();
-                entries.push(TranscriptEntry::Assistant { timestamp, content });
+                entries.push(TranscriptEntry::Assistant {
+                    timestamp: timestamp.clone(),
+                    content,
+                });
+                // After the assistant entry, emit TurnBlocked for stop reasons that
+                // indicate the agent cannot continue without external intervention.
+                if matches!(
+                    stop_reason.as_deref(),
+                    Some("max_tokens") | Some("refusal") | Some("pause_turn")
+                ) {
+                    entries.push(TranscriptEntry::TurnBlocked {
+                        timestamp,
+                        stop_reason: stop_reason.unwrap_or_default(),
+                    });
+                }
             }
             "tool_use" => {
                 let tool_name = obj
@@ -140,8 +257,37 @@ pub fn parse_transcript(content: &str) -> Vec<TranscriptEntry> {
                     tool_name,
                 });
             }
+            "system" => {
+                let subtype = obj.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                match subtype {
+                    "turn_duration" => {
+                        entries.push(TranscriptEntry::TurnCompleted { timestamp });
+                    }
+                    "api_error" => {
+                        let retry_attempt = obj
+                            .get("retryAttempt")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32);
+                        let max_retries = obj
+                            .get("maxRetries")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32);
+                        entries.push(TranscriptEntry::ApiError {
+                            timestamp,
+                            retry_attempt,
+                            max_retries,
+                        });
+                    }
+                    "compact_boundary" => {
+                        entries.push(TranscriptEntry::CompactBoundary { timestamp });
+                    }
+                    _ => {
+                        // Ignore other system subtypes (local_command, etc.)
+                    }
+                }
+            }
             _ => {
-                // Ignore unknown entry types (progress, metadata, etc.)
+                // Ignore unknown entry types (file-history-snapshot, last-prompt, etc.)
             }
         }
     }
@@ -202,11 +348,37 @@ fn extract_transcript_text(obj: &Value) -> Option<String> {
     }
 }
 
+/// Returns true if `content` belongs to a local command injection entry that
+/// Claude Code writes when a slash command (e.g. `/compact`) is executed.
+/// These entries carry metadata about the command, not user intent.
+fn is_local_command_content(content: &str) -> bool {
+    content.starts_with("<local-command-") || content.starts_with("<command-name>")
+}
+
+/// Returns true if `content` is a compaction restore message.  These appear
+/// after a `compact_boundary` system entry and signal that context compaction
+/// has completed.  Two distinct forms exist:
+///   • auto-compact: `[restore checkpointed session agent configuration after compaction]`
+///   • manual `/compact`: `This session is being continued from a previous conversation…`
+fn is_compaction_restore_message(content: &str) -> bool {
+    content.contains("[restore checkpointed session agent configuration after compaction]")
+        || content.starts_with("This session is being continued from a previous conversation")
+}
+
 fn last_non_assistant_entry(entries: &[TranscriptEntry]) -> Option<&TranscriptEntry> {
-    entries
-        .iter()
-        .rev()
-        .find(|entry| !matches!(entry, TranscriptEntry::Assistant { .. }))
+    // CompactBoundary and TurnBlocked are intentionally NOT excluded — they are
+    // meaningful signals that last_non_assistant_entry should surface.
+    // LocalCommand entries are excluded: they are metadata injected by Claude
+    // Code during slash command execution and carry no user intent.
+    entries.iter().rev().find(|entry| {
+        !matches!(
+            entry,
+            TranscriptEntry::Assistant { .. }
+                | TranscriptEntry::TurnCompleted { .. }
+                | TranscriptEntry::ApiError { .. }
+                | TranscriptEntry::LocalCommand { .. }
+        )
+    })
 }
 
 fn contains_review_section_marker(text: &str, marker: &str) -> bool {
@@ -323,35 +495,164 @@ pub fn normalize_claude_state(entries: &[TranscriptEntry], is_stale: bool) -> No
     if is_stale {
         for entry in entries.iter().rev() {
             match entry {
-                TranscriptEntry::ToolUse { .. }
-                | TranscriptEntry::ToolResult { .. }
-                | TranscriptEntry::User { .. } => {
-                    return NormalizedState::new(NormalizedStatus::Unknown, None);
+                TranscriptEntry::TurnCompleted { .. } => {
+                    // Turn completed cleanly — agent is done and waiting for
+                    // the next user message.
+                    return NormalizedState::new(
+                        NormalizedStatus::Done,
+                        Some(NormalizedReason::ReadyForNextTask),
+                    );
+                }
+                TranscriptEntry::ApiError { .. } => {
+                    // API error with retry — agent is retrying, just slow.
+                    return NormalizedState::new(
+                        NormalizedStatus::Working,
+                        Some(NormalizedReason::Retrying),
+                    );
+                }
+                TranscriptEntry::TurnBlocked { .. } => {
+                    // Token limit or refusal — agent is permanently blocked.
+                    return NormalizedState::new(
+                        NormalizedStatus::Blocked,
+                        Some(NormalizedReason::Error),
+                    );
+                }
+                TranscriptEntry::CompactBoundary { .. } => {
+                    // Context compaction is underway.
+                    return NormalizedState::new(
+                        NormalizedStatus::Working,
+                        Some(NormalizedReason::Compacting),
+                    );
+                }
+                TranscriptEntry::ToolUse { .. } => {
+                    // Stale with a pending tool call.  The most common cause
+                    // is a permission prompt waiting for the user to approve.
+                    // It could also mean the process exited mid-execution, but
+                    // NeedsInput(Approval) is the most actionable label in
+                    // either case — it surfaces the session to the user rather
+                    // than silently showing Unknown.
+                    return NormalizedState::new(
+                        NormalizedStatus::NeedsInput,
+                        Some(NormalizedReason::Approval),
+                    );
+                }
+                TranscriptEntry::ToolResult { .. } => {
+                    // Stale after a tool result: the agent was mid-turn when it
+                    // went quiet (received a result, was about to generate).
+                    // The session is available for input — show Done so the user
+                    // knows they can send the next task.
+                    return NormalizedState::new(
+                        NormalizedStatus::Done,
+                        Some(NormalizedReason::ReadyForNextTask),
+                    );
+                }
+                TranscriptEntry::User { content, .. } => {
+                    // A compaction restore message means the session just finished
+                    // compacting and is ready for the next task — not unknown.
+                    if is_compaction_restore_message(content) {
+                        return NormalizedState::new(
+                            NormalizedStatus::Done,
+                            Some(NormalizedReason::ReadyForNextTask),
+                        );
+                    }
+                    // Stale after a user message: the agent was responding when it
+                    // went quiet (interrupted mid-turn). The session is available
+                    // for input — show Done so the user knows they can continue.
+                    return NormalizedState::new(
+                        NormalizedStatus::Done,
+                        Some(NormalizedReason::ReadyForNextTask),
+                    );
+                }
+                TranscriptEntry::LocalCommand { .. } => {
+                    // Local command metadata — transparent to state inference.
+                    continue;
                 }
                 TranscriptEntry::Assistant { content, .. } => {
                     let trimmed = content.trim();
                     if trimmed.is_empty() {
                         continue;
                     }
-                    return classify_assistant(trimmed)
-                        .unwrap_or_else(|| NormalizedState::new(NormalizedStatus::Unknown, None));
+                    return classify_assistant(trimmed).unwrap_or_else(|| {
+                        NormalizedState::new(
+                            NormalizedStatus::Done,
+                            Some(NormalizedReason::ReadyForNextTask),
+                        )
+                    });
                 }
             }
         }
 
-        return NormalizedState::new(NormalizedStatus::Unknown, None);
+        // entries is empty (any ToolUse/ToolResult/User entry would have
+        // returned Unknown above). Treat an empty stale transcript as Done
+        // to avoid perpetually showing Unknown for sessions that were never
+        // written to before becoming stale.
+        return NormalizedState::new(
+            NormalizedStatus::Done,
+            Some(NormalizedReason::ReadyForNextTask),
+        );
     }
 
     for entry in entries.iter().rev() {
         match entry {
-            TranscriptEntry::ToolUse { .. } => {
+            TranscriptEntry::TurnCompleted { .. } => {
+                // Turn just completed — agent finished its response and is
+                // waiting for the next user message.
+                return NormalizedState::new(
+                    NormalizedStatus::Done,
+                    Some(NormalizedReason::ReadyForNextTask),
+                );
+            }
+            TranscriptEntry::ApiError { .. } => {
+                // API returned an error — agent is retrying.
+                return NormalizedState::new(
+                    NormalizedStatus::Working,
+                    Some(NormalizedReason::Retrying),
+                );
+            }
+            TranscriptEntry::TurnBlocked { .. } => {
+                // Token limit or refusal — agent cannot continue.
+                return NormalizedState::new(
+                    NormalizedStatus::Blocked,
+                    Some(NormalizedReason::Error),
+                );
+            }
+            TranscriptEntry::CompactBoundary { .. } => {
+                // Context compaction in progress.
+                return NormalizedState::new(
+                    NormalizedStatus::Working,
+                    Some(NormalizedReason::Compacting),
+                );
+            }
+            TranscriptEntry::ToolUse { tool_name, .. } => {
+                // "Agent" is the exact tool name Claude Code uses for spawning
+                // subagents — capitalisation matches the transcript JSON literal.
+                let reason = if tool_name == "Agent" {
+                    NormalizedReason::Subagent
+                } else {
+                    NormalizedReason::ToolCall
+                };
+                return NormalizedState::new(NormalizedStatus::Working, Some(reason));
+            }
+            TranscriptEntry::ToolResult { .. } => {
                 return NormalizedState::new(
                     NormalizedStatus::Working,
                     Some(NormalizedReason::ToolCall),
                 );
             }
-            TranscriptEntry::ToolResult { .. } | TranscriptEntry::User { .. } => {
+            TranscriptEntry::User { content, .. } => {
+                // A compaction restore message means compaction just finished;
+                // the session is ready for the next task, not actively working.
+                if is_compaction_restore_message(content) {
+                    return NormalizedState::new(
+                        NormalizedStatus::Done,
+                        Some(NormalizedReason::ReadyForNextTask),
+                    );
+                }
                 return NormalizedState::new(NormalizedStatus::Working, None);
+            }
+            TranscriptEntry::LocalCommand { .. } => {
+                // Local command metadata — transparent to state inference.
+                continue;
             }
             TranscriptEntry::Assistant { content, .. } => {
                 let trimmed = content.trim();
@@ -380,7 +681,15 @@ pub fn infer_status_from_transcript(entries: &[TranscriptEntry]) -> InferredStat
         Some(TranscriptEntry::ToolUse { .. }) => InferredStatus::ToolCall,
         Some(TranscriptEntry::ToolResult { .. }) => InferredStatus::Running,
         Some(TranscriptEntry::User { .. }) => InferredStatus::Running,
-        Some(TranscriptEntry::Assistant { .. }) | None => InferredStatus::Unknown,
+        Some(TranscriptEntry::CompactBoundary { .. }) => InferredStatus::Running,
+        Some(TranscriptEntry::TurnBlocked { .. }) => InferredStatus::Unknown,
+        // LocalCommand is excluded by last_non_assistant_entry, so this arm is
+        // unreachable in practice but required for exhaustive matching.
+        Some(TranscriptEntry::LocalCommand { .. }) => InferredStatus::Unknown,
+        Some(TranscriptEntry::Assistant { .. })
+        | Some(TranscriptEntry::TurnCompleted { .. })
+        | Some(TranscriptEntry::ApiError { .. })
+        | None => InferredStatus::Unknown,
     }
 }
 
@@ -396,16 +705,23 @@ pub fn infer_activity_from_last_entry(entries: &[TranscriptEntry]) -> Option<Act
     match last_non_assistant_entry(entries) {
         Some(TranscriptEntry::ToolUse { .. }) => Some(Activity::ToolCall),
         Some(TranscriptEntry::ToolResult { .. }) => Some(Activity::Thinking),
+        Some(TranscriptEntry::CompactBoundary { .. }) => Some(Activity::Compacting),
+        Some(TranscriptEntry::TurnBlocked { .. }) => None,
         Some(TranscriptEntry::User { content, .. }) => {
-            if content
-                .contains("[restore checkpointed session agent configuration after compaction]")
-            {
+            if is_compaction_restore_message(content) {
+                // Restoration message that follows a compact_boundary — still compacting.
                 Some(Activity::Compacting)
             } else {
                 Some(Activity::Generating)
             }
         }
-        Some(TranscriptEntry::Assistant { .. }) | None => None,
+        // LocalCommand is excluded by last_non_assistant_entry, so this arm is
+        // unreachable in practice but required for exhaustive matching.
+        Some(TranscriptEntry::LocalCommand { .. }) => None,
+        Some(TranscriptEntry::Assistant { .. })
+        | Some(TranscriptEntry::TurnCompleted { .. })
+        | Some(TranscriptEntry::ApiError { .. })
+        | None => None,
     }
 }
 
@@ -543,7 +859,12 @@ fn transcript_entry_timestamp(entry: &TranscriptEntry) -> Option<DateTime<Local>
         TranscriptEntry::User { timestamp, .. }
         | TranscriptEntry::Assistant { timestamp, .. }
         | TranscriptEntry::ToolUse { timestamp, .. }
-        | TranscriptEntry::ToolResult { timestamp, .. } => from_rfc3339(timestamp),
+        | TranscriptEntry::ToolResult { timestamp, .. }
+        | TranscriptEntry::TurnCompleted { timestamp, .. }
+        | TranscriptEntry::ApiError { timestamp, .. }
+        | TranscriptEntry::CompactBoundary { timestamp, .. }
+        | TranscriptEntry::TurnBlocked { timestamp, .. }
+        | TranscriptEntry::LocalCommand { timestamp, .. } => from_rfc3339(timestamp),
     }
 }
 
@@ -668,6 +989,77 @@ struct SessionEmitState {
     last_entries: Vec<TranscriptEntry>,
 }
 
+// ── Session registry ──────────────────────────────────────────────
+
+/// An entry from `~/.claude/sessions/<pid>.json`.
+/// Written by Claude Code while a session is live; cleaned up on exit.
+#[derive(Debug, Clone)]
+pub struct SessionRegistryEntry {
+    pub pid: u32,
+    pub session_id: String,
+    /// Working directory reported by Claude Code.  Currently used only in
+    /// tests; retained here for future cross-validation against the CWD
+    /// derived from the project session file path.
+    pub cwd: PathBuf,
+    pub kind: String,
+}
+
+/// Scan `~/.claude/sessions/` and return all live session entries keyed by
+/// session_id.  Files that cannot be parsed are silently skipped.
+pub fn scan_session_registry(sessions_dir: &Path) -> HashMap<String, SessionRegistryEntry> {
+    let mut map = HashMap::new();
+    let Ok(read_dir) = std::fs::read_dir(sessions_dir) else {
+        return map;
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // Files are named "<pid>.json"
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let pid_str = name.trim_end_matches(".json");
+        let pid: u32 = match pid_str.parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let obj: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let session_id = match obj.get("sessionId").and_then(|v| v.as_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let cwd = match obj.get("cwd").and_then(|v| v.as_str()) {
+            Some(c) => PathBuf::from(c),
+            None => continue,
+        };
+        let kind = obj
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("interactive")
+            .to_string();
+        map.insert(
+            session_id.clone(),
+            SessionRegistryEntry {
+                pid,
+                session_id,
+                cwd,
+                kind,
+            },
+        );
+    }
+    map
+}
+
 // ── run_claude_detector ───────────────────────────────────────────
 
 /// Polling loop that watches Claude transcript and project session files.
@@ -683,6 +1075,7 @@ pub async fn run_claude_detector(
 ) -> Result<()> {
     let transcripts_dir = claude_data_dir.join("transcripts");
     let projects_dir = claude_data_dir.join("projects");
+    let sessions_dir = claude_data_dir.join("sessions");
 
     // Combined per-file state: size and mtime tracked together to avoid two
     // separate HashMap lookups/inserts for every transcript file each poll.
@@ -709,6 +1102,17 @@ pub async fn run_claude_detector(
         HashMap::new();
 
     loop {
+        // Phase 0: Scan ~/.claude/sessions/<pid>.json to build session_id → pid map.
+        // These files are written by Claude Code while a process is live.
+        let sdir = sessions_dir.clone();
+        let session_registry: HashMap<String, SessionRegistryEntry> =
+            tokio::task::spawn_blocking(move || scan_session_registry(&sdir)).await?;
+        // Build a session_id → pid lookup from the live registry.
+        let session_id_to_pid: HashMap<String, u32> = session_registry
+            .values()
+            .map(|e| (e.session_id.clone(), e.pid))
+            .collect();
+
         // Phase 1: Scan project session files to build CWD→session_id map.
         // Re-reads a file only when its mtime has changed since the last poll.
         let mut cwd_to_session: HashMap<PathBuf, ProjectSessionInfo> = HashMap::new();
@@ -790,15 +1194,57 @@ pub async fn run_claude_detector(
             }
         }
 
-        // Phase 2: Scan transcripts and emit enrichment events
-        if transcripts_dir.exists() {
+        // Phase 2: Scan transcripts AND project session files for conversation
+        // content and emit enrichment events.
+        //
+        // There are two distinct Claude JSONL formats:
+        //
+        //  • ~/.claude/transcripts/ses_*.jsonl  — flat format written by
+        //    subagent (child) Claude Code processes.  Has top-level
+        //    "tool_use" / "tool_result" entries but no "assistant" entries.
+        //
+        //  • ~/.claude/projects/<proj>/<uuid>.jsonl  — nested API format
+        //    written by the main (parent) Claude Code process.  Has
+        //    "assistant" entries with tool_use blocks inside message.content,
+        //    and "user" entries with tool_result blocks inside message.content.
+        //
+        // For the main session we must read from projects/ so that assistant
+        // text is available for Done/NeedsInput state classification.
+        {
+            // Snapshot (path, cwd) for every project session file Phase 1 cached,
+            // deduplicated by CWD keeping only the most recently modified file per CWD.
+            // This prevents multiple old session files for the same project from each
+            // firing the staleness check and emitting duplicate status-change events.
+            let project_file_cwds: Vec<(PathBuf, PathBuf)> = {
+                let mut by_cwd: HashMap<PathBuf, (PathBuf, std::time::SystemTime)> =
+                    HashMap::new();
+                for (path, (mtime, info)) in &project_file_cache {
+                    if let Some(cwd) = &info.cwd {
+                        let entry = by_cwd
+                            .entry(cwd.clone())
+                            .or_insert_with(|| (path.clone(), *mtime));
+                        if mtime >= &entry.1 {
+                            *entry = (path.clone(), *mtime);
+                        }
+                    }
+                }
+                by_cwd
+                    .into_iter()
+                    .map(|(cwd, (path, _))| (path, cwd))
+                    .collect()
+            };
+
             let dir = transcripts_dir.clone();
             // Move the combined file-state map into spawn_blocking; this is an
             // O(1) pointer move, not a clone.
             let prev_state = std::mem::take(&mut file_state);
+            // Each result is (file_path, entries, cwd_hint).
+            // cwd_hint is Some(cwd) for project session files (use CWD-based PID
+            // lookup) and None for transcript files (use session-id matching).
             let scan_result = tokio::task::spawn_blocking(move || {
                 let mut new_state = prev_state;
-                let mut results: Vec<(PathBuf, Vec<TranscriptEntry>)> = Vec::new();
+                let mut results: Vec<(PathBuf, Vec<TranscriptEntry>, Option<PathBuf>)> =
+                    Vec::new();
 
                 if let Ok(read_dir) = std::fs::read_dir(&dir) {
                     for entry in read_dir.flatten() {
@@ -831,10 +1277,35 @@ pub async fn run_claude_detector(
                         if current_size > prev_size {
                             if let Ok(content) = std::fs::read_to_string(&file_path) {
                                 let entries = parse_transcript(&content);
-                                results.push((file_path.clone(), entries));
+                                results.push((file_path.clone(), entries, None));
                             }
                             entry_state.size = current_size;
                         }
+                    }
+                }
+
+                // Also scan project session files for main-session conversation
+                // data (assistant text, nested tool_use/tool_result).
+                for (project_path, cwd) in &project_file_cwds {
+                    let metadata = match std::fs::metadata(project_path) {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    };
+                    let current_size = metadata.len();
+                    let mtime = metadata
+                        .modified()
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+                    let entry_state = new_state.entry(project_path.clone()).or_default();
+                    let prev_size = entry_state.size;
+                    entry_state.mtime = mtime;
+
+                    if current_size > prev_size {
+                        if let Ok(content) = std::fs::read_to_string(project_path) {
+                            let entries = parse_transcript(&content);
+                            results.push((project_path.clone(), entries, Some(cwd.clone())));
+                        }
+                        entry_state.size = current_size;
                     }
                 }
 
@@ -845,39 +1316,81 @@ pub async fn run_claude_detector(
             let (new_state, results) = scan_result;
             file_state = new_state;
 
-            for (file_path, entries) in &results {
-                // Transcript filenames may contain a session ID prefix that matches
-                // a project session. For simplicity, we try matching all known CWDs
-                // against the registry.
+            // PIDs already claimed by a project session file.  Transcript files
+            // that resolve to the same PID are skipped to avoid duplicate events:
+            // the project file is the authoritative source for main-session state.
+            let project_file_pids: std::collections::HashSet<u32> = results
+                .iter()
+                .filter_map(|(_, _, cwd_hint)| {
+                    cwd_hint
+                        .as_ref()
+                        .and_then(|cwd| registry.find_pid(AgentTool::Claude, cwd))
+                })
+                .collect();
+
+            for (file_path, entries, cwd_hint) in &results {
+                // Determine which Claude process owns this file.
+                //
+                // Project session files (cwd_hint = Some(cwd)) are matched
+                // directly by CWD — no filename heuristics needed.
+                //
+                // Transcript files (cwd_hint = None) use the existing session-id
+                // filename matching with a single-process fallback, but are
+                // skipped when a project file already covers that PID to prevent
+                // duplicate events for the same logical session.
                 let mut matched_pid: Option<u32> = None;
                 let mut matched_session: Option<&ProjectSessionInfo> = None;
 
-                for (cwd, session_info) in &cwd_to_session {
-                    if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd) {
-                        // Check if this transcript belongs to this session by matching
-                        // the session_id in the filename
-                        if let Some(ref sid) = session_info.session_id {
-                            if let Some(fname) = file_path.file_name().and_then(|n| n.to_str()) {
-                                if fname.contains(sid) {
-                                    matched_pid = Some(pid);
-                                    matched_session = Some(session_info);
-                                    break;
+                if let Some(cwd) = cwd_hint {
+                    // For project session files, first try to match via
+                    // session_id in the live session registry (most reliable
+                    // when Claude wrote the file cleanly).  Fall back to
+                    // CWD-based lookup from the process registry.
+                    let session_info = cwd_to_session.get(cwd);
+                    let registry_pid = session_info
+                        .and_then(|si| si.session_id.as_deref())
+                        .and_then(|sid| session_id_to_pid.get(sid).copied());
+
+                    if let Some(pid) = registry_pid.or_else(|| registry.find_pid(AgentTool::Claude, cwd)) {
+                        matched_pid = Some(pid);
+                        matched_session = session_info;
+                    }
+                } else {
+                    // Transcript file: match by session_id in filename, with
+                    // single-process fallback.
+                    for (cwd, session_info) in &cwd_to_session {
+                        if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd) {
+                            if let Some(ref sid) = session_info.session_id {
+                                if let Some(fname) =
+                                    file_path.file_name().and_then(|n| n.to_str())
+                                {
+                                    if fname.contains(sid) {
+                                        matched_pid = Some(pid);
+                                        matched_session = Some(session_info);
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        // Fallback: if we only have one Claude process, use it
-                        if matched_pid.is_none() {
-                            matched_pid = Some(pid);
-                            matched_session = Some(session_info);
+                            if matched_pid.is_none() {
+                                matched_pid = Some(pid);
+                                matched_session = Some(session_info);
+                            }
                         }
                     }
-                }
 
-                // If no project session match, try all known Claude PIDs
-                if matched_pid.is_none() {
-                    let claude_agents = registry.agents_for_tool(AgentTool::Claude);
-                    if claude_agents.len() == 1 {
-                        matched_pid = Some(claude_agents[0].1);
+                    // If no project session match, try all known Claude PIDs
+                    if matched_pid.is_none() {
+                        let claude_agents = registry.agents_for_tool(AgentTool::Claude);
+                        if claude_agents.len() == 1 {
+                            matched_pid = Some(claude_agents[0].1);
+                        }
+                    }
+
+                    // Skip this transcript file if a project session file already
+                    // handles the same PID — the project file is authoritative for
+                    // main-session conversation state.
+                    if matched_pid.is_some_and(|pid| project_file_pids.contains(&pid)) {
+                        continue;
                     }
                 }
 
@@ -1005,6 +1518,7 @@ pub async fn run_claude_detector(
                                                 subagent: crate::types::Subagent {
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
+                                                    reason: None,
                                                     description,
                                                     started_at: from_rfc3339(entry_timestamp)
                                                         .unwrap_or_else(chrono::Local::now),

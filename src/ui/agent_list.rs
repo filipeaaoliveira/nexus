@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
@@ -14,6 +14,25 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .borders(Borders::RIGHT)
         .border_style(theme::border_style())
         .style(Style::default().bg(theme::BG_MAIN));
+
+    if render_data.visible_agents.is_empty() {
+        let elapsed = state.started_at.elapsed();
+        let msg = if elapsed >= std::time::Duration::from_secs(state.config.poll_interval_secs) {
+            "No agents detected. Start Claude, Codex, or OpenCode to see them here."
+        } else {
+            "Scanning for agents..."
+        };
+        let para = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!(" {msg}"),
+                Style::default().fg(theme::FG_COMMENT),
+            )),
+        ])
+        .block(block);
+        frame.render_widget(para, area);
+        return;
+    }
 
     let items: Vec<ListItem> = render_data
         .visible_agents

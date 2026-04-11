@@ -18,30 +18,19 @@ pub enum Action {
     RemoveAgent,
     RemoveExited,
     StartRename,
-    CodexLaunchSelected,
+    AccountsConfirm,
     RenameChar(char),
     RenameBackspace,
     RenameConfirm,
     Tick,
-    CodexSessionPickerUp,
-    CodexSessionPickerDown,
-    CodexSessionPickerConfirm,
-    CodexSessionPickerCancel,
-    CodexEditStart,
-    CodexEditChar(char),
-    CodexEditBackspace,
-    CodexEditToggleEnabled,
-    CodexEditNextField,
-    CodexEditPrevField,
-    CodexEditConfirm,
-    CodexEditCancel,
-    CodexQuotaEditStart,
-    CodexQuotaEditChar(char),
-    CodexQuotaEditBackspace,
-    CodexQuotaEditNextField,
-    CodexQuotaEditPrevField,
-    CodexQuotaEditConfirm,
-    CodexQuotaEditCancel,
+    AccountsEditStart,
+    AccountsEditChar(char),
+    AccountsEditBackspace,
+    AccountsEditToggleEnabled,
+    AccountsEditNextField,
+    AccountsEditPrevField,
+    AccountsEditConfirm,
+    AccountsEditCancel,
     AccountsFilterCycle,
     AccountsImportAuth,
     AccountsImportClaudeAuth,
@@ -53,20 +42,24 @@ pub fn poll_action(
     timeout: Duration,
     filter_mode: bool,
     rename_mode: bool,
-    session_picker_mode: bool,
     edit_mode: bool,
-    quota_edit_mode: bool,
+    confirm_mode: bool,
 ) -> anyhow::Result<Option<Action>> {
     if event::poll(timeout)? {
-        if let Event::Key(key) = event::read()? {
-            return Ok(action_for_key(
-                key,
-                filter_mode,
-                rename_mode,
-                session_picker_mode,
-                edit_mode,
-                quota_edit_mode,
-            ));
+        match event::read()? {
+            Event::Key(key) => {
+                return Ok(action_for_key(
+                    key,
+                    filter_mode,
+                    rename_mode,
+                    edit_mode,
+                    confirm_mode,
+                ));
+            }
+            // Resize events are consumed here; the next terminal.draw() call will
+            // automatically use the updated dimensions.
+            Event::Resize(_, _) => {}
+            _ => {}
         }
     }
     Ok(None)
@@ -76,9 +69,8 @@ fn action_for_key(
     key: crossterm::event::KeyEvent,
     filter_mode: bool,
     rename_mode: bool,
-    session_picker_mode: bool,
     edit_mode: bool,
-    quota_edit_mode: bool,
+    confirm_mode: bool,
 ) -> Option<Action> {
     if key.kind != KeyEventKind::Press {
         return None;
@@ -86,23 +78,13 @@ fn action_for_key(
 
     if edit_mode {
         return match key.code {
-            KeyCode::Esc => Some(Action::CodexEditCancel),
-            KeyCode::Enter => Some(Action::CodexEditConfirm),
-            KeyCode::Char(' ') => Some(Action::CodexEditToggleEnabled),
-            KeyCode::Tab => Some(Action::CodexEditNextField),
-            KeyCode::BackTab => Some(Action::CodexEditPrevField),
-            KeyCode::Char(c) => Some(Action::CodexEditChar(c)),
-            KeyCode::Backspace => Some(Action::CodexEditBackspace),
-            _ => None,
-        };
-    }
-
-    if session_picker_mode {
-        return match key.code {
-            KeyCode::Esc => Some(Action::CodexSessionPickerCancel),
-            KeyCode::Enter => Some(Action::CodexSessionPickerConfirm),
-            KeyCode::Char('j') | KeyCode::Down => Some(Action::CodexSessionPickerDown),
-            KeyCode::Char('k') | KeyCode::Up => Some(Action::CodexSessionPickerUp),
+            KeyCode::Esc => Some(Action::AccountsEditCancel),
+            KeyCode::Enter => Some(Action::AccountsEditConfirm),
+            KeyCode::Char(' ') => Some(Action::AccountsEditToggleEnabled),
+            KeyCode::Tab => Some(Action::AccountsEditNextField),
+            KeyCode::BackTab => Some(Action::AccountsEditPrevField),
+            KeyCode::Char(c) => Some(Action::AccountsEditChar(c)),
+            KeyCode::Backspace => Some(Action::AccountsEditBackspace),
             _ => None,
         };
     }
@@ -127,14 +109,10 @@ fn action_for_key(
         };
     }
 
-    if quota_edit_mode {
+    if confirm_mode {
         return match key.code {
-            KeyCode::Esc => Some(Action::CodexQuotaEditCancel),
-            KeyCode::Enter => Some(Action::CodexQuotaEditConfirm),
-            KeyCode::Tab => Some(Action::CodexQuotaEditNextField),
-            KeyCode::BackTab => Some(Action::CodexQuotaEditPrevField),
-            KeyCode::Char(c) => Some(Action::CodexQuotaEditChar(c)),
-            KeyCode::Backspace => Some(Action::CodexQuotaEditBackspace),
+            KeyCode::Enter => Some(Action::AccountsConfirm),
+            KeyCode::Esc => Some(Action::DismissOverlay),
             _ => None,
         };
     }
@@ -154,11 +132,10 @@ fn action_for_key(
         KeyCode::Char('i') => Some(Action::AccountsImportAuth),
         KeyCode::Char('I') => Some(Action::AccountsImportClaudeAuth),
         KeyCode::Char('w') => Some(Action::AccountsWriteToHome),
-        KeyCode::Char('e') => Some(Action::CodexEditStart),
-        KeyCode::Char('Q') => Some(Action::CodexQuotaEditStart),
+        KeyCode::Char('e') => Some(Action::AccountsEditStart),
         KeyCode::Char('R') => Some(Action::AccountsRefreshQuota),
         KeyCode::Char('f') => Some(Action::AccountsFilterCycle),
-        KeyCode::Enter => Some(Action::CodexLaunchSelected),
+        KeyCode::Enter => Some(Action::AccountsConfirm),
         KeyCode::Esc => Some(Action::DismissOverlay),
         _ => None,
     }
@@ -177,7 +154,6 @@ mod tests {
                 false,
                 false,
                 false,
-                false,
                 false
             ),
             Some(Action::AccountsImportAuth)
@@ -188,10 +164,9 @@ mod tests {
                 false,
                 false,
                 false,
-                false,
                 false
             ),
-            Some(Action::CodexLaunchSelected)
+            Some(Action::AccountsConfirm)
         );
     }
 
@@ -200,7 +175,6 @@ mod tests {
         assert_eq!(
             action_for_key(
                 KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE),
-                false,
                 false,
                 false,
                 false,
@@ -215,19 +189,16 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('I'), KeyModifiers::NONE);
         // edit_mode: I becomes a char-input event, not an import action
         assert_eq!(
-            action_for_key(key, false, false, false, true, false),
-            Some(Action::CodexEditChar('I'))
+            action_for_key(key, false, false, true, false),
+            Some(Action::AccountsEditChar('I'))
         );
         // filter_mode: same — I feeds into the filter input
         assert_eq!(
-            action_for_key(key, true, false, false, false, false),
+            action_for_key(key, true, false, false, false),
             Some(Action::FilterChar('I'))
         );
-        // quota_edit_mode: I feeds into quota char input
-        assert_eq!(
-            action_for_key(key, false, false, false, false, true),
-            Some(Action::CodexQuotaEditChar('I'))
-        );
+        // confirm_mode: I is absorbed (only Enter/Esc are active)
+        assert_eq!(action_for_key(key, false, false, false, true), None);
     }
 
     #[test]
@@ -236,7 +207,6 @@ mod tests {
             action_for_key(
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                 true,
-                false,
                 false,
                 false,
                 false
@@ -253,10 +223,9 @@ mod tests {
                 false,
                 false,
                 false,
-                false,
                 false
             ),
-            Some(Action::CodexEditStart)
+            Some(Action::AccountsEditStart)
         );
 
         assert_eq!(
@@ -264,11 +233,10 @@ mod tests {
                 KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
                 false,
                 false,
-                false,
                 true,
                 false
             ),
-            Some(Action::CodexEditConfirm)
+            Some(Action::AccountsEditConfirm)
         );
 
         assert_eq!(
@@ -276,11 +244,10 @@ mod tests {
                 KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
                 false,
                 false,
-                false,
                 true,
                 false
             ),
-            Some(Action::CodexEditToggleEnabled)
+            Some(Action::AccountsEditToggleEnabled)
         );
     }
 }

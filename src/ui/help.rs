@@ -1,18 +1,25 @@
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::ActiveTab;
-
 use super::theme;
 
-pub fn render(frame: &mut Frame) {
+pub fn render(frame: &mut Frame, scroll: u16) {
     let area = frame.area();
 
-    // Center the overlay: 50% width, 60% height
-    let overlay = centered_rect(50, 60, area);
+    let lines = help_lines(true);
+
+    // Size the overlay to fit the content exactly, capped at the available area.
+    // +2 accounts for the top and bottom border lines.
+    let needed_height = lines.len() as u16 + 2;
+    let overlay_height = needed_height.min(area.height.saturating_sub(2));
+    let overlay_width = (area.width / 2).max(52).min(area.width);
+
+    let x = (area.width.saturating_sub(overlay_width)) / 2;
+    let y = (area.height.saturating_sub(overlay_height)) / 2;
+    let overlay = Rect::new(x, y, overlay_width, overlay_height);
 
     frame.render_widget(Clear, overlay);
 
@@ -20,20 +27,18 @@ pub fn render(frame: &mut Frame) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme::FG_BORDER))
         .title(Span::styled(
-            " keybinds ",
+            " keybinds  j/k to scroll ",
             Style::default()
                 .fg(theme::FG_DEFAULT)
                 .add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().bg(theme::BG_SECTION));
 
-    let lines = help_lines(ActiveTab::Overview, true);
-
-    let paragraph = Paragraph::new(lines).block(block);
+    let paragraph = Paragraph::new(lines).scroll((scroll, 0)).block(block);
     frame.render_widget(paragraph, overlay);
 }
 
-pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'static>> {
+pub fn help_lines(include_close_hint: bool) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(""),
         keybind_line("Tab", "Switch workspace"),
@@ -60,8 +65,14 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
         )),
         keybind_line("j / ↓", "Move selected profile"),
         keybind_line("k / ↑", "Move selected profile"),
+        keybind_line("Enter", "Confirm pending action (write / delete)"),
+        keybind_line("e", "Edit selected profile"),
+        keybind_line("d", "Delete selected profile (confirms)"),
+        keybind_line("w", "Write profile to home auth (confirms)"),
         keybind_line("i", "Import ~/.codex/auth.json (Codex)"),
         keybind_line("I", "Import Claude credentials"),
+        keybind_line("R", "Refresh quota"),
+        keybind_line("f", "Cycle provider filter"),
         keybind_line("/", "Start profile filter"),
         Line::from(""),
         keybind_line("?", "Toggle help"),
@@ -72,10 +83,7 @@ pub fn help_lines(active_tab: ActiveTab, include_close_hint: bool) -> Vec<Line<'
     if include_close_hint {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            match active_tab {
-                ActiveTab::Overview => "  Press Esc or ? to close",
-                ActiveTab::Accounts => "  Press Esc or ? to close",
-            },
+            "  Press Esc or ? to close",
             Style::default().fg(theme::FG_FADED),
         )));
     }
@@ -95,22 +103,3 @@ fn keybind_line(key: &str, desc: &str) -> Line<'static> {
     ])
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
-}

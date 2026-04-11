@@ -69,7 +69,9 @@ pub async fn refresh_token_if_needed(auth: ClaudeAuth) -> ClaudeAuth {
         return auth;
     };
 
-    let Some(new_access) = refreshed.access_token else { return auth };
+    let Some(new_access) = refreshed.access_token else {
+        return auth;
+    };
     let mut updated = auth;
     if let Some(ref mut tokens) = updated.claude_ai_oauth {
         tokens.access_token = new_access;

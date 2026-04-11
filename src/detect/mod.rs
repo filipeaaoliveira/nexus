@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub(crate) mod heuristics;
 pub mod opencode;
 pub mod process;
 pub mod registry;
@@ -115,6 +116,13 @@ async fn forward_agent_events(
 }
 
 /// Run a detector in a loop with exponential backoff on failure.
+///
+/// Detectors are written to run indefinitely and only return `Ok(())` when
+/// their send channel is dropped (i.e. when the tokio runtime shuts down).
+/// The `Ok(())` arm therefore acts as a clean-exit sentinel rather than an
+/// error path: `break` there lets the spawned task finish without logging a
+/// spurious restart. The restart logic is exercised only on `Err`, which
+/// covers real detector failures (e.g. SQLite open errors on startup).
 async fn run_with_restart<F, Fut>(name: &str, mut make_future: F)
 where
     F: FnMut() -> Fut,

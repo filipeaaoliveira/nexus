@@ -3,7 +3,7 @@ use nexus::codex_profiles::profile::{
     ProfileMetadata,
 };
 use nexus::codex_profiles::quota::{
-    parse_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
+    parse_legacy_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
 };
 use nexus::types::*;
 use nexus::types::{TodoItem, TodoPriority, TodoStatus};
@@ -379,7 +379,7 @@ fn codex_profile_import_rejects_blank_id_or_label() {
 
 #[test]
 fn codex_quota_parser_marks_unknown_when_state_is_unclear() {
-    let snapshot = parse_status_output("5h window: 42% used").expect("snapshot");
+    let snapshot = parse_legacy_status_output("5h window: 42% used").expect("snapshot");
 
     assert_eq!(snapshot.confidence, Confidence::Parsed);
     assert_eq!(snapshot.five_hour_state, LimitState::Unknown);
@@ -387,12 +387,12 @@ fn codex_quota_parser_marks_unknown_when_state_is_unclear() {
 
 #[test]
 fn codex_quota_parser_returns_none_when_no_quota_lines_exist() {
-    assert!(parse_status_output("status: idle").is_none());
+    assert!(parse_legacy_status_output("status: idle").is_none());
 }
 
 #[test]
 fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
-    let snapshot = parse_status_output(
+    let snapshot = parse_legacy_status_output(
         "5h window: available, resets at 2026-04-03T12:34:56Z\nweekly window: not reached, resets at 2026-04-10T08:00:00Z",
     )
     .expect("snapshot");
@@ -417,7 +417,7 @@ fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
 fn codex_quota_cache_save_load_round_trip() {
     let temp = tempdir().unwrap();
     let path = temp.path().join("quota-cache.json");
-    let snapshot = parse_status_output(
+    let snapshot = parse_legacy_status_output(
         "5h window: available, resets at 2026-04-03T12:34:56Z\nweekly window: not reached, resets at 2026-04-10T08:00:00Z",
     )
     .expect("snapshot");

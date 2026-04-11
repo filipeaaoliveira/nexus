@@ -1,10 +1,10 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{build_unified_list, AppState, EditField, Provider};
+use crate::app::{build_unified_list, AppState, ConfirmKind, EditField, Provider};
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::{
     detect_live_profile_id, extract_auth_metadata, load_profile_metadata,
@@ -132,28 +132,20 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     footer::render(frame, state, outer[2]);
 
-    if state.accounts_tab.session_picker_mode {
-        render_session_picker(frame, state);
-    }
-
     if state.accounts_tab.edit_mode {
+        let edit_width = main_chunks[1].width.saturating_sub(8).clamp(36, 64);
+        let edit_height = 10u16;
         let edit_area = Rect::new(
-            main_chunks[1].x + 5,
+            main_chunks[1].x + main_chunks[1].width.saturating_sub(edit_width) / 2,
             main_chunks[1].y + 2,
-            main_chunks[1].x + main_chunks[1].width - 5,
-            main_chunks[1].y + 10,
+            edit_width,
+            edit_height,
         );
         render_edit_mode(frame, state, edit_area);
     }
 
-    if state.accounts_tab.quota_edit_mode {
-        let edit_area = Rect::new(
-            main_chunks[1].x + 5,
-            main_chunks[1].y + 2,
-            main_chunks[1].x + main_chunks[1].width - 5,
-            main_chunks[1].y + 10,
-        );
-        render_quota_edit_mode(frame, state, edit_area);
+    if let Some(ref confirm) = state.accounts_tab.pending_confirm {
+        render_confirm_dialog(frame, state, confirm);
     }
 }
 
@@ -192,8 +184,7 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
             let is_selected = state.accounts_tab.selected_index == Some(index);
             let is_active = match entry.provider {
                 Provider::Codex => {
-                    state.accounts_tab.codex_active_profile_id.as_deref()
-                        == Some(&entry.profile_id)
+                    state.accounts_tab.codex_active_profile_id.as_deref() == Some(&entry.profile_id)
                 }
                 Provider::Claude => {
                     state.accounts_tab.claude_active_profile_id.as_deref()
@@ -208,14 +199,22 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
             let profile_dir = profiles_dir.join(&entry.profile_id);
 
             let (display_label, is_enabled) = match entry.provider {
-                Provider::Codex => {
-                    load_profile_metadata(&profile_dir)
-                        .map(|m| (m.label.unwrap_or_else(|| entry.profile_id.clone()), m.enabled))
-                        .unwrap_or_else(|_| (entry.profile_id.clone(), true))
-                }
+                Provider::Codex => load_profile_metadata(&profile_dir)
+                    .map(|m| {
+                        (
+                            m.label.unwrap_or_else(|| entry.profile_id.clone()),
+                            m.enabled,
+                        )
+                    })
+                    .unwrap_or_else(|_| (entry.profile_id.clone(), true)),
                 Provider::Claude => {
                     crate::claude_profiles::profile::load_claude_profile_metadata(&profile_dir)
-                        .map(|m| (m.label.unwrap_or_else(|| entry.profile_id.clone()), m.enabled))
+                        .map(|m| {
+                            (
+                                m.label.unwrap_or_else(|| entry.profile_id.clone()),
+                                m.enabled,
+                            )
+                        })
                         .unwrap_or_else(|_| (entry.profile_id.clone(), true))
                 }
             };
@@ -292,6 +291,24 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
             ListItem::new(line)
         })
         .collect();
+
+    if unified.is_empty() {
+        let hint = match state.accounts_tab.active_filter {
+            crate::app::ProviderFilter::Codex => "No Codex profiles. Press i to import.",
+            crate::app::ProviderFilter::Claude => "No Claude profiles. Press I to import.",
+            crate::app::ProviderFilter::All => "No profiles. Press i (Codex) or I (Claude) to import.",
+        };
+        let para = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!(" {hint}"),
+                Style::default().fg(theme::FG_COMMENT),
+            )),
+        ])
+        .block(block);
+        frame.render_widget(para, area);
+        return;
+    }
 
     let list = List::new(items)
         .block(block)
@@ -391,7 +408,10 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
                 .as_ref()
                 .and_then(|m| m.label.clone())
                 .unwrap_or_else(|| profile_id.to_string());
-            meta_email = metadata.as_ref().and_then(|m| m.email.clone()).or(auth_email);
+            meta_email = metadata
+                .as_ref()
+                .and_then(|m| m.email.clone())
+                .or(auth_email);
             meta_plan = metadata.as_ref().and_then(|m| m.plan.clone()).or(auth_plan);
             meta_notes = metadata.as_ref().and_then(|m| m.notes.clone());
             meta_enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
@@ -400,19 +420,15 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
             let metadata =
                 crate::claude_profiles::profile::load_claude_profile_metadata(&profile_dir).ok();
             let auth_path = profile_dir.join(".credentials.json");
-            let auth_plan =
-                crate::claude_profiles::auth::ClaudeAuth::load(&auth_path)
-                    .ok()
-                    .and_then(|a| a.subscription_type().map(str::to_string));
+            let auth_plan = crate::claude_profiles::auth::ClaudeAuth::load(&auth_path)
+                .ok()
+                .and_then(|a| a.subscription_type().map(str::to_string));
             meta_label = metadata
                 .as_ref()
                 .and_then(|m| m.label.clone())
                 .unwrap_or_else(|| profile_id.to_string());
             meta_email = metadata.as_ref().and_then(|m| m.email.clone());
-            meta_plan = metadata
-                .as_ref()
-                .and_then(|m| m.plan.clone())
-                .or(auth_plan);
+            meta_plan = metadata.as_ref().and_then(|m| m.plan.clone()).or(auth_plan);
             meta_notes = metadata.as_ref().and_then(|m| m.notes.clone());
             meta_enabled = metadata.as_ref().map(|m| m.enabled).unwrap_or(true);
         }
@@ -494,8 +510,15 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
         lines.push(Line::from(Span::raw("")));
         for window in effective_windows(quota) {
             let used_remaining = window.used_pct.map(|p| 100 - p);
-            let label = format!("  quota ({}):  ", window.label);
-            lines.push(quota_row(label, used_remaining, &window.state, window.reset_at, None));
+            let prefix = if quota.confidence == Confidence::Exact { "" } else { "~" };
+            let label = format!("  {}quota ({}):  ", prefix, window.label);
+            lines.push(quota_row(
+                label,
+                used_remaining,
+                &window.state,
+                window.reset_at,
+                None,
+            ));
         }
         if let Some(credits) = quota.credits.as_ref().and_then(credit_summary) {
             lines.push(Line::from(vec![
@@ -512,6 +535,14 @@ fn render_profile_details(frame: &mut Frame, state: &AppState, area: Rect) {
                 Style::default().fg(theme::FG_DEFAULT),
             ),
             Span::styled(captured_str, Style::default().fg(theme::FG_COMMENT)),
+        ]));
+    }
+
+    if let Some(msg) = state.accounts_tab.status_message.as_ref() {
+        lines.push(Line::from(Span::raw("")));
+        lines.push(Line::from(vec![
+            Span::styled("  ", Style::default()),
+            Span::styled(msg.clone(), Style::default().fg(theme::STATUS_WAITING)),
         ]));
     }
 
@@ -550,94 +581,28 @@ fn render_detail_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn render_session_picker(frame: &mut Frame, state: &AppState) {
-    let area = frame.area();
-    let picker_width = 40;
+fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
+    frame.render_widget(Clear, area);
 
-    let is_sessions = state.accounts_tab.session_picker_sessions.is_some();
-    let items: &[String] = if is_sessions {
-        state.accounts_tab.session_picker_sessions.as_ref().unwrap()
-    } else {
-        &state.accounts_tab.codex_profile_ids
-    };
-
-    let picker_height = 5.max((items.len() + 3).min(20));
-
-    let x = (area.width as usize).saturating_sub(picker_width) / 2 + area.x as usize;
-    let y = (area.height as usize).saturating_sub(picker_height) / 2 + area.y as usize;
-
-    let picker_area = Rect::new(
-        x as u16,
-        y as u16,
-        (x + picker_width) as u16,
-        (y + picker_height) as u16,
-    );
-
-    frame.render_widget(Clear, picker_area);
-
-    let title = if is_sessions {
-        " resume session "
-    } else {
-        " select profile "
-    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(theme::selected_style())
-        .title(Span::styled(title, Style::default().fg(theme::FG_DEFAULT)))
-        .style(Style::default().bg(theme::BG_MAIN));
-
-    let list_items: Vec<ListItem> = items
-        .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let is_selected = state.accounts_tab.session_picker_selected == Some(index);
-            let label = if is_selected {
-                format!("> {}", item)
-            } else {
-                format!("  {}", item)
-            };
-            ListItem::new(Line::from(Span::styled(
-                label,
-                Style::default().fg(theme::FG_DEFAULT),
-            )))
-        })
-        .collect();
-
-    let list = List::new(list_items)
-        .block(block)
-        .highlight_style(theme::selected_style());
-
-    let mut list_state = ListState::default();
-    list_state.select(state.accounts_tab.session_picker_selected);
-
-    frame.render_stateful_widget(list, picker_area, &mut list_state);
-}
-
-fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme::border_style())
         .title(Span::styled(
             " Edit Profile ",
-            Style::default().fg(theme::FG_COMMENT),
+            Style::default()
+                .fg(theme::FG_DEFAULT)
+                .add_modifier(Modifier::BOLD),
         ))
-        .style(Style::default().bg(theme::BG_MAIN));
+        .style(Style::default().bg(theme::BG_DIALOG));
 
     let mut lines = Vec::new();
 
-    let label_prefix = if state.accounts_tab.edit_field == EditField::Label {
-        "> "
-    } else {
-        "  "
-    };
-    lines.push(Line::from(vec![
-        Span::raw(label_prefix),
-        Span::styled("label: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(
-            &state.accounts_tab.edit_label,
-            Style::default().fg(theme::FG_DEFAULT),
-        ),
-    ]));
+    lines.push(edit_mode_row(
+        "label",
+        &state.accounts_tab.edit_label,
+        state.accounts_tab.edit_field == EditField::Label,
+        Some(theme::STATUS_WAITING),
+    ));
 
     if let Some(ref email) = state.accounts_tab.edit_email {
         lines.push(Line::from(vec![
@@ -655,40 +620,28 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         ]));
     }
 
-    let notes_prefix = if state.accounts_tab.edit_field == EditField::Notes {
-        "> "
-    } else {
-        "  "
-    };
-    lines.push(Line::from(vec![
-        Span::raw(notes_prefix),
-        Span::styled("notes: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(
-            &state.accounts_tab.edit_notes,
-            Style::default().fg(theme::FG_DEFAULT),
-        ),
-    ]));
+    lines.push(edit_mode_row(
+        "notes",
+        &state.accounts_tab.edit_notes,
+        state.accounts_tab.edit_field == EditField::Notes,
+        Some(theme::STATUS_WAITING),
+    ));
 
-    let enabled_prefix = if state.accounts_tab.edit_field == EditField::Enabled {
-        "> "
-    } else {
-        "  "
-    };
     let enabled_status = if state.accounts_tab.edit_enabled {
         "enabled"
     } else {
         "disabled"
     };
-    let enabled_style = if state.accounts_tab.edit_enabled {
-        Style::default().fg(theme::STATUS_RUNNING)
-    } else {
-        Style::default().fg(theme::STATUS_EXITED)
-    };
-    lines.push(Line::from(vec![
-        Span::raw(enabled_prefix),
-        Span::styled("enabled: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(enabled_status, enabled_style),
-    ]));
+    lines.push(edit_mode_row(
+        "enabled",
+        enabled_status,
+        state.accounts_tab.edit_field == EditField::Enabled,
+        Some(if state.accounts_tab.edit_enabled {
+            theme::STATUS_RUNNING
+        } else {
+            theme::STATUS_ERROR
+        }),
+    ));
 
     lines.push(Line::from(Span::raw("")));
     lines.push(Line::from(vec![
@@ -702,74 +655,131 @@ fn render_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
         Span::raw(" next field"),
     ]));
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .style(Style::default().bg(theme::BG_DIALOG)),
+        area,
+    );
 }
 
-fn render_quota_edit_mode(frame: &mut Frame, state: &AppState, area: Rect) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme::border_style())
-        .title(Span::styled(
-            " Edit Quota ",
-            Style::default().fg(theme::FG_COMMENT),
-        ))
-        .style(Style::default().bg(theme::BG_MAIN));
-
-    let five_hour_prefix = if !state.accounts_tab.quota_edit_field_weekly {
-        "> "
+fn edit_mode_row(
+    label: &str,
+    value: &str,
+    active: bool,
+    value_color: Option<ratatui::style::Color>,
+) -> Line<'static> {
+    let row_bg = if active {
+        theme::BG_SELECTED
     } else {
-        "  "
+        theme::BG_DIALOG
     };
-    let weekly_prefix = if state.accounts_tab.quota_edit_field_weekly {
-        "> "
+    let prefix_style = if active {
+        Style::default()
+            .fg(theme::STATUS_WAITING)
+            .bg(row_bg)
+            .add_modifier(Modifier::BOLD)
     } else {
-        "  "
+        Style::default().fg(theme::FG_DIMMED).bg(row_bg)
     };
+    let label_style = Style::default().fg(theme::FG_COMMENT).bg(row_bg);
+    let value_style = Style::default()
+        .fg(value_color.unwrap_or(theme::FG_DEFAULT))
+        .bg(row_bg);
 
-    fn state_style(val: &str) -> ratatui::style::Style {
-        match val.to_uppercase().as_str() {
-            "HIT" => Style::default().fg(crate::ui::theme::STATUS_ERROR),
-            "?" => Style::default().fg(crate::ui::theme::FG_COMMENT),
-            _ => Style::default().fg(crate::ui::theme::STATUS_RUNNING),
-        }
+    let mut spans = vec![
+        Span::styled(if active { "▶ " } else { "  " }, prefix_style),
+        Span::styled(format!("{label}: "), label_style),
+        Span::styled(value.to_string(), value_style),
+    ];
+
+    if active {
+        spans.push(Span::styled(
+            "█",
+            Style::default()
+                .fg(theme::BG_HEADER)
+                .bg(theme::STATUS_WAITING)
+                .add_modifier(Modifier::BOLD),
+        ));
     }
 
+    Line::from(spans)
+}
+
+fn render_confirm_dialog(frame: &mut Frame, state: &AppState, confirm: &ConfirmKind) {
+    let area = frame.area();
+    let dialog_width = 52u16;
+    let dialog_height = 5u16;
+    let x = area.width.saturating_sub(dialog_width) / 2 + area.x;
+    let y = area.height.saturating_sub(dialog_height) / 2 + area.y;
+    let dialog_area = Rect::new(
+        x,
+        y,
+        dialog_width.min(area.width),
+        dialog_height.min(area.height),
+    );
+
+    frame.render_widget(Clear, dialog_area);
+
+    let profile_id = state.selected_account().map(|(_, id)| id).unwrap_or("?");
+    let (title, body) = match confirm {
+        ConfirmKind::DeleteProfile => (
+            " Delete Profile ",
+            format!(" Delete {}? This cannot be undone.", profile_id),
+        ),
+        ConfirmKind::WriteToHome => (
+            " Write to Home ",
+            format!(" Overwrite home auth with {}?", profile_id),
+        ),
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::selected_style())
+        .title(Span::styled(title, Style::default().fg(theme::FG_DEFAULT)))
+        .style(Style::default().bg(theme::BG_MAIN));
+
     let lines = vec![
-        Line::from(vec![
-            Span::raw(five_hour_prefix),
-            Span::styled("5h limit: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(
-                state.accounts_tab.quota_five_hour.clone(),
-                state_style(&state.accounts_tab.quota_five_hour),
-            ),
-        ]),
-        Line::from(vec![
-            Span::raw(weekly_prefix),
-            Span::styled("weekly:   ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(
-                state.accounts_tab.quota_weekly.clone(),
-                state_style(&state.accounts_tab.quota_weekly),
-            ),
-        ]),
+        Line::from(Span::styled(body, Style::default().fg(theme::FG_DEFAULT))),
         Line::from(Span::raw("")),
         Line::from(vec![
-            Span::styled("Space/any", Style::default().fg(theme::FG_COMMENT)),
-            Span::raw(" cycle  "),
-            Span::styled("Tab", Style::default().fg(theme::FG_COMMENT)),
-            Span::raw(" switch field  "),
-            Span::styled("Enter", Style::default().fg(theme::FG_COMMENT)),
-            Span::raw(" save  "),
-            Span::styled("Esc", Style::default().fg(theme::FG_COMMENT)),
-            Span::raw(" cancel"),
+            Span::styled("  Enter", Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled(" confirm  ", Style::default().fg(theme::FG_DIMMED)),
+            Span::styled("Esc", Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled(" cancel", Style::default().fg(theme::FG_DIMMED)),
         ]),
     ];
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(Paragraph::new(lines).block(block), dialog_area);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::AccountsTabState;
+    use crate::config::Config;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_edit_popup(state: &AppState, area: Rect) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_edit_mode(frame, state, area);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<Vec<_>>()
+            .join("")
+    }
 
     fn make_bar(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
         quota_bar_spans(pct, bar_width)
@@ -835,7 +845,10 @@ mod tests {
         );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("75%"), "percentage must appear in the line");
-        assert!(text.contains("at 18:47"), "at must appear in the same line as the bar");
+        assert!(
+            text.contains("at 18:47"),
+            "at must appear in the same line as the bar"
+        );
     }
 
     #[test]
@@ -850,5 +863,26 @@ mod tests {
         );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(!text.contains("as of"), "5h line must not contain as of");
+    }
+
+    #[test]
+    fn edit_popup_shows_cursor_for_active_field() {
+        let mut state = AppState::new(Config::default());
+        state.accounts_tab = AccountsTabState {
+            edit_mode: true,
+            edit_label: "Personal".to_string(),
+            edit_notes: "Primary".to_string(),
+            edit_enabled: true,
+            edit_field: EditField::Label,
+            ..AccountsTabState::default()
+        };
+
+        let buffer = render_edit_popup(&state, Rect::new(0, 0, 48, 10));
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("Personal█"),
+            "active field should show a cursor-like marker"
+        );
     }
 }

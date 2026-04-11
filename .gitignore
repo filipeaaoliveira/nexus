@@ -1,3 +1,8 @@
 .worktrees/
 /target/
 .DS_Store
+.idea/
+.vscode/
+*.bak
+*.swp
+*.orig

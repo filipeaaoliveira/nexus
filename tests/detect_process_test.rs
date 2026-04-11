@@ -1,6 +1,4 @@
-use nexus::detect::process::{
-    extract_claude_resume_session, parse_lsof_cwd, parse_ps_output,
-};
+use nexus::detect::process::{extract_claude_resume_session, parse_lsof_cwd, parse_ps_output};
 use nexus::types::AgentTool;
 use std::path::PathBuf;
 

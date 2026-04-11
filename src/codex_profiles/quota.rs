@@ -93,6 +93,7 @@ impl QuotaSnapshot {
         snapshot
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn legacy_fallback(
         captured_at: DateTime<Utc>,
         confidence: Confidence,
@@ -112,13 +113,13 @@ impl QuotaSnapshot {
                     label: "5h".to_string(),
                     used_pct: five_hour_used_pct,
                     reset_at: five_hour_reset_at,
-                    state: five_hour_state.clone(),
+                    state: five_hour_state,
                 },
                 QuotaWindow {
                     label: "weekly".to_string(),
                     used_pct: weekly_used_pct,
                     reset_at: weekly_reset_at,
-                    state: weekly_state.clone(),
+                    state: weekly_state,
                 },
             ],
             None,
@@ -129,10 +130,10 @@ impl QuotaSnapshot {
     pub fn refresh_legacy_fields(&mut self) {
         if self.windows.is_empty() {
             self.windows = legacy_windows_from_fields(
-                self.five_hour_state.clone(),
+                self.five_hour_state,
                 self.five_hour_reset_at,
                 self.five_hour_used_pct,
-                self.weekly_state.clone(),
+                self.weekly_state,
                 self.weekly_reset_at,
                 self.weekly_used_pct,
             );
@@ -151,10 +152,10 @@ impl QuotaSnapshot {
     pub fn effective_windows(&self) -> Vec<QuotaWindow> {
         if self.windows.is_empty() {
             legacy_windows_from_fields(
-                self.five_hour_state.clone(),
+                self.five_hour_state,
                 self.five_hour_reset_at,
                 self.five_hour_used_pct,
-                self.weekly_state.clone(),
+                self.weekly_state,
                 self.weekly_reset_at,
                 self.weekly_used_pct,
             )
@@ -351,11 +352,10 @@ pub fn parse_quota_from_sessions(sessions_dir: &Path) -> Option<QuotaSnapshot> {
     let last_event = content
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|obj| {
+        .rfind(|obj| {
             obj.get("type").and_then(|v| v.as_str()) == Some("event_msg")
                 && obj.pointer("/payload/type").and_then(|v| v.as_str()) == Some("token_count")
-        })
-        .last()?;
+        })?;
 
     let rate_limits = last_event.pointer("/payload/rate_limits")?;
     let windows = parse_windows_from_rate_limits(rate_limits);
@@ -402,7 +402,10 @@ fn collect_jsonl_files(dir: &Path, out: &mut Vec<(SystemTime, std::path::PathBuf
 }
 
 fn parse_windows_from_rate_limits(rate_limits: &serde_json::Value) -> Vec<QuotaWindow> {
-    if let Some(windows) = rate_limits.get("windows").and_then(|value| value.as_array()) {
+    if let Some(windows) = rate_limits
+        .get("windows")
+        .and_then(|value| value.as_array())
+    {
         let mut parsed = Vec::new();
         for (index, window) in windows.iter().enumerate() {
             parsed.push(parse_window_value(window, index, None));
@@ -456,7 +459,11 @@ fn parse_window_value(
         .get("resetsAt")
         .or_else(|| window.get("resets_at"))
         .or_else(|| window.get("reset_at"))
-        .and_then(|value| value.as_i64().or_else(|| value.as_f64().map(|secs| secs as i64)))
+        .and_then(|value| {
+            value
+                .as_i64()
+                .or_else(|| value.as_f64().map(|secs| secs as i64))
+        })
         .and_then(|secs| DateTime::from_timestamp(secs, 0));
 
     let state = window
@@ -552,18 +559,9 @@ fn summarize_windows(windows: &[QuotaWindow], credits: Option<&CreditsState>) ->
 use crate::codex_profiles::ProfileAuth;
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct UsageResponse {
-    #[serde(rename = "used_units")]
-    used_units: Option<i32>,
-    quota: Option<i32>,
     #[serde(rename = "rate_limit")]
     rate_limit: Option<serde_json::Value>,
-    #[serde(rename = "account_id")]
-    account_id: Option<String>,
-    email: Option<String>,
-    #[serde(rename = "plan_type")]
-    plan_type: Option<String>,
 }
 
 pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Option<QuotaSnapshot> {
@@ -572,40 +570,6 @@ pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Option<QuotaSna
     fetch_quota_async(account_id, access_token).await
 }
 
-/// Spawns an async task to fetch quota in the background.
-/// When complete, calls the callback with the result.
-/// Returns a handle that can be awaited.
-pub fn spawn_quota_fetch<F>(profile_id: String, auth: ProfileAuth, on_done: F)
-where
-    F: FnOnce(String, Option<QuotaSnapshot>) + Send + 'static,
-{
-    tokio::spawn(async move {
-        let result = fetch_quota_from_api(&auth).await;
-        on_done(profile_id, result);
-    });
-}
-
-/// Sync wrapper that runs the async fetch in a blocking context.
-/// Used when calling from synchronous code.
-pub fn fetch_quota_from_api_sync(profile_auth: &ProfileAuth) -> Option<QuotaSnapshot> {
-    let account_id = match profile_auth.account_id() {
-        Some(id) => id.to_string(),
-        None => return None,
-    };
-    let access_token = match profile_auth.access_token() {
-        Some(token) => token.to_string(),
-        None => return None,
-    };
-    
-    // Try to get current runtime, or create a new one
-    if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.block_on(fetch_quota_async(&account_id, &access_token))
-    } else {
-        // Create a runtime for tests or when no runtime exists
-        let rt = tokio::runtime::Runtime::new().ok()?;
-        rt.block_on(fetch_quota_async(&account_id, &access_token))
-    }
-}
 
 async fn fetch_quota_async(account_id: &str, access_token: &str) -> Option<QuotaSnapshot> {
     let client = Client::builder()

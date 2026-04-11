@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
-use tracing::warn;
 
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone)]
@@ -15,39 +14,22 @@ pub fn is_git_worktree(dir: &Path) -> bool {
     git_path.is_file()
 }
 
-#[allow(dead_code)]
-pub async fn get_repo_root(dir: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(dir)
-        .output()
-        .await
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Some(PathBuf::from(path))
-}
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     let mut worktrees = Vec::new();
     let mut current_path: Option<PathBuf> = None;
     let mut current_branch: Option<String> = None;
-    let mut is_first = true;
 
     for line in output.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
             if let Some(prev_path) = current_path.take() {
+                let is_worktree = !worktrees.is_empty();
                 worktrees.push(WorktreeInfo {
                     path: prev_path,
                     branch: current_branch.take(),
-                    is_worktree: !is_first,
+                    is_worktree,
                 });
-                is_first = false;
-            } else {
-                is_first = true;
             }
             current_path = Some(PathBuf::from(path));
         } else if let Some(branch) = line.strip_prefix("branch ") {
@@ -61,36 +43,17 @@ pub fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     }
 
     if let Some(path) = current_path {
+        let is_worktree = !worktrees.is_empty();
         worktrees.push(WorktreeInfo {
             path,
             branch: current_branch,
-            is_worktree: !is_first,
+            is_worktree,
         });
     }
 
     worktrees
 }
 
-#[allow(dead_code)]
-pub async fn scan_worktrees(repo_dir: &Path) -> Vec<WorktreeInfo> {
-    let output = match Command::new("git")
-        .args(["worktree", "list", "--porcelain"])
-        .current_dir(repo_dir)
-        .output()
-        .await
-    {
-        Ok(o) => o,
-        Err(e) => {
-            warn!("Failed to list worktrees for {}: {e}", repo_dir.display());
-            return Vec::new();
-        }
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_worktree_list(&stdout)
-}
 
 pub async fn lookup_branch_info(cwd: &Path) -> (Option<String>, bool) {
     let is_wt = is_git_worktree(cwd);

@@ -155,7 +155,7 @@ fn test_normalize_claude_recent_generic_assistant_text_maps_to_working() {
 }
 
 #[test]
-fn test_normalize_claude_stale_without_other_evidence_maps_to_done() {
+fn test_normalize_claude_stale_trailing_user_maps_to_done() {
     let entries = vec![TranscriptEntry::User {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "Do something".to_string(),
@@ -163,8 +163,8 @@ fn test_normalize_claude_stale_without_other_evidence_maps_to_done() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    // Stale after a user message: agent was interrupted mid-turn. The session
-    // is available for input — show Done so the user can send the next task.
+    // A stale trailing user message means Claude received input but produced
+    // no output for 30+ seconds — the session is idle, not working.
     assert_eq!(normalized.status, NormalizedStatus::Done);
     assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 }
@@ -263,7 +263,7 @@ fn test_normalize_claude_retrospective_unable_to_continue_does_not_map_to_blocke
 }
 
 #[test]
-fn test_normalize_claude_stale_generic_assistant_text_maps_to_done() {
+fn test_normalize_claude_stale_generic_assistant_text_stays_working() {
     let entries = vec![TranscriptEntry::Assistant {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "I have reviewed the files and I am moving on.".to_string(),
@@ -271,8 +271,8 @@ fn test_normalize_claude_stale_generic_assistant_text_maps_to_done() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -382,17 +382,17 @@ fn test_normalize_claude_newer_tool_result_overrides_older_assistant_review() {
 }
 
 #[test]
-fn test_normalize_claude_stale_empty_entries_maps_to_done() {
+fn test_normalize_claude_stale_empty_entries_map_to_unknown() {
     let entries: Vec<TranscriptEntry> = vec![];
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+    assert_eq!(normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
-fn test_normalize_claude_stale_trailing_tool_result_maps_to_done() {
+fn test_normalize_claude_stale_trailing_tool_result_stays_working() {
     let entries = vec![
         TranscriptEntry::ToolUse {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -407,14 +407,15 @@ fn test_normalize_claude_stale_trailing_tool_result_maps_to_done() {
 
     let normalized = normalize_claude_state(&entries, true);
 
-    // Stale after a tool result: agent was mid-turn when it went quiet.
-    // The session is available for input — show Done.
-    assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+    // A stale tool result means Claude was still mid-turn when transcript
+    // writes stopped. Keep the session in Working rather than declaring it
+    // ready for the next task without an explicit completion signal.
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ToolCall));
 }
 
 #[test]
-fn test_normalize_claude_stale_trailing_tool_use_maps_to_needs_input_approval() {
+fn test_normalize_claude_stale_trailing_tool_use_stays_working() {
     let entries = vec![TranscriptEntry::ToolUse {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         tool_name: "read".to_string(),
@@ -423,12 +424,12 @@ fn test_normalize_claude_stale_trailing_tool_use_maps_to_needs_input_approval() 
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
-    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ToolCall));
 }
 
 #[test]
-fn test_normalize_claude_stale_trailing_user_activity_maps_to_done() {
+fn test_normalize_claude_stale_trailing_user_continuation_maps_to_done() {
     let entries = vec![TranscriptEntry::User {
         timestamp: "2026-04-02T10:00:00Z".to_string(),
         content: "Please keep going.".to_string(),
@@ -441,7 +442,7 @@ fn test_normalize_claude_stale_trailing_user_activity_maps_to_done() {
 }
 
 #[test]
-fn test_normalize_claude_stale_generic_assistant_after_older_review_maps_to_done() {
+fn test_normalize_claude_stale_generic_assistant_after_older_review_stays_working() {
     let entries = vec![
         TranscriptEntry::Assistant {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -456,8 +457,8 @@ fn test_normalize_claude_stale_generic_assistant_after_older_review_maps_to_done
 
     let normalized = normalize_claude_state(&entries, true);
 
-    assert_eq!(normalized.status, NormalizedStatus::Done);
-    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -509,7 +510,7 @@ fn test_inferred_to_primary_mapping() {
     );
     assert_eq!(
         inferred_to_primary(InferredStatus::Unknown),
-        PrimaryStatus::Running
+        PrimaryStatus::Waiting
     );
 }
 
@@ -899,8 +900,11 @@ fn test_parse_project_file_nested_format_extracts_tool_use_from_assistant() {
             _ => None,
         })
         .collect();
-    assert_eq!(tool_uses, vec!["Read", "Bash"],
-        "should extract tool_use blocks from assistant message.content");
+    assert_eq!(
+        tool_uses,
+        vec!["Read", "Bash"],
+        "should extract tool_use blocks from assistant message.content"
+    );
 }
 
 #[test]
@@ -912,8 +916,11 @@ fn test_parse_project_file_nested_format_extracts_tool_result_from_user() {
         .iter()
         .filter(|e| matches!(e, TranscriptEntry::ToolResult { .. }))
         .collect();
-    assert_eq!(tool_results.len(), 2,
-        "should extract tool_result blocks from user message.content");
+    assert_eq!(
+        tool_results.len(),
+        2,
+        "should extract tool_result blocks from user message.content"
+    );
 }
 
 #[test]
@@ -923,8 +930,11 @@ fn test_parse_project_file_nested_format_normalizes_to_done() {
     let entries = parse_transcript(content);
 
     let state = normalize_claude_state(&entries, false);
-    assert_eq!(state.status, NormalizedStatus::Done,
-        "should classify final assistant text as Done");
+    assert_eq!(
+        state.status,
+        NormalizedStatus::Done,
+        "should classify final assistant text as Done"
+    );
 }
 
 #[test]
@@ -989,20 +999,20 @@ fn test_parse_transcript_system_api_error_emits_api_error() {
 
 #[test]
 fn test_parse_transcript_ignores_unknown_system_subtypes() {
-    let content = concat!(
-        "{\"type\":\"system\",\"subtype\":\"local_command\",\"timestamp\":\"2026-04-09T10:00:00Z\",\"content\":\"ls\"}\n",
-    );
+    let content = "{\"type\":\"system\",\"subtype\":\"local_command\",\"timestamp\":\"2026-04-09T10:00:00Z\",\"content\":\"ls\"}\n";
     let entries = parse_transcript(content);
     assert!(entries.is_empty(), "local_command should be ignored");
 }
 
 #[test]
 fn test_parse_transcript_compact_boundary_emits_entry() {
-    let content = concat!(
-        "{\"type\":\"system\",\"subtype\":\"compact_boundary\",\"timestamp\":\"2026-04-09T10:00:01Z\"}\n",
-    );
+    let content = "{\"type\":\"system\",\"subtype\":\"compact_boundary\",\"timestamp\":\"2026-04-09T10:00:01Z\"}\n";
     let entries = parse_transcript(content);
-    assert_eq!(entries.len(), 1, "compact_boundary should produce one entry");
+    assert_eq!(
+        entries.len(),
+        1,
+        "compact_boundary should produce one entry"
+    );
     assert!(
         matches!(entries[0], TranscriptEntry::CompactBoundary { .. }),
         "compact_boundary should produce a CompactBoundary entry"
@@ -1107,10 +1117,10 @@ fn test_normalize_stale_api_error_maps_to_working_retrying() {
     assert_eq!(normalized.reason, Some(NormalizedReason::Retrying));
 }
 
-// ── normalize: stale ToolUse → NeedsInput(Approval) ──────────────
+// ── normalize: stale ToolUse remains working without explicit approval ─────
 
 #[test]
-fn test_normalize_stale_agent_tool_use_maps_to_needs_input_approval() {
+fn test_normalize_stale_agent_tool_use_stays_working_subagent() {
     let entries = vec![TranscriptEntry::ToolUse {
         timestamp: "2026-04-09T10:00:00Z".to_string(),
         tool_name: "Agent".to_string(),
@@ -1118,8 +1128,8 @@ fn test_normalize_stale_agent_tool_use_maps_to_needs_input_approval() {
     }];
 
     let normalized = normalize_claude_state(&entries, true);
-    assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
-    assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, Some(NormalizedReason::Subagent));
 }
 
 // ── infer_activity: new variants are transparent ─────────────────
@@ -1469,6 +1479,24 @@ fn test_infer_activity_manual_compact_restore_message_is_compacting() {
     );
 }
 
+/// `/clear` with no message leaves a trailing LocalCommand as the last entry.
+/// The session is idle — not "working" — so we should show Done.
+#[test]
+fn test_normalize_clear_command_shows_done_non_stale() {
+    let entries = vec![
+        TranscriptEntry::User {
+            timestamp: "2026-04-09T10:00:00Z".to_string(),
+            content: "some question".to_string(),
+        },
+        TranscriptEntry::LocalCommand {
+            timestamp: "2026-04-09T10:00:01Z".to_string(),
+        },
+    ];
+    let normalized = normalize_claude_state(&entries, false);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
 // ── scan_session_registry ─────────────────────────────────────────
 
 #[test]
@@ -1510,7 +1538,11 @@ fn test_scan_session_registry_skips_invalid_files() {
     // non-numeric pid
     let f3 = dir.path().join("foo.json");
     let mut f = std::fs::File::create(&f3).unwrap();
-    writeln!(f, r#"{{"pid":0,"sessionId":"x","cwd":"/","kind":"interactive"}}"#).unwrap();
+    writeln!(
+        f,
+        r#"{{"pid":0,"sessionId":"x","cwd":"/","kind":"interactive"}}"#
+    )
+    .unwrap();
 
     let map = scan_session_registry(dir.path());
     assert!(map.is_empty(), "no valid entries should be found");
@@ -1530,5 +1562,8 @@ fn test_scan_session_registry_nonexistent_dir() {
     use nexus::detect::claude::scan_session_registry;
 
     let map = scan_session_registry(std::path::Path::new("/nonexistent/path/sessions"));
-    assert!(map.is_empty(), "nonexistent directory should return empty map");
+    assert!(
+        map.is_empty(),
+        "nonexistent directory should return empty map"
+    );
 }

@@ -117,7 +117,10 @@ pub fn load_claude_profile_metadata(profile_dir: &Path) -> Result<ClaudeProfileM
         .with_context(|| format!("failed to parse {}", metadata_path.display()))
 }
 
-pub fn save_claude_profile_metadata(profile_dir: &Path, metadata: &ClaudeProfileMetadata) -> Result<()> {
+pub fn save_claude_profile_metadata(
+    profile_dir: &Path,
+    metadata: &ClaudeProfileMetadata,
+) -> Result<()> {
     let metadata_path = profile_dir.join("profile.json");
     let content = serde_json::to_string_pretty(metadata)?;
     fs::write(&metadata_path, content)
@@ -126,7 +129,10 @@ pub fn save_claude_profile_metadata(profile_dir: &Path, metadata: &ClaudeProfile
 
 /// Detects which stored Claude profile is currently "live" by comparing
 /// `~/.claude/.credentials.json` bytes against each profile's `.credentials.json`.
-pub fn detect_live_claude_profile_id(profiles_dir: &Path, claude_home_creds: &Path) -> Option<String> {
+pub fn detect_live_claude_profile_id(
+    profiles_dir: &Path,
+    claude_home_creds: &Path,
+) -> Option<String> {
     let home_bytes = fs::read(claude_home_creds).ok()?;
 
     let entries = fs::read_dir(profiles_dir).ok()?;
@@ -221,7 +227,10 @@ mod tests {
         let home_creds = tmp.path().join(".credentials.json");
         fs::write(&home_creds, b"creds-b").unwrap();
 
-        assert_eq!(detect_live_claude_profile_id(&profiles_dir, &home_creds), None);
+        assert_eq!(
+            detect_live_claude_profile_id(&profiles_dir, &home_creds),
+            None
+        );
     }
 
     #[test]

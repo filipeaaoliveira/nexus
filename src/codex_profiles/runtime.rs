@@ -125,15 +125,7 @@ pub fn launch_codex(
 }
 
 fn codex_binary_names() -> &'static [&'static str] {
-    #[cfg(windows)]
-    {
-        &["codex.exe", "codex.cmd", "codex.bat", "codex"]
-    }
-
-    #[cfg(not(windows))]
-    {
-        &["codex"]
-    }
+    &["codex"]
 }
 
 fn replace_path(path: &Path) -> Result<()> {
@@ -161,38 +153,15 @@ fn is_runnable_binary(path: &Path) -> bool {
         return false;
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::metadata(path)
-            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
-    }
-
-    #[cfg(windows)]
-    {
-        match path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_ascii_lowercase())
-        {
-            Some(ext) if matches!(ext.as_str(), "exe" | "cmd" | "bat") => true,
-            _ => false,
-        }
-    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path)
+        .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
 }
 
-#[cfg(unix)]
 fn create_dir_symlink(target: &Path, link: &Path) -> Result<()> {
     std::os::unix::fs::symlink(target, link)
         .with_context(|| format!("failed to create symlink {}", link.display()))
-}
-
-#[cfg(windows)]
-fn create_dir_symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::windows::fs::symlink_dir(target, link)
-        .with_context(|| format!("failed to create directory symlink {}", link.display()))
 }
 
 pub fn get_codex_quota(codex_bin: &Path, runtime: &RuntimePlan) -> Result<Option<QuotaSnapshot>> {

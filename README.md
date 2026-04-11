@@ -5,7 +5,7 @@ Terminal dashboard and monitor for local AI coding agents, with partial account-
 `nexus` now combines two workspaces in one TUI:
 
 - `Overview`: passive monitoring for local agent sessions
-- `Accounts`: manages Codex and Claude profiles, best-effort quota inspection, and partial Codex launch/profile workflows
+- `Accounts`: manages Codex and Claude profiles, best-effort quota inspection, and auth management workflows
 
 The goal is one terminal surface for both observing active agents and managing Codex and Claude account workflows without opening a second TUI.
 
@@ -37,12 +37,20 @@ cargo install --git https://github.com/filipeaaoliveira/nexus.git
 nexus
 ```
 
+There are no pre-built binaries. There are no tagged releases; the `main` branch is the current stable version. Install from source or via `cargo install --git`.
+
 ## Requirements
 
 - Rust `1.94`
-- macOS or another environment with compatible `ps`, `lsof`, and `git` command behavior
-- an interactive terminal
+- macOS or Linux
+- An interactive terminal
+- `ps` — used for process detection (standard on macOS and Linux)
+- `lsof` — used to resolve process working directories (standard on macOS; available via `util-linux` or `lsof` package on Linux)
+- `git` — used for branch and worktree detection (must be on `PATH`)
 - Codex installed locally if you want to use Codex-specific actions in the `Accounts` workspace
+- OpenCode installed locally if you want OpenCode sessions to appear in the `Overview` workspace
+
+If `lsof` is absent, process detection degrades silently: agents will not appear in the `Overview` workspace even if they are running. Install it with your system package manager if needed (e.g. `apt install lsof`).
 
 Default local state roots:
 
@@ -73,6 +81,14 @@ nexus --poll-interval 2
 nexus --log-file ~/.cache/nexus/debug.log
 ```
 
+The `RUST_LOG` environment variable controls the log level (default: `info`). Logs go to the log file, never to stdout, so they do not interfere with the TUI.
+
+```bash
+RUST_LOG=debug nexus
+```
+
+If none of the supported agents (Claude, Codex, OpenCode) are running, the `Overview` workspace will be empty. Start any of the supported tools and `nexus` will detect them within one poll interval.
+
 ## Workspaces
 
 ### Overview
@@ -90,42 +106,27 @@ The `Accounts` workspace is the operational workspace for Codex and Claude profi
 - profile list
 - selected profile details
 - best-effort quota state
-- launch/profile actions are still being layered in
-
-> Codex detection and session continuity are currently in recovery after storage/runtime drift, and some Codex state remains best-effort until the app-server-backed integration lands.
+- auth management workflows (import, write to home, delete)
 
 The intent is to keep account-management behavior out of the `Overview` workspace.
 
 ## Accounts Tab
 
-The `Accounts` tab is designed around per-profile auth and repo-shared session continuity for Codex workflows.
+The `Accounts` tab manages Codex and Claude profiles.
 
 Primary workflow:
 
-1. Import or manage a Codex or Claude profile
+1. Import a Codex profile (`i`) or a Claude profile (`I`)
 2. Select the desired profile in the `Accounts` tab
-3. Launch and resume workflows are still being layered in
-4. When one account hits a limit, switch profiles and continue the same repo work
+3. Use `w` to write the selected profile's auth to the tool's home directory
+4. When one account hits a limit, switch profiles and continue
 
-This is the intended model for `codex resume <id>` across account switches for the same repository, but the full workflow is still being layered in.
+## Claude Credential Import
 
-## Safe Launch Model
+The `I` keybinding imports Claude credentials into a new profile.
 
-The intended Codex account-switching model is built around:
-
-- profile-specific auth state
-- repo-shared session state
-- repo-shared sqlite runtime state
-
-The current TUI does not expose this as a fully active end-to-end launch flow.
-
-The underlying model is meant to:
-
-- keep profile auth isolated
-- keep repo session continuity stable
-- avoid breaking concurrent Codex tabs that are already running
-
-Compatibility/global activation remains a separate, explicit workflow rather than the default.
+- **macOS**: tries the macOS Keychain first (`security find-generic-password`). If the keychain entry is absent, run `claude` once to log in and the entry will be created.
+- **Linux**: reads `~/.claude/.credentials.json` directly. The file must already exist (run `claude` once to create it).
 
 ## Quota Limitations
 
@@ -158,16 +159,15 @@ Accounts:
 
 - `j` / `Down`: move selected profile
 - `k` / `Up`: move selected profile
+- `Enter`: confirm pending action (write, delete)
 - `/`: start filter input
 - `f`: cycle provider filter
 - `i`: import Codex auth
 - `I`: import Claude credentials
-- `w`: write selected profile to home auth file
+- `w`: write selected profile to home auth file (confirms)
 - `e`: edit selected profile
-- `d`: delete selected profile
-- `Q`: quota edit
+- `d`: delete selected profile (confirms)
 - `R`: refresh quota
-- `Enter`: currently a no-op
 
 ## Development
 
@@ -195,13 +195,40 @@ Build:
 cargo build --locked
 ```
 
+## Network activity
+
+When Codex or Claude profiles are present, `nexus` makes outbound HTTPS requests using the stored OAuth credentials to fetch quota state. These run automatically in the background every 30 seconds and on manual refresh (`R`).
+
+Endpoints contacted:
+
+| Provider | Endpoint | Purpose |
+|---|---|---|
+| Codex | `https://chatgpt.com/backend-api/wham/usage` | quota fetch |
+| Claude | `https://api.anthropic.com/api/oauth/usage` | quota fetch |
+| Claude | `https://api.anthropic.com/v1/oauth/token` | token refresh |
+
+No telemetry, analytics, or data is sent anywhere else. Credentials are only sent to the provider that issued them.
+
 ## Notes
 
 - `Overview` remains a passive monitor for agent discovery and activity.
 - `Accounts` is the explicit control surface for Codex and Claude profile workflows.
 - The app requires a real terminal for startup.
 - Logs default to a cache location such as `~/.cache/nexus/nexus.log` and can be overridden with `--log-file`.
-- Process discovery still depends on Unix-like `ps`, `lsof`, and `git` output formats. macOS remains the primary supported environment.
+
+## Known limitations
+
+### Codex detection
+
+Detection reads `~/.codex/state_5.sqlite` directly. If Codex changes its SQLite schema or bumps the database version number, detection will stop working until updated. The Codex quota endpoint (`https://chatgpt.com/backend-api/wham/usage`) is an undocumented API and may change without notice.
+
+### Claude quota
+
+The Claude quota endpoint (`https://api.anthropic.com/api/oauth/usage`) is an internal API. Quota data is best-effort — it may be stale, unavailable, or become inaccurate if the API changes.
+
+### OpenCode detection
+
+Detection reads `~/.local/share/opencode/opencode.db`. Schema changes in OpenCode will require a corresponding update here.
 
 ## Contributing
 

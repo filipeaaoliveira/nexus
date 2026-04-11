@@ -5,7 +5,8 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(
     name = "nexus",
-    about = "Read-only terminal dashboard for monitoring AI coding agents"
+    version,
+    about = "Terminal dashboard for monitoring and managing AI coding agents"
 )]
 pub struct Cli {
     /// Poll interval in seconds
@@ -22,7 +23,6 @@ pub struct Config {
     pub poll_interval_secs: u64,
     pub worktree_scan_interval_secs: u64,
     pub log_file: PathBuf,
-    pub opencode_api_url: Option<String>,
     pub claude_data_dir: PathBuf,
     pub codex_data_dir: PathBuf,
     pub codex_management_dir: PathBuf,
@@ -41,7 +41,10 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+        let home = dirs::home_dir().unwrap_or_else(|| {
+            tracing::warn!("home directory could not be determined; falling back to /tmp");
+            PathBuf::from("/tmp")
+        });
         let data_dir = dirs::data_dir().unwrap_or_else(|| home.join(".local/share"));
         let cache_dir = dirs::cache_dir().unwrap_or_else(|| home.join(".cache"));
         let codex_data_dir = home.join(".codex");
@@ -52,7 +55,6 @@ impl Default for Config {
             poll_interval_secs: 5,
             worktree_scan_interval_secs: 10,
             log_file: cache_dir.join("nexus").join("nexus.log"),
-            opencode_api_url: None,
             claude_data_dir: home.join(".claude"),
             codex_data_dir: codex_data_dir.clone(),
             codex_management_dir: codex_management_dir.clone(),
@@ -99,8 +101,14 @@ mod tests {
     fn test_claude_profiles_dir_under_nexus() {
         let config = Config::default();
         let s = config.claude_profiles_dir.to_string_lossy();
-        assert!(s.contains("nexus"), "claude_profiles_dir must be under nexus data dir");
-        assert!(s.ends_with("profiles"), "claude_profiles_dir must end with profiles");
+        assert!(
+            s.contains("nexus"),
+            "claude_profiles_dir must be under nexus data dir"
+        );
+        assert!(
+            s.ends_with("profiles"),
+            "claude_profiles_dir must end with profiles"
+        );
     }
 
     #[test]

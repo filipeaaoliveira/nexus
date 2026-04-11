@@ -68,7 +68,7 @@ pub fn shortcut_text(state: &AppState) -> String {
 fn shortcut_line(state: &AppState) -> Line<'static> {
     match state.active_tab() {
         crate::app::ActiveTab::Overview => overview_shortcut_line(state),
-        crate::app::ActiveTab::Accounts => accounts_shortcut_line(),
+        crate::app::ActiveTab::Accounts => accounts_shortcut_line(state),
     }
 }
 
@@ -99,7 +99,15 @@ fn overview_shortcut_line(state: &AppState) -> Line<'static> {
     ])
 }
 
-fn accounts_shortcut_line() -> Line<'static> {
+fn accounts_shortcut_line(state: &AppState) -> Line<'static> {
+    if state.accounts_tab.pending_confirm.is_some() {
+        return Line::from(vec![
+            Span::styled(" Enter", theme::bar_style().fg(theme::FG_DEFAULT)),
+            Span::styled(" confirm", theme::bar_style().fg(theme::FG_DIMMED)),
+            Span::styled("  Esc", theme::bar_style().fg(theme::FG_DEFAULT)),
+            Span::styled(" cancel", theme::bar_style().fg(theme::FG_DIMMED)),
+        ]);
+    }
     Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" accounts", theme::bar_style().fg(theme::FG_DIMMED)),

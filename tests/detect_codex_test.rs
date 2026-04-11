@@ -2,8 +2,8 @@ use nexus::detect::codex::*;
 use nexus::detect::registry::AgentRegistry;
 use nexus::event::AgentEvent;
 use nexus::types::{
-    AgentId, AgentTool, CodexBackendHealth, NormalizedReason, NormalizedStatus, PrimaryStatus,
-    TodoPriority, TodoStatus,
+    Activity, AgentId, AgentTool, CodexBackendHealth, NormalizedReason, NormalizedStatus,
+    PrimaryStatus, TodoPriority, TodoStatus,
 };
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -22,6 +22,7 @@ fn observed_session(
         started_at: nexus::types::from_epoch_secs(10),
         status,
         final_output: None,
+        final_output_is_completion: false,
         latest_tool_call: None,
         todos: Vec::new(),
         subagents: Vec::new(),
@@ -581,6 +582,89 @@ fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
 }
 
 #[test]
+fn test_build_codex_snapshot_does_not_guess_when_same_cwd_pid_count_is_ambiguous() {
+    let registry = AgentRegistry::new();
+    let cwd = PathBuf::from("/tmp/project");
+    let now = chrono::Local::now().timestamp();
+    let first_start = now - 50;
+    let second_start = now - 30;
+
+    registry.register(AgentTool::Codex, cwd.clone(), 101);
+    registry.register(AgentTool::Codex, cwd.clone(), 202);
+    registry.register_codex_thread("exact-thread".to_string(), 101);
+    registry.register_codex_launch(202, nexus::types::from_epoch_secs(second_start));
+
+    let threads = vec![
+        CodexThread {
+            id: "exact-thread".into(),
+            title: Some("Exact".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: first_start + 2,
+            updated_at: first_start + 8,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "candidate-a".into(),
+            title: Some("Candidate A".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: second_start + 1,
+            updated_at: second_start + 5,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+        CodexThread {
+            id: "candidate-b".into(),
+            title: Some("Candidate B".into()),
+            cwd: Some("/tmp/project".into()),
+            source: Some("cli".into()),
+            model: Some("gpt-5".into()),
+            git_branch: Some("main".into()),
+            agent_nickname: None,
+            agent_role: None,
+            created_at: second_start + 3,
+            updated_at: second_start + 9,
+            archived: 0,
+            tokens_used: None,
+            rollout_path: None,
+        },
+    ];
+
+    let snapshot = build_codex_snapshot(&threads, &[], &registry);
+    let exact = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "exact-thread")
+        .unwrap();
+    let candidate_a = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "candidate-a")
+        .unwrap();
+    let candidate_b = snapshot
+        .top_level_threads
+        .iter()
+        .find(|thread| thread.thread.id == "candidate-b")
+        .unwrap();
+
+    assert_eq!(exact.pid, Some(101));
+    assert_eq!(candidate_a.pid, None);
+    assert_eq!(candidate_b.pid, None);
+}
+
+#[test]
 fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
     let now = chrono::Local::now().timestamp();
     let snapshot = CodexSnapshot {
@@ -664,9 +748,7 @@ fn test_detect_codex_backend_reports_degraded_for_missing_db_after_previous_stat
     assert_eq!(result.snapshot.sessions.len(), 1);
     assert_eq!(result.snapshot.sessions[0].pid, Some(0));
     assert_eq!(
-        result.snapshot.sessions[0]
-            .agent_id
-            .session_id(),
+        result.snapshot.sessions[0].agent_id.session_id(),
         Some("codex-backend")
     );
     assert_eq!(
@@ -743,9 +825,7 @@ fn test_detect_codex_backend_reports_degraded_explicitly_when_threads_load_but_e
     assert_eq!(result.snapshot.sessions.len(), 2);
     assert_eq!(result.snapshot.sessions[0].pid, Some(0));
     assert_eq!(
-        result.snapshot.sessions[0]
-            .agent_id
-            .session_id(),
+        result.snapshot.sessions[0].agent_id.session_id(),
         Some("codex-backend")
     );
     assert!(result
@@ -773,6 +853,7 @@ fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
             started_at: None,
             status: PrimaryStatus::Error,
             final_output: Some("Codex backend is degraded: sqlite state is missing".into()),
+            final_output_is_completion: false,
             latest_tool_call: None,
             todos: Vec::new(),
             subagents: Vec::new(),
@@ -787,6 +868,7 @@ fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
             started_at: nexus::types::from_epoch_secs(10),
             status: PrimaryStatus::Waiting,
             final_output: None,
+            final_output_is_completion: false,
             latest_tool_call: None,
             todos: Vec::new(),
             subagents: Vec::new(),
@@ -867,6 +949,8 @@ fn test_codex_open_subagent_maps_to_working_subagent() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
             reason: None,
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Running)
     };
@@ -887,6 +971,8 @@ fn test_codex_done_review_output_beats_running_subagent() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
             reason: None,
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Done)
     };
@@ -907,6 +993,8 @@ fn test_codex_waiting_question_output_beats_running_subagent() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
             reason: None,
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
     };
@@ -930,6 +1018,8 @@ fn test_codex_waiting_subagent_approval_maps_parent_to_needs_input() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Waiting,
             reason: Some(NormalizedReason::Approval),
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
     };
@@ -950,6 +1040,8 @@ fn test_codex_waiting_subagent_decision_maps_parent_to_needs_input() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Waiting,
             reason: Some(NormalizedReason::Decision),
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Waiting)
     };
@@ -974,6 +1066,8 @@ fn test_codex_running_tool_call_beats_running_subagent() {
             description: Some("child-1".to_string()),
             status: PrimaryStatus::Running,
             reason: None,
+
+            started_at: None,
         }],
         ..observed_session("session-a", Some(41), PrimaryStatus::Running)
     };
@@ -1150,6 +1244,194 @@ fn test_codex_new_tool_call_after_completion_revives_running_and_clears_stale_do
 }
 
 #[test]
+fn test_live_pid_with_completed_rollout_stays_running_not_done() {
+    use nexus::types::{NormalizedReason, NormalizedStatus};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let rollout_path =
+        std::env::temp_dir().join(format!("codex-live-pid-completed-rollout-{unique}.jsonl"));
+    std::fs::write(
+        &rollout_path,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:10.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn_1\",\"last_agent_message\":\"Ready for the next task.\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let now = chrono::Local::now().timestamp();
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: now - 5,
+                updated_at: now,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(rollout_path.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: Some(17254),
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+    let session = &event_snapshot.sessions[0];
+    let normalized = normalize_codex_session(session, session.final_output.as_deref());
+
+    assert_eq!(session.status, PrimaryStatus::Running);
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+
+    std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_live_pid_completed_turn_clears_stale_todos_and_spawned_subagents() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let rollout_path =
+        std::env::temp_dir().join(format!("codex-live-pid-clears-turn-state-{unique}.jsonl"));
+    std::fs::write(
+        &rollout_path,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:02.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"update_plan\",\"arguments\":\"{\\\"plan\\\":[{\\\"step\\\":\\\"Investigate\\\",\\\"status\\\":\\\"in_progress\\\"}]\",\"call_id\":\"call_plan\"}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:03.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"collab_agent_spawn_end\",\"call_id\":\"call_1\",\"sender_thread_id\":\"parent\",\"new_thread_id\":\"child-rollout\",\"new_agent_nickname\":\"Parfit\",\"new_agent_role\":\"worker\",\"prompt\":\"Implement the validation logic\"}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:10.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn_1\",\"last_agent_message\":\"Ready for the next task.\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let now = chrono::Local::now().timestamp();
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: now - 5,
+                updated_at: now,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(rollout_path.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: Some(17254),
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+    let session = &event_snapshot.sessions[0];
+
+    assert!(session.todos.is_empty());
+    assert!(session.subagents.is_empty());
+
+    std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_live_pid_completed_turn_clears_stale_latest_tool_call() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let rollout_path =
+        std::env::temp_dir().join(format!("codex-live-pid-clears-latest-tool-{unique}.jsonl"));
+    std::fs::write(
+        &rollout_path,
+        concat!(
+            "{\"timestamp\":\"2026-03-31T10:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"parent\",\"cwd\":\"/tmp/project\",\"cli_version\":\"0.117.0\",\"source\":\"cli\",\"model_provider\":\"openai\",\"git\":{\"sha\":\"abc123\",\"branch\":\"main\",\"origin_url\":\"git@github.com:user/repo.git\"}}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:02.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"{\\\"cmd\\\":\\\"cargo test\\\"}\",\"call_id\":\"call_exec\"}}\n",
+            "{\"timestamp\":\"2026-03-31T10:00:10.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"turn_id\":\"turn_1\",\"last_agent_message\":\"Ready for the next task.\"}}\n"
+        ),
+    )
+    .unwrap();
+
+    let now = chrono::Local::now().timestamp();
+    let snapshot = CodexSnapshot {
+        top_level_threads: vec![ObservedCodexThread {
+            thread: CodexThread {
+                id: "parent".into(),
+                title: Some("Parent".into()),
+                cwd: Some("/tmp/project".into()),
+                source: Some("cli".into()),
+                model: Some("gpt-5".into()),
+                git_branch: Some("main".into()),
+                agent_nickname: None,
+                agent_role: None,
+                created_at: now - 5,
+                updated_at: now,
+                archived: 0,
+                tokens_used: None,
+                rollout_path: Some(rollout_path.to_string_lossy().to_string()),
+            },
+            agent_id: AgentId::session(AgentTool::Codex, "parent"),
+            pid: Some(17254),
+            classification: CodexThreadClassification::TopLevel,
+        }],
+        child_threads: Vec::new(),
+    };
+
+    let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+    let session = &event_snapshot.sessions[0];
+
+    assert!(session.latest_tool_call.is_none());
+
+    std::fs::remove_file(rollout_path).unwrap();
+}
+
+#[test]
+fn test_reconcile_live_completed_session_does_not_emit_generating_activity() {
+    let previous = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            final_output: Some("Ready for the next task.".to_string()),
+            ..observed_session("session-a", Some(41), PrimaryStatus::Done)
+        }],
+    };
+    let current = CodexEventSnapshot {
+        sessions: vec![ObservedCodexSession {
+            final_output: Some("Ready for the next task.".to_string()),
+            ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+        }],
+    };
+
+    let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+    assert!(events.iter().all(|event| {
+        !matches!(
+            event,
+            AgentEvent::ActivityChanged {
+                id,
+                activity: Some(Activity::Generating),
+                ..
+            } if id == &AgentId::session(AgentTool::Codex, "session-a")
+        )
+    }));
+}
+
+#[test]
 fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
     use nexus::types::{NormalizedReason, NormalizedStatus};
 
@@ -1160,6 +1442,35 @@ fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
     );
     assert_eq!(normalized.status, NormalizedStatus::Done);
     assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_codex_live_completed_non_review_output_maps_to_ready() {
+    use nexus::types::{NormalizedReason, NormalizedStatus};
+
+    let session = ObservedCodexSession {
+        final_output_is_completion: true,
+        ..observed_session("session-a", Some(41), PrimaryStatus::Running)
+    };
+    let normalized = normalize_codex_session(
+        &session,
+        Some("The root cause was the same-cwd fallback binding, not the status normalization."),
+    );
+    assert_eq!(normalized.status, NormalizedStatus::Done);
+    assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
+}
+
+#[test]
+fn test_codex_live_nonfinal_assistant_output_stays_working() {
+    use nexus::types::NormalizedStatus;
+
+    let session = observed_session("session-a", Some(41), PrimaryStatus::Running);
+    let normalized = normalize_codex_session(
+        &session,
+        Some("I found the exact thread id for PID 42132, so this is not another binding problem."),
+    );
+    assert_eq!(normalized.status, NormalizedStatus::Working);
+    assert_eq!(normalized.reason, None);
 }
 
 #[test]
@@ -1189,6 +1500,8 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
                 reason: None,
+
+                started_at: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Done)
         }],
@@ -1269,9 +1582,8 @@ fn test_reconcile_codex_snapshots_emits_tool_completion_and_restart() {
 
     assert!(matches!(
         &events[0],
-        AgentEvent::ToolCallCompleted { id, tool_name, .. }
+        AgentEvent::ToolCallCompleted { id, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
-                && tool_name == "shell"
     ));
     assert!(matches!(
         &events[1],
@@ -1335,6 +1647,8 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Running,
                 reason: None,
+
+                started_at: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
         }],
@@ -1347,6 +1661,8 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
                 description: Some("child-a".to_string()),
                 status: PrimaryStatus::Done,
                 reason: None,
+
+                started_at: None,
             }],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
         }],
@@ -1385,6 +1701,8 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
                     reason: None,
+
+                    started_at: None,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
@@ -1392,6 +1710,8 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     description: Some("child-b".to_string()),
                     status: PrimaryStatus::Running,
                     reason: None,
+
+                    started_at: None,
                 },
             ],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -1406,6 +1726,8 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     description: Some("child-a".to_string()),
                     status: PrimaryStatus::Running,
                     reason: None,
+
+                    started_at: None,
                 },
                 ObservedCodexSubagent {
                     thread_id: "child-b".to_string(),
@@ -1413,6 +1735,8 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
                     description: Some("child-b".to_string()),
                     status: PrimaryStatus::Done,
                     reason: None,
+
+                    started_at: None,
                 },
             ],
             ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -1421,12 +1745,18 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
 
     let events = reconcile_codex_snapshots(Some(&previous), &current);
 
-    assert_eq!(events.len(), 1);
-    assert!(matches!(
-        &events[0],
+    assert_eq!(events.len(), 2);
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::SubagentsUpdated { id, subagents, .. }
+            if id == &AgentId::session(AgentTool::Codex, "session-a")
+                && subagents.len() == 2
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
         AgentEvent::SubagentCompleted { subagent_name, .. }
             if subagent_name == "child-b"
-    ));
+    )));
 }
 
 #[test]
@@ -1553,7 +1883,7 @@ fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
 }
 
 #[test]
-fn test_codex_open_child_without_rollout_does_not_force_parent_working() {
+fn test_codex_open_child_without_rollout_keeps_live_parent_running() {
     use nexus::types::{NormalizedReason, NormalizedStatus};
 
     let unique = SystemTime::now()
@@ -1627,8 +1957,7 @@ fn test_codex_open_child_without_rollout_does_not_force_parent_working() {
     let session = &event_snapshot.sessions[0];
     let normalized = normalize_codex_session(session, session.final_output.as_deref());
 
-    assert_eq!(session.subagents.len(), 1);
-    assert_eq!(session.subagents[0].status, PrimaryStatus::Waiting);
+    assert!(session.subagents.is_empty());
     assert_eq!(normalized.status, NormalizedStatus::Done);
     assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 
@@ -1636,7 +1965,7 @@ fn test_codex_open_child_without_rollout_does_not_force_parent_working() {
 }
 
 #[test]
-fn test_codex_rollout_only_spawn_does_not_force_parent_working() {
+fn test_codex_rollout_only_spawn_keeps_live_parent_running() {
     use nexus::types::{NormalizedReason, NormalizedStatus};
 
     let unique = SystemTime::now()
@@ -1683,8 +2012,7 @@ fn test_codex_rollout_only_spawn_does_not_force_parent_working() {
     let session = &event_snapshot.sessions[0];
     let normalized = normalize_codex_session(session, session.final_output.as_deref());
 
-    assert_eq!(session.subagents.len(), 1);
-    assert_eq!(session.subagents[0].status, PrimaryStatus::Waiting);
+    assert!(session.subagents.is_empty());
     assert_eq!(normalized.status, NormalizedStatus::Done);
     assert_eq!(normalized.reason, Some(NormalizedReason::ReadyForNextTask));
 
@@ -1699,8 +2027,7 @@ fn test_child_waiting_for_approval_bubbles_to_parent_needs_input() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let child_rollout =
-        std::env::temp_dir().join(format!("codex-child-approval-{unique}.jsonl"));
+    let child_rollout = std::env::temp_dir().join(format!("codex-child-approval-{unique}.jsonl"));
     std::fs::write(
         &child_rollout,
         concat!(
@@ -1769,7 +2096,10 @@ fn test_child_waiting_for_approval_bubbles_to_parent_needs_input() {
 
     assert_eq!(session.subagents.len(), 1);
     assert_eq!(session.subagents[0].status, PrimaryStatus::Done);
-    assert_eq!(session.subagents[0].reason, Some(NormalizedReason::Approval));
+    assert_eq!(
+        session.subagents[0].reason,
+        Some(NormalizedReason::Approval)
+    );
     assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
     assert_eq!(normalized.reason, Some(NormalizedReason::Approval));
 

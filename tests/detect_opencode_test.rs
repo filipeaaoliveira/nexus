@@ -447,10 +447,7 @@ fn test_busy_review_like_text_stays_working() {
     );
 
     assert_eq!(state.status, NormalizedStatus::Working);
-    assert_ne!(
-        state.reason,
-        Some(nexus::types::NormalizedReason::Review)
-    );
+    assert_ne!(state.reason, Some(nexus::types::NormalizedReason::Review));
 }
 
 #[test]
@@ -496,10 +493,7 @@ fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() 
     );
 
     assert_eq!(state.status, NormalizedStatus::Unknown);
-    assert_ne!(
-        state.reason,
-        Some(nexus::types::NormalizedReason::ToolCall)
-    );
+    assert_ne!(state.reason, Some(nexus::types::NormalizedReason::ToolCall));
 }
 
 #[test]

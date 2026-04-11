@@ -1,0 +1,283 @@
+use std::path::PathBuf;
+use std::time::Duration;
+
+use tokio::sync::mpsc;
+
+use crate::event::AgentEvent;
+use crate::detect::registry::AgentRegistry;
+
+mod types;
+mod rollout;
+mod sqlite;
+mod snapshot;
+
+pub use types::*;
+pub use rollout::*;
+pub use sqlite::*;
+pub use snapshot::*;
+
+const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
+const SAME_CWD_MULTI_BIND_MAX_SKEW_SECS: i64 = 90;
+
+// ── Detector Loop ─────────────────────────────────────────────────
+
+/// Run the Codex detector polling loop.
+///
+/// Watches the Codex data directory for state changes by polling the
+/// SQLite database at `codex_data_dir/state_5.sqlite`.
+pub async fn run_codex_detector(
+    tx: mpsc::Sender<AgentEvent>,
+    codex_data_dir: PathBuf,
+    poll_interval: Duration,
+    registry: AgentRegistry,
+) -> anyhow::Result<()> {
+    let db_path = codex_data_dir.join("state_5.sqlite");
+    let mut previous_snapshot: Option<CodexEventSnapshot> = None;
+    let mut has_seen_db = false;
+
+    loop {
+        let db = db_path.clone();
+        let registry = registry.clone();
+        if db_path.exists() {
+            has_seen_db = true;
+        }
+        let result = tokio::task::spawn_blocking(move || {
+            detect_codex_backend_with_history(&db, &registry, has_seen_db)
+        })
+        .await?;
+
+        let current_snapshot = result.snapshot;
+        let events = reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);
+
+        for event in events {
+            let _ = tx.send(event).await;
+        }
+
+        previous_snapshot = Some(current_snapshot);
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_codex_event_snapshot, codex_pid_for_thread, load_spawn_edges_snapshot,
+        reconcile_codex_snapshots, snapshot_child_threads_by_parent, CodexEventSnapshot,
+        CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
+        ObservedCodexSubagent, ObservedCodexThread,
+    };
+    use crate::detect::registry::AgentRegistry;
+    use crate::event::AgentEvent;
+    use crate::types::{AgentId, AgentTool, PrimaryStatus};
+    use rusqlite::Connection;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn codex_pid_for_thread_returns_single_binding_only() {
+        let registry = AgentRegistry::new();
+        let cwd = PathBuf::from("/tmp/project");
+
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), None);
+
+        registry.register(AgentTool::Codex, cwd.clone(), 101);
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), Some(101));
+
+        registry.register(AgentTool::Codex, cwd.clone(), 202);
+        assert_eq!(codex_pid_for_thread(&registry, &cwd), None);
+    }
+
+    #[test]
+    fn snapshot_child_threads_by_parent_uses_classification() {
+        let snapshot = CodexSnapshot {
+            top_level_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "parent".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: None,
+                    agent_nickname: None,
+                    agent_role: None,
+                    created_at: 1,
+                    updated_at: 1,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: None,
+                classification: CodexThreadClassification::TopLevel,
+            }],
+            child_threads: vec![
+                ObservedCodexThread {
+                    thread: CodexThread {
+                        id: "child-a".into(),
+                        title: None,
+                        cwd: Some("/tmp/project".into()),
+                        source: Some("cli".into()),
+                        model: None,
+                        git_branch: None,
+                        agent_nickname: None,
+                        agent_role: None,
+                        created_at: 2,
+                        updated_at: 2,
+                        archived: 0,
+                        tokens_used: None,
+                        rollout_path: None,
+                    },
+                    agent_id: AgentId::session(AgentTool::Codex, "child-a"),
+                    pid: None,
+                    classification: CodexThreadClassification::Child {
+                        parent_thread_id: Some("parent".into()),
+                    },
+                },
+                ObservedCodexThread {
+                    thread: CodexThread {
+                        id: "orphan".into(),
+                        title: None,
+                        cwd: Some("/tmp/project".into()),
+                        source: Some("cli".into()),
+                        model: None,
+                        git_branch: None,
+                        agent_nickname: None,
+                        agent_role: None,
+                        created_at: 3,
+                        updated_at: 3,
+                        archived: 0,
+                        tokens_used: None,
+                        rollout_path: None,
+                    },
+                    agent_id: AgentId::session(AgentTool::Codex, "orphan"),
+                    pid: None,
+                    classification: CodexThreadClassification::Child {
+                        parent_thread_id: None,
+                    },
+                },
+            ],
+        };
+
+        let grouped = snapshot_child_threads_by_parent(&snapshot);
+
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped["parent"][0].thread.id, "child-a");
+    }
+
+    #[test]
+    fn load_spawn_edges_snapshot_ignores_missing_table() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = std::env::temp_dir().join(format!("codex-missing-edges-{unique}.sqlite"));
+        Connection::open(&db_path).unwrap();
+
+        let edges = load_spawn_edges_snapshot(&db_path);
+
+        assert!(edges.is_empty());
+
+        std::fs::remove_file(db_path).unwrap();
+    }
+
+    #[test]
+    fn build_codex_event_snapshot_includes_child_threads_as_subagents() {
+        let snapshot = CodexSnapshot {
+            top_level_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "parent".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: Some("main".into()),
+                    agent_nickname: None,
+                    agent_role: None,
+                    created_at: 1,
+                    updated_at: 1,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: Some(44),
+                classification: CodexThreadClassification::TopLevel,
+            }],
+            child_threads: vec![ObservedCodexThread {
+                thread: CodexThread {
+                    id: "child-a".into(),
+                    title: None,
+                    cwd: Some("/tmp/project".into()),
+                    source: Some("cli".into()),
+                    model: None,
+                    git_branch: None,
+                    agent_nickname: Some("worker".into()),
+                    agent_role: Some("worker".into()),
+                    created_at: 2,
+                    updated_at: 2,
+                    archived: 0,
+                    tokens_used: None,
+                    rollout_path: None,
+                },
+                agent_id: AgentId::session(AgentTool::Codex, "child-a"),
+                pid: None,
+                classification: CodexThreadClassification::Child {
+                    parent_thread_id: Some("parent".into()),
+                },
+            }],
+        };
+
+        let event_snapshot = build_codex_event_snapshot(&snapshot, &[]);
+
+        assert_eq!(event_snapshot.sessions.len(), 1);
+        assert_eq!(event_snapshot.sessions[0].subagents.len(), 1);
+        assert_eq!(event_snapshot.sessions[0].subagents[0].thread_id, "child-a");
+        assert_eq!(event_snapshot.sessions[0].subagents[0].name, "worker");
+    }
+
+    #[test]
+    fn reconcile_codex_snapshots_emits_subagent_completion_delta() {
+        let previous = CodexEventSnapshot {
+            sessions: vec![ObservedCodexSession {
+                agent_id: AgentId::session(AgentTool::Codex, "parent"),
+                pid: Some(44),
+                cwd: PathBuf::from("/tmp/project"),
+                branch: Some("main".into()),
+                started_at: crate::types::from_epoch_secs(1),
+                status: PrimaryStatus::Running,
+                final_output: None,
+                final_output_is_completion: false,
+                latest_tool_call: None,
+                todos: Vec::new(),
+                subagents: vec![ObservedCodexSubagent {
+                    thread_id: "child-a".into(),
+                    name: "child-a".into(),
+                    description: Some("worker".into()),
+                    status: PrimaryStatus::Running,
+                    reason: None,
+                    started_at: None,
+                }],
+            }],
+        };
+        let current = CodexEventSnapshot {
+            sessions: vec![ObservedCodexSession {
+                subagents: vec![ObservedCodexSubagent {
+                    status: PrimaryStatus::Done,
+                    ..previous.sessions[0].subagents[0].clone()
+                }],
+                ..previous.sessions[0].clone()
+            }],
+        };
+
+        let events = reconcile_codex_snapshots(Some(&previous), &current);
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                AgentEvent::SubagentCompleted { subagent_name, .. }
+                    if subagent_name == "child-a"
+            )
+        }));
+    }
+}

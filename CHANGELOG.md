@@ -7,6 +7,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-10
+
 ### Added
 - Claude accounts tab: import, manage, and switch Claude profiles alongside Codex profiles
 - Per-profile quota inspection for both Claude and Codex accounts

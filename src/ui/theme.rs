@@ -8,6 +8,7 @@ pub const BG_MAIN: Color = Color::Rgb(0x18, 0x16, 0x16);
 pub const BG_HEADER: Color = Color::Rgb(0x0d, 0x0c, 0x0c);
 pub const BG_SECTION: Color = Color::Rgb(0x1D, 0x1C, 0x19);
 pub const BG_SELECTED: Color = Color::Rgb(0x22, 0x21, 0x1E);
+pub const BG_DIALOG: Color = Color::Rgb(0x21, 0x1f, 0x1b);
 pub const BORDER: Color = Color::Rgb(0x28, 0x27, 0x27);
 
 // ── Foregrounds ────────────────────────────────────────────────────

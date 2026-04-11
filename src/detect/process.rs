@@ -352,11 +352,13 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     // Must clone the data we need before any await points
     let (new_pids, cached_procs_data): (Vec<u32>, Vec<(u32, PathBuf)>) = {
         let cached_cwds = CWD_CACHE.lock().unwrap();
-        let new_pids: Vec<u32> = procs.iter()
+        let new_pids: Vec<u32> = procs
+            .iter()
             .filter(|p| !cached_cwds.contains_key(&p.pid))
             .map(|p| p.pid)
             .collect();
-        let cached_procs_data: Vec<(u32, PathBuf)> = procs.iter()
+        let cached_procs_data: Vec<(u32, PathBuf)> = procs
+            .iter()
             .filter(|p| cached_cwds.contains_key(&p.pid))
             .filter_map(|p| cached_cwds.get(&p.pid).map(|cwd| (p.pid, cwd.clone())))
             .collect();
@@ -364,20 +366,19 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
     };
 
     // Start with cached CWDs - we now have (pid, cwd) pairs, need to rejoin with ProcessInfo
-    let mut pid_cwd: std::collections::HashMap<u32, PathBuf> = cached_procs_data
-        .into_iter()
-        .collect();
+    let mut pid_cwd: std::collections::HashMap<u32, PathBuf> =
+        cached_procs_data.into_iter().collect();
 
     // Only call lsof for PIDs we haven't cached yet
     if !new_pids.is_empty() {
         let new_cwds = batch_get_cwds(&new_pids).await;
-        
+
         // Update cache and results
         let mut cache = CWD_CACHE.lock().unwrap();
         for (pid, cwd) in &new_cwds {
             cache.insert(*pid, cwd.clone());
         }
-        
+
         pid_cwd.extend(new_cwds);
     }
 
@@ -417,13 +418,15 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
             };
 
             if has_same_tool_child_with_same_cwd {
-                if let Some(parent_cwd) = cwd_map.get(&proc.ppid.unwrap()) {
-                    if parent_cwd == &cwd {
-                        debug!(
-                            "Skipping parent process {} (child has same tool/CWD)",
-                            proc.pid
-                        );
-                        return None;
+                if let Some(ppid) = proc.ppid {
+                    if let Some(parent_cwd) = cwd_map.get(&ppid) {
+                        if parent_cwd == &cwd {
+                            debug!(
+                                "Skipping parent process {} (child has same tool/CWD)",
+                                proc.pid
+                            );
+                            return None;
+                        }
                     }
                 }
             }

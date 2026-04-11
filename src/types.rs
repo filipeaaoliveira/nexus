@@ -139,8 +139,9 @@ impl std::fmt::Display for PrimaryStatus {
 
 // ── CodexBackendHealth ────────────────────────────────────────────
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum CodexBackendHealth {
+    #[default]
     Healthy,
     Degraded { reason: String },
 }
@@ -160,11 +161,6 @@ impl CodexBackendHealth {
     }
 }
 
-impl Default for CodexBackendHealth {
-    fn default() -> Self {
-        Self::Healthy
-    }
-}
 
 // ── NormalizedStatus / NormalizedReason ────────────────────────────
 

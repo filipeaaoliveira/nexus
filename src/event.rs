@@ -38,6 +38,11 @@ pub enum AgentEvent {
         pid: Option<u32>,
         subagent_name: String,
     },
+    SubagentsUpdated {
+        id: AgentId,
+        pid: Option<u32>,
+        subagents: Vec<Subagent>,
+    },
     ToolCallStarted {
         id: AgentId,
         pid: Option<u32>,
@@ -47,7 +52,6 @@ pub enum AgentEvent {
     ToolCallCompleted {
         id: AgentId,
         pid: Option<u32>,
-        tool_name: String,
     },
     ProcessExited {
         id: AgentId,

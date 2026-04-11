@@ -26,7 +26,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
             format!("{total} agents"),
             theme::bar_style().fg(theme::FG_DIMMED),
         ),
-        Span::styled("  ", theme::bar_style()),
+        Span::styled("  runtime ", theme::bar_style().fg(theme::FG_COMMENT)),
         Span::styled(
             format!("● {running}"),
             theme::bar_style().fg(theme::STATUS_RUNNING),

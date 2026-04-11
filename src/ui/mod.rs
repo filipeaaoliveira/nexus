@@ -1,6 +1,6 @@
+pub mod accounts_tab;
 pub mod activity;
 pub mod agent_list;
-pub mod accounts_tab;
 pub mod detail;
 pub mod footer;
 pub mod header;
@@ -9,6 +9,8 @@ pub mod theme;
 
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::Style;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{ActiveTab, AppState};
@@ -65,6 +67,22 @@ impl<'a> RenderData<'a> {
 }
 
 pub fn render(frame: &mut Frame, state: &AppState) {
+    let area = frame.area();
+    if area.width < 40 || area.height < 8 {
+        frame.render_widget(
+            ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),
+            area,
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                " Terminal too small — resize to continue",
+                Style::default().fg(theme::FG_COMMENT),
+            ))),
+            area,
+        );
+        return;
+    }
+
     match state.active_tab() {
         ActiveTab::Overview => {
             let render_data = RenderData::from_state(state);
@@ -120,7 +138,7 @@ fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData
 
     // Help overlay
     if state.show_help {
-        help::render(frame);
+        help::render(frame, state.help_scroll);
     }
 }
 

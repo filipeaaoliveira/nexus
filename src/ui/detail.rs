@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::types::{self, TodoStatus};
+use crate::types::{self, AgentTool, TodoStatus};
 
 use super::{theme, RenderData};
 
@@ -25,6 +25,11 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
         ))],
         Some(agent) => {
             let mut lines = Vec::new();
+            let (status_label, activity_label) = if agent.id.tool() == AgentTool::Claude {
+                ("  observed status: ", "  observed activity: ")
+            } else {
+                ("  runtime status: ", "  runtime activity: ")
+            };
             let normalized_text = match &agent.normalized.reason {
                 Some(reason) => {
                     format!("{} · {}", agent.normalized.status.as_str(), reason.as_str())
@@ -53,12 +58,12 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
 
             // Tool-native diagnostics
             lines.push(Line::from(vec![
-                Span::styled("  tool status: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(status_label, Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
                     agent.status.as_str().to_string(),
                     Style::default().fg(theme::status_color(agent.status)),
                 ),
-                Span::styled("  activity: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(activity_label, Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
                     agent
                         .activity

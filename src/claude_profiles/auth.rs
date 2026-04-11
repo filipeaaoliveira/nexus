@@ -49,16 +49,22 @@ impl ClaudeAuth {
     }
 
     pub fn access_token(&self) -> Option<&str> {
-        self.claude_ai_oauth.as_ref().map(|t| t.access_token.as_str())
+        self.claude_ai_oauth
+            .as_ref()
+            .map(|t| t.access_token.as_str())
     }
 
     pub fn refresh_token(&self) -> Option<&str> {
-        self.claude_ai_oauth.as_ref().map(|t| t.refresh_token.as_str())
+        self.claude_ai_oauth
+            .as_ref()
+            .map(|t| t.refresh_token.as_str())
     }
 
     /// Returns true if the access token expires within the next 5 minutes.
     pub fn is_expiring_soon(&self) -> bool {
-        let Some(tokens) = &self.claude_ai_oauth else { return true };
+        let Some(tokens) = &self.claude_ai_oauth else {
+            return true;
+        };
         let now_ms = Utc::now().timestamp_millis();
         let margin_ms = 5 * 60 * 1000; // 5 minutes
         tokens.expires_at <= now_ms + margin_ms
@@ -66,7 +72,9 @@ impl ClaudeAuth {
 
     /// Returns true if the access token is currently expired.
     pub fn is_expired(&self) -> bool {
-        let Some(tokens) = &self.claude_ai_oauth else { return true };
+        let Some(tokens) = &self.claude_ai_oauth else {
+            return true;
+        };
         let now_ms = Utc::now().timestamp_millis();
         tokens.expires_at <= now_ms
     }

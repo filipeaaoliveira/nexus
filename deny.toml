@@ -1,0 +1,32 @@
+[advisories]
+version = 2
+# Deny crates with known security advisories. Add entries to `ignore` only
+# for accepted risks with an explanation.
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
+    "CC0-1.0",
+]
+
+[bans]
+# Warn rather than deny on duplicate dependency versions; unavoidable in
+# complex trees (e.g. tokio ecosystem). Tighten to "deny" if/when the tree
+# is clean enough to enforce it.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = []

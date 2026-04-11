@@ -1,16 +1,14 @@
-use nexus::app::{ActiveTab, AppState, AccountsTabState};
-use nexus::codex_profiles::runtime::repo_runtime_key;
+use nexus::app::{AccountsTabState, ActiveTab, AppState};
 use nexus::config::Config;
 use nexus::event::AgentEvent;
 use nexus::types::*;
-use std::fs;
 use nexus::ui::{footer, help};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-fn make_state() -> AppState {
+fn make_state() -> (tempfile::TempDir, AppState) {
     let temp = tempdir().expect("tempdir");
-    let root = temp.keep();
+    let root = temp.path().to_path_buf();
 
     let mut config = Config::default();
     config.codex_management_dir = root.join("codex-management");
@@ -22,7 +20,7 @@ fn make_state() -> AppState {
     config.claude_data_dir = root.join("claude");
     config.opencode_data_dir = root.join("opencode");
 
-    AppState::new(config)
+    (temp, AppState::new(config))
 }
 
 fn discovered(
@@ -113,7 +111,7 @@ fn todos_updated(tool: AgentTool, pid: u32, todos: Vec<TodoItem>) -> AgentEvent 
 
 #[test]
 fn test_initial_state_is_empty() {
-    let state = make_state();
+    let (_tmp, state) = make_state();
     assert!(state.agents.is_empty());
     assert_eq!(state.selected, None);
     assert_eq!(state.sort_mode, SortMode::Name);
@@ -122,237 +120,8 @@ fn test_initial_state_is_empty() {
 
 #[test]
 fn test_initial_state_starts_on_overview_tab() {
-    let state = make_state();
+    let (_tmp, state) = make_state();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
-}
-
-fn init_git_repo(repo_root: &std::path::Path) {
-    fs::create_dir_all(repo_root).expect("repo root");
-    let status = std::process::Command::new("git")
-        .arg("init")
-        .arg(repo_root)
-        .status()
-        .expect("git init");
-    assert!(status.success(), "git init failed with {status}");
-}
-
-fn write_session_cwd(session_dir: &std::path::Path, cwd: &std::path::Path) {
-    fs::create_dir_all(session_dir).expect("session dir");
-    fs::write(
-        session_dir.join("session.jsonl"),
-        format!(r#"{{"cwd":"{}"}}"#, cwd.display()),
-    )
-    .expect("session metadata");
-}
-
-#[test]
-fn app_repo_runtime_dir_uses_repo_specific_key() {
-    let state = make_state();
-    let repo_root = PathBuf::from("/tmp/work/project");
-
-    let repo_dir = state.current_repo_runtime_dir(&repo_root);
-
-    assert_eq!(
-        repo_dir,
-        state.config.codex_repos_dir.join(repo_runtime_key(&repo_root))
-    );
-    assert_ne!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
-}
-
-#[test]
-fn get_repo_sessions_reads_repo_specific_directory() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_root = temp.path().join("project");
-    let nested = repo_root.join("nested").join("deeper");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(&nested).expect("nested cwd");
-    let repo_dir = state.current_repo_runtime_dir(&repo_root);
-    let sessions_dir = repo_dir.join("sessions/2026/04/05");
-    fs::create_dir_all(&sessions_dir).expect("session dir");
-
-    let sessions = state.get_repo_sessions_for_cwd(&nested);
-
-    assert_eq!(sessions, vec!["2026/04/05".to_string()]);
-}
-
-#[test]
-fn get_repo_sessions_falls_back_to_legacy_current_repo_directory() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_root = temp.path().join("project");
-    let nested = repo_root.join("nested");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(&nested).expect("nested cwd");
-    let legacy_sessions = state
-        .config
-        .codex_repos_dir
-        .join("current-repo")
-        .join("sessions/2025/12/31");
-    write_session_cwd(&legacy_sessions, &nested);
-
-    let sessions = state.get_repo_sessions_for_cwd(&nested);
-
-    assert_eq!(sessions, vec!["2025/12/31".to_string()]);
-}
-
-#[test]
-fn legacy_sessions_do_not_leak_across_repos() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_a = temp.path().join("repo-a");
-    let repo_b = temp.path().join("repo-b");
-    let repo_a_nested = repo_a.join("nested");
-    let repo_b_nested = repo_b.join("nested");
-
-    init_git_repo(&repo_a);
-    init_git_repo(&repo_b);
-    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
-    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
-
-    let legacy_session = state
-        .config
-        .codex_repos_dir
-        .join("current-repo")
-        .join("sessions/2025/12/31");
-    write_session_cwd(&legacy_session, &repo_b_nested);
-
-    let sessions = state.get_repo_sessions_for_cwd(&repo_a_nested);
-
-    assert!(sessions.is_empty());
-}
-
-#[test]
-fn duplicate_sessions_prefer_hashed_store_over_legacy() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_root = temp.path().join("project");
-    let nested = repo_root.join("nested");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(&nested).expect("nested cwd");
-
-    let hashed_session = state
-        .current_repo_runtime_dir(&nested)
-        .join("sessions/2025/12/31");
-    fs::create_dir_all(&hashed_session).expect("hashed session dir");
-
-    let legacy_session = state
-        .config
-        .codex_repos_dir
-        .join("current-repo")
-        .join("sessions/2025/12/31");
-    write_session_cwd(&legacy_session, &nested);
-
-    let sessions = state.get_repo_sessions_for_cwd(&nested);
-    let repo_dir = state.repo_runtime_dir_for_session(&nested, "2025/12/31");
-
-    assert_eq!(sessions, vec!["2025/12/31".to_string()]);
-    assert_eq!(repo_dir, state.current_repo_runtime_dir(&nested));
-}
-
-#[test]
-fn current_repo_launch_dir_stays_hashed_even_when_legacy_exists() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_root = temp.path().join("project");
-    let nested = repo_root.join("nested");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(&nested).expect("nested cwd");
-    fs::create_dir_all(state.config.codex_repos_dir.join("current-repo")).expect("legacy dir");
-
-    let repo_dir = state.current_repo_runtime_dir(&nested);
-
-    assert_eq!(repo_dir, state.config.codex_repos_dir.join(repo_runtime_key(&repo_root)));
-    assert_ne!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
-}
-
-#[test]
-fn legacy_only_session_resolves_to_legacy_runtime_dir() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_root = temp.path().join("project");
-    let nested = repo_root.join("nested");
-
-    init_git_repo(&repo_root);
-    fs::create_dir_all(&nested).expect("nested cwd");
-    let legacy_session = state
-        .config
-        .codex_repos_dir
-        .join("current-repo")
-        .join("sessions/2025/12/31");
-    write_session_cwd(&legacy_session, &nested);
-
-    let repo_dir = state.repo_runtime_dir_for_session(&nested, "2025/12/31");
-
-    assert_eq!(repo_dir, state.config.codex_repos_dir.join("current-repo"));
-}
-
-#[test]
-fn unrelated_legacy_session_id_does_not_capture_repo_runtime_resolution() {
-    let state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_a = temp.path().join("repo-a");
-    let repo_b = temp.path().join("repo-b");
-    let repo_a_nested = repo_a.join("nested");
-    let repo_b_nested = repo_b.join("nested");
-
-    init_git_repo(&repo_a);
-    init_git_repo(&repo_b);
-    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
-    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
-
-    let legacy_session = state
-        .config
-        .codex_repos_dir
-        .join("current-repo")
-        .join("sessions/2025/12/31");
-    write_session_cwd(&legacy_session, &repo_b_nested);
-
-    let repo_dir = state.repo_runtime_dir_for_session(&repo_a_nested, "2025/12/31");
-
-    assert_eq!(repo_dir, state.current_repo_runtime_dir(&repo_a_nested));
-}
-
-#[test]
-fn running_codex_sessions_for_cwd_filters_to_current_repo() {
-    let mut state = make_state();
-    let temp = tempdir().expect("tempdir");
-    let repo_a = temp.path().join("repo-a");
-    let repo_b = temp.path().join("repo-b");
-    let repo_a_nested = repo_a.join("nested");
-    let repo_b_nested = repo_b.join("nested");
-
-    init_git_repo(&repo_a);
-    init_git_repo(&repo_b);
-    fs::create_dir_all(&repo_a_nested).expect("repo a nested");
-    fs::create_dir_all(&repo_b_nested).expect("repo b nested");
-
-    state.handle_event(discovered(AgentTool::Codex, 1001, &repo_a_nested, None));
-    state.handle_event(session_info(
-        AgentTool::Codex,
-        1001,
-        "session-a",
-        None,
-        false,
-        None,
-    ));
-    state.handle_event(discovered(AgentTool::Codex, 1002, &repo_b_nested, None));
-    state.handle_event(session_info(
-        AgentTool::Codex,
-        1002,
-        "session-b",
-        None,
-        false,
-        None,
-    ));
-
-    let sessions = state.running_codex_sessions_for_cwd(&repo_a_nested);
-
-    assert_eq!(sessions, vec![("session-a".to_string(), Some(1001))]);
 }
 
 #[test]
@@ -360,9 +129,7 @@ fn codex_tab_selection_wraps() {
     let mut state = AccountsTabState::new();
     state.codex_profile_ids = vec!["a".into(), "b".into()];
     state.selected_index = Some(1);
-    let codex_ids = state.codex_profile_ids.clone();
-    let claude_ids = state.claude_profile_ids.clone();
-    state.next_profile(&codex_ids, &claude_ids);
+    state.next_profile();
     assert_eq!(state.selected_index, Some(0));
 }
 
@@ -370,15 +137,13 @@ fn codex_tab_selection_wraps() {
 fn codex_tab_next_profile_selects_first_when_unset() {
     let mut state = AccountsTabState::new();
     state.codex_profile_ids = vec!["a".into(), "b".into()];
-    let codex_ids = state.codex_profile_ids.clone();
-    let claude_ids = state.claude_profile_ids.clone();
-    state.next_profile(&codex_ids, &claude_ids);
+    state.next_profile();
     assert_eq!(state.selected_index, Some(0));
 }
 
 #[test]
 fn test_tab_navigation_cycles_between_tabs() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
 
     state.next_tab();
@@ -396,12 +161,12 @@ fn test_tab_navigation_cycles_between_tabs() {
 
 #[test]
 fn codex_tab_navigation_keys_do_not_move_overview_selection() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.next_tab();
     assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
     state.accounts_tab.codex_profile_ids = vec!["one".into(), "two".into()];
-    state.handle_codex_move_down();
+    state.handle_accounts_move_down();
 
     assert_eq!(state.accounts_tab.selected_index, Some(0));
     assert_eq!(state.selected, None);
@@ -409,13 +174,13 @@ fn codex_tab_navigation_keys_do_not_move_overview_selection() {
 
 #[test]
 fn codex_tab_filter_input_stays_on_codex_state() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.next_tab();
     assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
-    state.start_codex_filter();
-    state.codex_filter_push_char('q');
-    state.codex_filter_push_char('1');
+    state.start_accounts_filter();
+    state.accounts_filter_push_char('q');
+    state.accounts_filter_push_char('1');
 
     assert!(state.filter.is_none());
     assert!(!state.filter_mode);
@@ -423,14 +188,14 @@ fn codex_tab_filter_input_stays_on_codex_state() {
     assert!(state.accounts_tab.filter_mode);
     assert_eq!(state.accounts_tab.filter_input, "q1");
 
-    state.confirm_codex_filter();
+    state.confirm_accounts_filter();
     assert!(!state.accounts_tab.filter_mode);
     assert_eq!(state.accounts_tab.filter_input, "q1");
 }
 
 #[test]
 fn codex_footer_uses_codex_shortcuts() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.next_tab();
 
     let footer = footer::shortcut_text(&state);
@@ -441,8 +206,8 @@ fn codex_footer_uses_codex_shortcuts() {
 }
 
 #[test]
-fn help_overlay_lists_codex_import_and_launch_shortcuts() {
-    let lines = help::help_lines(ActiveTab::Accounts, false);
+fn help_overlay_lists_import_and_management_shortcuts() {
+    let lines = help::help_lines(false);
     let content: Vec<String> = lines
         .iter()
         .map(|line| {
@@ -464,7 +229,7 @@ fn help_overlay_lists_codex_import_and_launch_shortcuts() {
 
 #[test]
 fn test_discover_agent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         1234,
@@ -479,8 +244,24 @@ fn test_discover_agent() {
 }
 
 #[test]
+fn test_discover_codex_starts_unknown_not_working() {
+    let (_tmp, mut state) = make_state();
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        1234,
+        PathBuf::from("/tmp/project"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].status, PrimaryStatus::Running);
+    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(state.agents[0].normalized.reason, None);
+}
+
+#[test]
 fn test_discover_duplicate_ignored() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         1234,
@@ -498,7 +279,7 @@ fn test_discover_duplicate_ignored() {
 
 #[test]
 fn test_status_change() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::OpenCode,
         5678,
@@ -516,7 +297,7 @@ fn test_status_change() {
 
 #[test]
 fn test_process_exited() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         9999,
@@ -529,7 +310,7 @@ fn test_process_exited() {
 
 #[test]
 fn test_subagent_spawned_and_completed() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::OpenCode,
         1000,
@@ -560,8 +341,50 @@ fn test_subagent_spawned_and_completed() {
 }
 
 #[test]
+fn test_subagents_updated_replaces_and_clears_stale_subagent_activity() {
+    let (_tmp, mut state) = make_state();
+    let id = AgentId::session(AgentTool::Codex, "session-a");
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: id.clone(),
+        pid: Some(44),
+        session_id: "session-a".to_string(),
+        branch: None,
+        is_worktree: false,
+        started_at: None,
+    });
+    state.handle_event(AgentEvent::SubagentSpawned {
+        id: id.clone(),
+        pid: Some(44),
+        subagent: Subagent {
+            name: "Nash".to_string(),
+            status: PrimaryStatus::Running,
+            reason: None,
+            description: Some("child-a".to_string()),
+            started_at: chrono::Local::now(),
+            ended_at: None,
+        },
+    });
+
+    assert_eq!(state.agents[0].subagents.len(), 1);
+    assert!(!state.agents[0].recent_events.is_empty());
+
+    state.handle_event(AgentEvent::SubagentsUpdated {
+        id,
+        pid: Some(44),
+        subagents: Vec::new(),
+    });
+
+    assert!(state.agents[0].subagents.is_empty());
+    assert!(state.agents[0].recent_events.iter().all(|event| !matches!(
+        event.kind,
+        ActivityEventKind::SubagentSpawned | ActivityEventKind::SubagentCompleted
+    )));
+}
+
+#[test]
 fn test_move_selection() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     for pid in [100, 200, 300] {
         state.handle_event(discovered(
             AgentTool::Claude,
@@ -587,7 +410,7 @@ fn test_move_selection() {
 
 #[test]
 fn test_count_by_status() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
     state.handle_event(discovered(
         AgentTool::OpenCode,
@@ -615,7 +438,7 @@ fn test_count_by_status() {
 
 #[test]
 fn test_cycle_sort_mode() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     assert_eq!(state.sort_mode, SortMode::Name);
     state.cycle_sort_mode();
     assert_eq!(state.sort_mode, SortMode::Elapsed);
@@ -627,7 +450,7 @@ fn test_cycle_sort_mode() {
 
 #[test]
 fn test_toggle_help() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     assert!(!state.show_help);
     state.toggle_help();
     assert!(state.show_help);
@@ -637,13 +460,13 @@ fn test_toggle_help() {
 
 #[test]
 fn test_visible_agents_sort_by_urgency() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.sort_mode = SortMode::Urgency;
     // Add agents with different statuses
     for (pid, tool) in [
         (1, AgentTool::Claude),
         (2, AgentTool::OpenCode),
-        (3, AgentTool::Codex),
+        (3, AgentTool::Claude),
     ] {
         state.handle_event(discovered(
             tool,
@@ -654,7 +477,7 @@ fn test_visible_agents_sort_by_urgency() {
     }
     // Make agent 3 Waiting, agent 1 Done
     state.handle_event(status_changed(
-        AgentTool::Codex,
+        AgentTool::Claude,
         3,
         PrimaryStatus::Running,
         PrimaryStatus::Waiting,
@@ -674,7 +497,7 @@ fn test_visible_agents_sort_by_urgency() {
 
 #[test]
 fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.sort_mode = SortMode::Urgency;
 
     for (pid, normalized) in [
@@ -711,7 +534,7 @@ fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
 
 #[test]
 fn test_visible_agents_sort_by_name() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.sort_mode = SortMode::Name;
     for (pid, tool) in [
         (1, AgentTool::OpenCode),
@@ -734,7 +557,7 @@ fn test_visible_agents_sort_by_name() {
 
 #[test]
 fn test_visible_agents_filter() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     for (pid, tool) in [
         (1, AgentTool::Claude),
         (2, AgentTool::OpenCode),
@@ -766,7 +589,7 @@ fn test_visible_agents_filter() {
 
 #[test]
 fn test_filter_by_tool_name() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
     state.handle_event(discovered(
         AgentTool::OpenCode,
@@ -784,7 +607,7 @@ fn test_filter_by_tool_name() {
 
 #[test]
 fn test_filter_by_branch() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
     state.handle_event(session_info(
         AgentTool::Claude,
@@ -817,7 +640,7 @@ fn test_filter_by_branch() {
 
 #[test]
 fn test_filter_by_status() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
     state.handle_event(status_changed(
         AgentTool::Claude,
@@ -840,7 +663,7 @@ fn test_filter_by_status() {
 
 #[test]
 fn test_filter_matches_normalized_status_and_reason() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::Claude, 1, PathBuf::from("/a"), None));
     state.handle_event(normalized_state_changed(
         AgentTool::Claude,
@@ -861,7 +684,7 @@ fn test_filter_matches_normalized_status_and_reason() {
 
 #[test]
 fn test_filter_clamps_selected_index() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     // Add 4 agents
     for pid in [1, 2, 3, 4] {
         state.handle_event(discovered(
@@ -885,7 +708,7 @@ fn test_filter_clamps_selected_index() {
 
 #[test]
 fn test_discover_with_real_start_time() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let past = chrono::Local::now() - chrono::Duration::hours(2);
     state.handle_event(discovered(
         AgentTool::OpenCode,
@@ -900,7 +723,7 @@ fn test_discover_with_real_start_time() {
 #[test]
 fn test_discover_without_start_time_uses_now() {
     let before = chrono::Local::now();
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         43,
@@ -914,7 +737,7 @@ fn test_discover_without_start_time_uses_now() {
 
 #[test]
 fn test_session_info_before_discovered_is_preserved() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(AgentEvent::SessionInfo {
         id: AgentId::new(AgentTool::Claude, 42),
@@ -943,8 +766,27 @@ fn test_session_info_before_discovered_is_preserved() {
 }
 
 #[test]
+fn test_codex_session_info_before_discovered_starts_unknown_not_working() {
+    let (_tmp, mut state) = make_state();
+
+    state.handle_event(AgentEvent::SessionInfo {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: Some(42),
+        session_id: "session-a".to_string(),
+        branch: Some("feature/early".to_string()),
+        is_worktree: true,
+        started_at: None,
+    });
+
+    assert_eq!(state.agents.len(), 1);
+    assert_eq!(state.agents[0].status, PrimaryStatus::Running);
+    assert_eq!(state.agents[0].normalized.status, NormalizedStatus::Unknown);
+    assert_eq!(state.agents[0].normalized.reason, None);
+}
+
+#[test]
 fn test_normalized_state_changed_before_discovered_is_preserved() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(normalized_state_changed(
         AgentTool::Claude,
@@ -977,7 +819,7 @@ fn test_normalized_state_changed_before_discovered_is_preserved() {
 
 #[test]
 fn test_session_info_before_discovered_selects_first_visible_agent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     assert_eq!(state.selected, None);
 
     state.handle_event(AgentEvent::SessionInfo {
@@ -995,7 +837,7 @@ fn test_session_info_before_discovered_selects_first_visible_agent() {
 
 #[test]
 fn test_remove_exited_agents() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1026,7 +868,7 @@ fn test_remove_exited_agents() {
 
 #[test]
 fn test_remove_exited_no_exited_agents() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1041,7 +883,7 @@ fn test_remove_exited_no_exited_agents() {
 
 #[test]
 fn test_remove_exited_all_exited() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1057,7 +899,7 @@ fn test_remove_exited_all_exited() {
 
 #[test]
 fn test_remove_selected_agent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1080,7 +922,7 @@ fn test_remove_selected_agent() {
 
 #[test]
 fn test_remove_selected_last_item_clamps() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1101,7 +943,7 @@ fn test_remove_selected_last_item_clamps() {
 
 #[test]
 fn test_remove_selected_only_item() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1116,7 +958,7 @@ fn test_remove_selected_only_item() {
 
 #[test]
 fn test_remove_selected_none_selected() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1130,7 +972,7 @@ fn test_remove_selected_none_selected() {
 
 #[test]
 fn test_remove_selected_with_filter_removes_correct_agent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     // Add claude (pid 100) and opencode (pid 200)
     state.handle_event(discovered(
         AgentTool::Claude,
@@ -1155,7 +997,7 @@ fn test_remove_selected_with_filter_removes_correct_agent() {
 
 #[test]
 fn test_rename_with_filter_renames_correct_agent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     // Add claude (pid 100) and opencode (pid 200)
     state.handle_event(discovered(
         AgentTool::Claude,
@@ -1184,7 +1026,7 @@ fn test_rename_with_filter_renames_correct_agent() {
 
 #[test]
 fn test_session_info_only_applies_earlier_start_time() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let now = chrono::Local::now();
     state.handle_event(discovered(
         AgentTool::OpenCode,
@@ -1221,7 +1063,7 @@ fn test_session_info_only_applies_earlier_start_time() {
 
 #[test]
 fn test_session_info_none_started_at_does_not_overwrite_existing() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let past = chrono::Local::now() - chrono::Duration::hours(1);
 
     // Discover agent with a known process start time
@@ -1251,7 +1093,7 @@ fn test_session_info_none_started_at_does_not_overwrite_existing() {
 
 #[test]
 fn test_codex_session_info_uses_session_identity() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Codex,
         44,
@@ -1282,7 +1124,7 @@ fn test_codex_session_info_uses_session_identity() {
 
 #[test]
 fn test_codex_discovery_merges_into_existing_session_row() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1307,7 +1149,7 @@ fn test_codex_discovery_merges_into_existing_session_row() {
 
 #[test]
 fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1346,7 +1188,7 @@ fn test_codex_discovery_does_not_guess_among_ambiguous_session_matches() {
 
 #[test]
 fn test_codex_process_exit_retires_all_session_rows_sharing_pid() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1376,7 +1218,7 @@ fn test_codex_process_exit_retires_all_session_rows_sharing_pid() {
 
 #[test]
 fn test_codex_process_only_row_is_removed_on_exit() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(discovered(
         AgentTool::Codex,
@@ -1395,7 +1237,7 @@ fn test_codex_process_only_row_is_removed_on_exit() {
 
 #[test]
 fn test_codex_session_info_absorbs_stale_process_row_after_ambiguous_pid_resolves() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(AgentEvent::Discovered {
         id: AgentId::session(AgentTool::Codex, "session-a"),
@@ -1432,7 +1274,7 @@ fn test_codex_session_info_absorbs_stale_process_row_after_ambiguous_pid_resolve
 
 #[test]
 fn test_codex_session_info_preserves_terminal_status() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1468,7 +1310,7 @@ fn test_codex_session_info_preserves_terminal_status() {
 
 #[test]
 fn test_codex_process_discovery_does_not_revive_done_session() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1504,7 +1346,7 @@ fn test_codex_session_info_with_none_pid_preserves_existing_pid() {
     // The pid should only be cleared by ProcessExited, not by a stale snapshot
     // that omits the pid because the thread is outside the conservative binding
     // window.
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1535,7 +1377,7 @@ fn test_codex_session_info_with_none_pid_preserves_existing_pid() {
 fn test_codex_session_stays_visible_when_session_info_pid_is_none() {
     // When a Codex session already has a pid, a subsequent SessionInfo with
     // pid=None should preserve the pid so the session remains visible.
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         10,
@@ -1568,7 +1410,7 @@ fn test_codex_session_stays_visible_when_session_info_pid_is_none() {
 
 #[test]
 fn test_codex_session_without_pid_is_not_visible() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(AgentEvent::SessionInfo {
         id: AgentId::session(AgentTool::Codex, "codex-a"),
         pid: None,
@@ -1582,7 +1424,7 @@ fn test_codex_session_without_pid_is_not_visible() {
 
 #[test]
 fn test_codex_session_with_pid_is_visible() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(AgentEvent::SessionInfo {
         id: AgentId::session(AgentTool::Codex, "codex-a"),
         pid: Some(42),
@@ -1596,7 +1438,7 @@ fn test_codex_session_with_pid_is_visible() {
 
 #[test]
 fn test_normalized_state_changed_updates_agent_normalized_state() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let id = AgentId::new(AgentTool::Claude, 42);
 
     state.handle_event(discovered(
@@ -1623,7 +1465,7 @@ fn test_normalized_state_changed_updates_agent_normalized_state() {
 
 #[test]
 fn test_codex_session_discovery_revives_exited_session_row() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1653,7 +1495,7 @@ fn test_codex_session_discovery_revives_exited_session_row() {
 
 #[test]
 fn test_codex_discovery_does_not_revive_exited_session_row_on_pid_reuse() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(session_info(
         AgentTool::Codex,
@@ -1686,8 +1528,46 @@ fn test_codex_discovery_does_not_revive_exited_session_row_on_pid_reuse() {
 }
 
 #[test]
+fn test_codex_process_discovery_revives_exited_session_row_with_same_pid() {
+    let (_tmp, mut state) = make_state();
+
+    state.handle_event(AgentEvent::Discovered {
+        id: AgentId::session(AgentTool::Codex, "session-a"),
+        pid: Some(44),
+        cwd: PathBuf::from("/tmp/revive"),
+        started_at: None,
+    });
+    state.handle_event(session_info(
+        AgentTool::Codex,
+        44,
+        "session-a".to_string(),
+        None,
+        false,
+        None,
+    ));
+    state.handle_event(process_exited(AgentTool::Codex, 44));
+
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_session());
+    assert_eq!(state.agents[0].status, PrimaryStatus::Exited);
+
+    state.handle_event(discovered(
+        AgentTool::Codex,
+        44,
+        PathBuf::from("/tmp/revive"),
+        None,
+    ));
+
+    assert_eq!(state.agents.len(), 1);
+    assert!(state.agents[0].id.is_session());
+    assert_eq!(state.agents[0].pid, Some(44));
+    assert_eq!(state.agents[0].status, PrimaryStatus::Running);
+    assert_eq!(state.agents[0].cwd, PathBuf::from("/tmp/revive"));
+}
+
+#[test]
 fn test_codex_subagent_completion_matches_stable_key_and_keeps_human_name() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let id = AgentId::session(AgentTool::Codex, "session-a");
 
     state.handle_event(AgentEvent::SessionInfo {
@@ -1737,7 +1617,7 @@ fn test_agent_identity_session_has_no_pid() {
 
 #[test]
 fn test_claude_session_info_stays_process_keyed() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         44,
@@ -1772,7 +1652,7 @@ fn test_claude_session_info_stays_process_keyed() {
 
 #[test]
 fn test_mixed_process_and_session_identities_stay_independent() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
 
     state.handle_event(discovered(
         AgentTool::Claude,
@@ -1835,13 +1715,13 @@ fn test_mixed_process_and_session_identities_stay_independent() {
 
 #[test]
 fn test_default_sort_mode_is_name() {
-    let state = make_state();
+    let (_tmp, state) = make_state();
     assert_eq!(state.sort_mode, SortMode::Name);
 }
 
 #[test]
 fn test_session_info_none_start_time_keeps_existing() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     let past = chrono::Local::now() - chrono::Duration::hours(3);
     state.handle_event(discovered(
         AgentTool::Codex,
@@ -1862,7 +1742,7 @@ fn test_session_info_none_start_time_keeps_existing() {
 
 #[test]
 fn test_start_rename_sets_mode() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1877,7 +1757,7 @@ fn test_start_rename_sets_mode() {
 
 #[test]
 fn test_confirm_rename_sets_alias() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1894,8 +1774,8 @@ fn test_confirm_rename_sets_alias() {
 }
 
 #[test]
-fn test_confirm_rename_empty_clears_alias() {
-    let mut state = make_state();
+fn test_confirm_rename_empty_keeps_existing_name() {
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1907,13 +1787,13 @@ fn test_confirm_rename_empty_clears_alias() {
     state.start_rename();
     state.rename_input.clear();
     state.confirm_rename();
-    assert_eq!(state.agents[0].alias, None);
-    assert_eq!(state.agents[0].display_name(), "claude");
+    assert_eq!(state.agents[0].alias.as_deref(), Some("old-name"));
+    assert_eq!(state.agents[0].display_name(), "old-name");
 }
 
 #[test]
 fn test_cancel_rename_preserves_alias() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1931,7 +1811,7 @@ fn test_cancel_rename_preserves_alias() {
 
 #[test]
 fn test_start_rename_no_selection() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.selected = None;
     state.start_rename();
     assert!(!state.rename_mode);
@@ -1939,7 +1819,7 @@ fn test_start_rename_no_selection() {
 
 #[test]
 fn test_todos_updated_sets_todos() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1964,7 +1844,7 @@ fn test_todos_updated_sets_todos() {
 
 #[test]
 fn test_todos_updated_replaces_previous() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -1995,7 +1875,7 @@ fn test_todos_updated_replaces_previous() {
 
 #[test]
 fn test_todos_updated_ignores_unknown_pid() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(
         AgentTool::Claude,
         100,
@@ -2018,7 +1898,7 @@ fn test_todos_updated_ignores_unknown_pid() {
 
 #[test]
 fn test_count_by_status_zero_initially() {
-    let state = make_state();
+    let (_tmp, state) = make_state();
     assert_eq!(state.count_by_status(PrimaryStatus::Running), 0);
     assert_eq!(state.count_by_status(PrimaryStatus::Waiting), 0);
     assert_eq!(state.count_by_status(PrimaryStatus::Exited), 0);
@@ -2027,7 +1907,7 @@ fn test_count_by_status_zero_initially() {
 
 #[test]
 fn test_count_by_status_increments_on_discovered() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
     assert_eq!(state.count_by_status(PrimaryStatus::Running), 1);
 
@@ -2037,7 +1917,7 @@ fn test_count_by_status_increments_on_discovered() {
 
 #[test]
 fn test_count_by_status_updates_on_status_changed() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
     state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
 
@@ -2054,7 +1934,7 @@ fn test_count_by_status_updates_on_status_changed() {
 
 #[test]
 fn test_count_by_status_updates_on_process_exited() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
     state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
     state.handle_event(process_exited(AgentTool::OpenCode, 1));
@@ -2066,7 +1946,7 @@ fn test_count_by_status_updates_on_process_exited() {
 
 #[test]
 fn test_count_by_status_consistent_with_agents_vec() {
-    let mut state = make_state();
+    let (_tmp, mut state) = make_state();
     state.handle_event(discovered(AgentTool::OpenCode, 1, "/tmp/a", None));
     state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/b", None));
     state.handle_event(discovered(AgentTool::Claude, 3, "/tmp/c", None));
@@ -2099,35 +1979,4 @@ fn codex_tab_active_profile_can_be_set() {
     state.accounts_tab.codex_profile_ids = vec!["profile-01".into(), "profile-02".into()];
     state.set_active_codex_profile(Some("profile-01".into()));
     assert_eq!(state.active_codex_profile_id(), Some("profile-01"));
-}
-
-#[test]
-fn confirm_codex_quota_edit_saves_structured_windows() {
-    let mut state = make_state();
-    let profile_dir = state.config.codex_profiles_dir.join("profile-01");
-    fs::create_dir_all(&profile_dir).expect("profile dir");
-    fs::write(
-        profile_dir.join("auth.json"),
-        r#"{"email":"dev@example.com"}"#,
-    )
-    .expect("auth json");
-
-    state.accounts_tab.codex_profile_ids = vec!["profile-01".to_string()];
-    state.accounts_tab.selected_index = Some(0);
-
-    state.start_codex_quota_edit();
-    state.accounts_tab.quota = None;
-
-    state.confirm_codex_quota_edit().expect("quota save");
-
-    let cache = state.accounts_tab.codex_quota_cache.as_ref().expect("cache");
-    let snapshot = cache.by_profile.get("profile-01").expect("snapshot");
-    assert_eq!(snapshot.confidence, nexus::codex_profiles::quota::Confidence::Cached);
-    assert_eq!(snapshot.windows.len(), 2);
-    assert_eq!(snapshot.windows[0].label, "5h");
-    assert_eq!(snapshot.windows[1].label, "weekly");
-    assert_eq!(
-        state.accounts_tab.status_message.as_deref(),
-        Some("Saved manual fallback quota for profile-01")
-    );
 }

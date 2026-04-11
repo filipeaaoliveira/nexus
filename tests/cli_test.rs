@@ -23,7 +23,7 @@ fn test_help_works_without_interactive_terminal() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Read-only terminal dashboard for monitoring AI coding agents"),
+        stdout.contains("Terminal dashboard for monitoring and managing AI coding agents"),
         "expected clap help output, stdout was:\n{stdout}"
     );
     assert!(

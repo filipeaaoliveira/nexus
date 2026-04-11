@@ -3,32 +3,27 @@ use std::collections::BTreeMap;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 use crate::types::{AgentId, SortMode};
 
-use super::EditField;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Workspace {
     #[default]
     Overview,
     Accounts,
-    System,
 }
 
 impl Workspace {
-    pub const ALL: [Self; 3] = [Self::Overview, Self::Accounts, Self::System];
+    pub const ALL: [Self; 2] = [Self::Overview, Self::Accounts];
 
     pub fn next(self) -> Self {
         match self {
             Self::Overview => Self::Accounts,
-            Self::Accounts => Self::System,
-            Self::System => Self::Overview,
+            Self::Accounts => Self::Overview,
         }
     }
 
     pub fn previous(self) -> Self {
         match self {
-            Self::Overview => Self::System,
+            Self::Overview => Self::Accounts,
             Self::Accounts => Self::Overview,
-            Self::System => Self::Accounts,
         }
     }
 
@@ -36,7 +31,6 @@ impl Workspace {
         match self {
             Self::Overview => "Overview",
             Self::Accounts => "Accounts",
-            Self::System => "System",
         }
     }
 }
@@ -105,6 +99,14 @@ pub enum AccountsConfirmAction {
     WriteProfileToHome,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AccountsEditField {
+    #[default]
+    Label,
+    Notes,
+    Enabled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AccountsMode {
     #[default]
@@ -114,7 +116,7 @@ pub enum AccountsMode {
     },
     Editing {
         draft: ProfileDraft,
-        field: EditField,
+        field: AccountsEditField,
     },
     Confirming {
         action: AccountsConfirmAction,
@@ -125,8 +127,8 @@ pub enum AccountsMode {
 pub struct AccountsState {
     pub mode: AccountsMode,
     pub selected_index: Option<usize>,
+    pub entries: Vec<AccountEntry>,
     pub provider_filter: ProviderFilter,
-    pub selected_account: Option<AccountEntry>,
     pub status_message: Option<String>,
 }
 
@@ -135,8 +137,8 @@ impl Default for AccountsState {
         Self {
             mode: AccountsMode::Normal,
             selected_index: None,
+            entries: Vec::new(),
             provider_filter: ProviderFilter::All,
-            selected_account: None,
             status_message: None,
         }
     }
@@ -259,6 +261,7 @@ impl RootState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::accounts::Provider;
 
     #[test]
     fn root_state_composes_workspace_overview_accounts_and_system() {
@@ -281,7 +284,7 @@ mod tests {
         assert_eq!(state.workspace.active, Workspace::Accounts);
 
         state.next_workspace();
-        assert_eq!(state.workspace.active, Workspace::System);
+        assert_eq!(state.workspace.active, Workspace::Overview);
 
         state.previous_workspace();
         assert_eq!(state.workspace.active, Workspace::Accounts);
@@ -304,6 +307,61 @@ mod tests {
     fn overview_and_accounts_modes_initialize_to_normal() {
         assert_eq!(OverviewState::default().mode, OverviewMode::Normal);
         assert_eq!(AccountsState::default().mode, AccountsMode::Normal);
+    }
+
+    #[test]
+    fn workspace_navigation_matches_two_tab_app() {
+        assert_eq!(Workspace::ALL, [Workspace::Overview, Workspace::Accounts]);
+        assert_eq!(Workspace::Overview.next(), Workspace::Accounts);
+        assert_eq!(Workspace::Accounts.next(), Workspace::Overview);
+        assert_eq!(Workspace::Overview.previous(), Workspace::Accounts);
+        assert_eq!(Workspace::Accounts.previous(), Workspace::Overview);
+        assert_eq!(Workspace::Overview.label(), "Overview");
+        assert_eq!(Workspace::Accounts.label(), "Accounts");
+    }
+
+    #[test]
+    fn accounts_state_defaults_to_single_selection_source_of_truth() {
+        let state = AccountsState::default();
+
+        assert_eq!(state.selected_index, None);
+        assert!(state.entries.is_empty());
+        assert_eq!(state.provider_filter, ProviderFilter::All);
+        assert_eq!(state.status_message, None);
+    }
+
+    #[test]
+    fn accounts_edit_mode_uses_semantic_edit_field() {
+        let mode = AccountsMode::Editing {
+            draft: ProfileDraft::default(),
+            field: AccountsEditField::Notes,
+        };
+
+        assert_eq!(
+            mode,
+            AccountsMode::Editing {
+                draft: ProfileDraft::default(),
+                field: AccountsEditField::Notes,
+            }
+        );
+    }
+
+    #[test]
+    fn accounts_entries_provide_selection_target() {
+        let mut state = AccountsState::default();
+        state.entries.push(AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-main".to_string(),
+        });
+        state.selected_index = Some(0);
+
+        assert_eq!(
+            state.entries.get(state.selected_index.unwrap()),
+            Some(&AccountEntry {
+                provider: Provider::Codex,
+                profile_id: "codex-main".to_string(),
+            })
+        );
     }
 
     #[test]

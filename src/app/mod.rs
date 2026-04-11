@@ -28,10 +28,11 @@ pub use action::{
     AccountsAction, Action as SemanticAction, DetectorAction, OverviewAction, SystemAction,
     WorkspaceAction,
 };
-pub use effect::{Effect, EffectResult, ProfileId};
+pub use effect::{AccountProfile, Effect, EffectResult, ProfileId};
 pub use state::{
-    AccountsConfirmAction, AccountsMode, AccountsState, DetectorHealth, Overlay, OverviewMode,
-    OverviewState, ProfileDraft, RootState, SystemState, Workflow, Workspace, WorkspaceState,
+    AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, DetectorHealth,
+    Overlay, OverviewMode, OverviewState, ProfileDraft, RootState, SystemState, Workflow,
+    Workspace, WorkspaceState,
 };
 
 const MAX_RECENT_EVENTS: usize = 20;

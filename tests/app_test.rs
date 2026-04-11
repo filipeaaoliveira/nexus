@@ -1845,7 +1845,7 @@ fn test_mixed_process_and_session_identities_stay_independent() {
 
     state.selected = Some(1);
     state.start_rename();
-    assert_eq!(state.rename_input, "");
+    assert_eq!(state.rename_input, "codex");
     state.rename_input = "codex-session".to_string();
     state.confirm_rename();
 
@@ -1923,7 +1923,7 @@ fn test_start_rename_sets_mode() {
     state.selected = Some(0);
     state.start_rename();
     assert!(state.rename_mode);
-    assert_eq!(state.rename_input, "");
+    assert_eq!(state.rename_input, "claude");
 }
 
 #[test]

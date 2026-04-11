@@ -20,6 +20,20 @@ pub use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 use crate::event::AgentEvent;
 use crate::types::*;
 
+pub mod action;
+pub mod effect;
+pub mod state;
+
+pub use action::{
+    AccountsAction, Action as SemanticAction, DetectorAction, OverviewAction, SystemAction,
+    WorkspaceAction,
+};
+pub use effect::{Effect, EffectResult, ProfileId};
+pub use state::{
+    AccountsConfirmAction, AccountsMode, AccountsState, DetectorHealth, Overlay, OverviewMode,
+    OverviewState, ProfileDraft, RootState, SystemState, Workflow, Workspace, WorkspaceState,
+};
+
 const MAX_RECENT_EVENTS: usize = 20;
 
 /// Which destructive action is awaiting confirmation.

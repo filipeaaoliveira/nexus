@@ -1,23 +1,18 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::Local;
-use chrono::Utc;
-use serde_json::Value;
 
-use crate::codex_profiles::profile::{
-    extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
-    ProfileMetadata,
-};
-use crate::codex_profiles::quota::{load_quota_cache, save_quota_cache, QuotaCache, QuotaSnapshot};
 use crate::config::Config;
-pub use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
+pub use crate::domain::accounts::{
+    AccountEntry, Provider, ProviderFilter, QuotaCache, QuotaSnapshot,
+};
 use crate::event::AgentEvent;
+use crate::services::accounts::quota::load_quota_cache;
 use crate::types::*;
 
 pub mod action;
@@ -339,27 +334,6 @@ pub struct AppState {
     pub started_at: Instant,
 }
 
-/// Returns the next available "profile-NN" ID by scanning the profiles directory
-/// on disk. Ensures no collision even after profiles are deleted.
-fn next_profile_id(profiles_dir: &std::path::Path) -> String {
-    let used: std::collections::BTreeSet<u32> = std::fs::read_dir(profiles_dir)
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .filter_map(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .strip_prefix("profile-")
-                        .and_then(|s| s.parse::<u32>().ok())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let next = (1u32..).find(|n| !used.contains(n)).unwrap_or(1);
-    format!("profile-{next:02}")
-}
-
 mod accounts;
 mod events;
 mod overview;
@@ -549,6 +523,7 @@ mod tests {
     };
     use crate::config::Config;
     use crate::event::AgentEvent;
+    use crate::services::accounts::storage::next_profile_id;
     use crate::types::{AgentId, AgentTool, PrimaryStatus, SortMode};
     use std::fs;
     use std::path::PathBuf;

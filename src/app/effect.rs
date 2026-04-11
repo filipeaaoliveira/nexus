@@ -24,6 +24,18 @@ impl AccountProfile {
     }
 }
 
+impl From<CodexProfile> for AccountProfile {
+    fn from(profile: CodexProfile) -> Self {
+        Self::Codex(profile)
+    }
+}
+
+impl From<ClaudeProfile> for AccountProfile {
+    fn from(profile: ClaudeProfile) -> Self {
+        Self::Claude(profile)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     LoadProfiles,
@@ -183,6 +195,15 @@ mod tests {
 
         assert_eq!(profile.provider(), Provider::Claude);
         assert_eq!(profile.profile_id(), "claude-main");
+    }
+
+    #[test]
+    fn account_profile_from_profile_models_preserves_variant() {
+        let codex = AccountProfile::from(codex_profile("codex-main"));
+        let claude = AccountProfile::from(claude_profile("claude-main"));
+
+        assert!(matches!(codex, AccountProfile::Codex(_)));
+        assert!(matches!(claude, AccountProfile::Claude(_)));
     }
 
     #[test]

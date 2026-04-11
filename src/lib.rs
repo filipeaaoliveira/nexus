@@ -6,6 +6,7 @@ pub mod detect;
 pub mod domain;
 pub mod event;
 pub mod input;
+pub mod services;
 pub mod types;
 pub mod ui;
 

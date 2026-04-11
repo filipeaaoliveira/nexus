@@ -1,4 +1,8 @@
 use super::*;
+use crate::services::accounts::{
+    claude as claude_service, codex as codex_service, quota as quota_service,
+    storage as storage_service,
+};
 
 impl AppState {
     pub fn handle_accounts_move_down(&mut self) {
@@ -55,8 +59,6 @@ impl AppState {
     }
 
     pub fn start_accounts_edit(&mut self) {
-        use crate::claude_profiles::profile::load_claude_profile_metadata;
-
         let (provider, profile_id) = match self.selected_account() {
             Some((p, id)) => (p, id.to_string()),
             None => return,
@@ -71,28 +73,22 @@ impl AppState {
         match provider {
             Provider::Codex => {
                 let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-                let auth_path = profile_dir.join("auth.json");
-                if let Ok(auth_content) = fs::read_to_string(&auth_path) {
-                    if let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) {
-                        let auth_meta = extract_auth_metadata(&auth_json);
-                        edit_email = auth_meta.email;
-                        edit_plan = auth_meta.plan;
-                    }
-                }
-                if let Ok(metadata) = load_profile_metadata(&profile_dir) {
-                    label = metadata.label.unwrap_or(profile_id.clone());
-                    notes = metadata.notes.unwrap_or_default();
-                    enabled = metadata.enabled;
+                if let Ok(profile) = storage_service::load_codex_profile(&profile_dir) {
+                    label = profile.label;
+                    edit_email = profile.email;
+                    edit_plan = profile.plan;
+                    notes = profile.notes.unwrap_or_default();
+                    enabled = profile.enabled;
                 }
             }
             Provider::Claude => {
                 let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
-                if let Ok(metadata) = load_claude_profile_metadata(&profile_dir) {
-                    label = metadata.label.unwrap_or(profile_id.clone());
-                    edit_email = metadata.email;
-                    edit_plan = metadata.plan;
-                    notes = metadata.notes.unwrap_or_default();
-                    enabled = metadata.enabled;
+                if let Ok(profile) = storage_service::load_claude_profile(&profile_dir) {
+                    label = profile.label;
+                    edit_email = profile.email;
+                    edit_plan = profile.plan;
+                    notes = profile.notes.unwrap_or_default();
+                    enabled = profile.enabled;
                 }
             }
         }
@@ -107,10 +103,6 @@ impl AppState {
     }
 
     pub fn confirm_accounts_edit(&mut self) -> Result<()> {
-        use crate::claude_profiles::profile::{
-            load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfileMetadata,
-        };
-
         if !self.accounts_tab.edit_mode {
             return Ok(());
         }
@@ -123,40 +115,31 @@ impl AppState {
         match provider {
             Provider::Codex => {
                 let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-                let metadata = ProfileMetadata {
-                    id: profile_id.clone(),
-                    label: Some(self.accounts_tab.edit_label.clone()),
-                    email: None,
-                    plan: None,
-                    notes: if self.accounts_tab.edit_notes.is_empty() {
+                storage_service::save_codex_profile_metadata(
+                    &profile_dir,
+                    &profile_id,
+                    &self.accounts_tab.edit_label,
+                    if self.accounts_tab.edit_notes.is_empty() {
                         None
                     } else {
                         Some(self.accounts_tab.edit_notes.clone())
                     },
-                    enabled: self.accounts_tab.edit_enabled,
-                    created_at: None,
-                    updated_at: Some(Utc::now()),
-                };
-                save_profile_metadata(&profile_dir, &metadata)?;
+                    self.accounts_tab.edit_enabled,
+                )?;
             }
             Provider::Claude => {
                 let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
-                let existing = load_claude_profile_metadata(&profile_dir).unwrap_or_default();
-                let metadata = ClaudeProfileMetadata {
-                    id: profile_id.clone(),
-                    label: Some(self.accounts_tab.edit_label.clone()),
-                    email: existing.email,
-                    plan: existing.plan,
-                    notes: if self.accounts_tab.edit_notes.is_empty() {
+                storage_service::save_claude_profile_edits(
+                    &profile_dir,
+                    &profile_id,
+                    &self.accounts_tab.edit_label,
+                    if self.accounts_tab.edit_notes.is_empty() {
                         None
                     } else {
                         Some(self.accounts_tab.edit_notes.clone())
                     },
-                    enabled: self.accounts_tab.edit_enabled,
-                    created_at: existing.created_at,
-                    updated_at: Some(Utc::now()),
-                };
-                save_claude_profile_metadata(&profile_dir, &metadata)?;
+                    self.accounts_tab.edit_enabled,
+                )?;
             }
         }
 
@@ -173,9 +156,7 @@ impl AppState {
         };
 
         let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-        if profile_dir.exists() {
-            fs::remove_dir_all(&profile_dir)?;
-        }
+        storage_service::delete_profile_dir(&profile_dir)?;
 
         if let Some(active) = &self.accounts_tab.codex_active_profile_id {
             if active == &profile_id {
@@ -199,10 +180,7 @@ impl AppState {
             .ok_or_else(|| anyhow::anyhow!("no Claude profile selected"))?;
 
         let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
-        if profile_dir.exists() {
-            std::fs::remove_dir_all(&profile_dir)
-                .with_context(|| format!("failed to delete {}", profile_dir.display()))?;
-        }
+        storage_service::delete_profile_dir(&profile_dir)?;
 
         self.accounts_tab
             .claude_profile_ids
@@ -263,38 +241,8 @@ impl AppState {
 
     pub fn import_codex_auth(&mut self) -> Result<()> {
         let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory not found"))?;
-        let auth_source = home.join(".codex").join("auth.json");
-        if !auth_source.is_file() {
-            bail!("{} does not exist", auth_source.display());
-        }
-
-        fs::create_dir_all(&self.config.codex_profiles_dir).with_context(|| {
-            format!(
-                "failed to create {}",
-                self.config.codex_profiles_dir.display()
-            )
-        })?;
-
-        let profile_id = next_profile_id(&self.config.codex_profiles_dir);
-        let profile_dir = self.config.codex_profiles_dir.join(&profile_id);
-        let profile = CodexProfile::import_from_auth(
-            &profile_id,
-            &profile_id,
-            profile_dir,
-            auth_source.as_path(),
-        )?;
-
-        let metadata = ProfileMetadata {
-            id: profile.id.clone(),
-            label: Some(profile.label.clone()),
-            email: profile.email.clone(),
-            plan: profile.plan.clone(),
-            notes: profile.notes.clone(),
-            enabled: profile.enabled,
-            created_at: Some(profile.created_at),
-            updated_at: Some(profile.updated_at),
-        };
-        save_profile_metadata(&profile.profile_dir, &metadata)?;
+        let profile =
+            codex_service::import_profile_from_home(&self.config.codex_profiles_dir, &home)?;
 
         self.reload_codex_profiles();
         self.select_codex_profile_id(&profile.id);
@@ -304,78 +252,9 @@ impl AppState {
     }
 
     pub fn import_claude_auth(&mut self) -> anyhow::Result<()> {
-        use crate::claude_profiles::profile::{
-            save_claude_profile_metadata, ClaudeProfile, ClaudeProfileMetadata,
-        };
         let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
-        let creds_file = home.join(".claude").join(".credentials.json");
-
-        // When reading from the macOS Keychain the credentials are written to a
-        // temporary file so the import helper can read them from a path.  We use
-        // `NamedTempFile` so the file is automatically deleted when it drops at
-        // the end of this function, regardless of success or failure.
-        let _temp_creds: Option<tempfile::TempPath>;
-        let creds_source = if creds_file.is_file() {
-            _temp_creds = None;
-            creds_file
-        } else {
-            // `security` is a blocking subprocess call. Use block_in_place so we
-            // do not stall the tokio runtime thread while waiting for the keychain.
-            let run_security = || {
-                std::process::Command::new("security")
-                    .args(["find-generic-password", "-l", "Claude Code-credentials", "-w"])
-                    .output()
-            };
-            let output = if tokio::runtime::Handle::try_current().is_ok() {
-                tokio::task::block_in_place(run_security)
-            } else {
-                run_security()
-            }
-            .context("failed to run security CLI")?;
-            if !output.status.success() {
-                anyhow::bail!("No Claude credentials found. Run `claude` once to log in first.");
-            }
-            let json_str = String::from_utf8(output.stdout)
-                .context("keychain output is not valid UTF-8")?
-                .trim()
-                .to_string();
-            let tmp = tempfile::NamedTempFile::new()
-                .context("failed to create temp file for credentials")?;
-            std::fs::write(tmp.path(), json_str.as_bytes())
-                .context("failed to write credentials to temp file")?;
-            let temp_path = tmp.into_temp_path();
-            let path = temp_path.to_path_buf();
-            _temp_creds = Some(temp_path);
-            path
-        };
-
-        std::fs::create_dir_all(&self.config.claude_profiles_dir).with_context(|| {
-            format!(
-                "failed to create {}",
-                self.config.claude_profiles_dir.display()
-            )
-        })?;
-
-        let profile_id = next_profile_id(&self.config.claude_profiles_dir);
-        let profile_dir = self.config.claude_profiles_dir.join(&profile_id);
-        let profile = ClaudeProfile::import_from_credentials(
-            &profile_id,
-            &profile_id,
-            profile_dir.clone(),
-            &creds_source,
-        )?;
-
-        let metadata = ClaudeProfileMetadata {
-            id: profile.id.clone(),
-            label: Some(profile.label.clone()),
-            email: profile.email.clone(),
-            plan: profile.plan.clone(),
-            notes: profile.notes.clone(),
-            enabled: profile.enabled,
-            created_at: Some(profile.created_at),
-            updated_at: Some(profile.updated_at),
-        };
-        save_claude_profile_metadata(&profile.profile_dir, &metadata)?;
+        let profile =
+            claude_service::import_profile_from_home(&self.config.claude_profiles_dir, &home)?;
 
         self.reload_claude_profiles();
         self.accounts_tab
@@ -388,24 +267,9 @@ impl AppState {
             .selected_claude_profile_id()
             .map(|s| s.to_string())
             .ok_or_else(|| anyhow::anyhow!("no Claude profile selected"))?;
-        let source = self
-            .config
-            .claude_profiles_dir
-            .join(&profile_id)
-            .join(".credentials.json");
-        if !source.is_file() {
-            anyhow::bail!(
-                "profile .credentials.json not found at {}",
-                source.display()
-            );
-        }
+        let source = self.config.claude_profiles_dir.join(&profile_id);
         let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
-        let target = home.join(".claude").join(".credentials.json");
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        std::fs::copy(&source, &target)?;
+        claude_service::write_profile_to_home(&source, &home)?;
         self.accounts_tab.set_status(format!(
             "Wrote {} to ~/.claude/.credentials.json",
             profile_id
@@ -421,18 +285,8 @@ impl AppState {
             .ok_or_else(|| anyhow!("no codex profile selected"))?;
 
         let profile_dir = self.config.codex_profiles_dir.join(&active_profile_id);
-        let source_auth = profile_dir.join("auth.json");
-
-        if !source_auth.is_file() {
-            bail!("profile auth.json not found at {}", source_auth.display());
-        }
-
         let home = dirs::home_dir().ok_or_else(|| anyhow!("home directory not found"))?;
-        let target_codex = home.join(".codex");
-        let target_auth = target_codex.join("auth.json");
-
-        fs::create_dir_all(&target_codex)?;
-        fs::copy(&source_auth, &target_auth)?;
+        codex_service::write_profile_to_home(&profile_dir, &home)?;
 
         self.accounts_tab
             .set_status(format!("Wrote {} to ~/.codex/auth.json", active_profile_id));
@@ -455,22 +309,7 @@ impl AppState {
 
         let selected_profile_id = self.selected_codex_profile_id().map(ToOwned::to_owned);
         let profiles_dir = self.config.codex_profiles_dir.clone();
-
-        let scan = || {
-            let mut ids = Vec::new();
-            if let Ok(entries) = fs::read_dir(&profiles_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() && path.join("auth.json").is_file() {
-                        if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-                            ids.push(name.to_string());
-                        }
-                    }
-                }
-            }
-            ids.sort();
-            ids
-        };
+        let scan = || storage_service::scan_codex_profile_ids(&profiles_dir);
         // block_in_place avoids starving the tokio scheduler on a multi-thread
         // runtime; fall back to a direct call in single-threaded contexts (tests).
         let profile_ids = if tokio::runtime::Handle::try_current().is_ok() {
@@ -500,21 +339,7 @@ impl AppState {
         let previously_selected = self.selected_claude_profile_id().map(|s| s.to_string());
 
         let profiles_dir = self.config.claude_profiles_dir.clone();
-        let scan = || {
-            let mut ids = Vec::new();
-            if let Ok(entries) = std::fs::read_dir(&profiles_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_dir() && path.join(".credentials.json").is_file() {
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            ids.push(name.to_string());
-                        }
-                    }
-                }
-            }
-            ids.sort();
-            ids
-        };
+        let scan = || storage_service::scan_claude_profile_ids(&profiles_dir);
         let ids = if tokio::runtime::Handle::try_current().is_ok() {
             tokio::task::block_in_place(scan)
         } else {
@@ -604,7 +429,8 @@ impl AppState {
         cache
             .by_profile
             .insert(profile_id.to_string(), quota.clone());
-        if let Err(e) = save_quota_cache(&cache, &self.config.codex_quota_cache_file) {
+        if let Err(e) = quota_service::save_quota_cache(&cache, &self.config.codex_quota_cache_file)
+        {
             tracing::warn!("failed to save codex quota cache: {}", e);
         }
         self.accounts_tab.codex_quota_cache = Some(cache);
@@ -623,7 +449,9 @@ impl AppState {
         cache
             .by_profile
             .insert(profile_id.to_string(), quota.clone());
-        if let Err(e) = save_quota_cache(&cache, &self.config.claude_quota_cache_file) {
+        if let Err(e) =
+            quota_service::save_quota_cache(&cache, &self.config.claude_quota_cache_file)
+        {
             tracing::warn!("failed to save claude quota cache: {}", e);
         }
         self.accounts_tab.claude_quota_cache = Some(cache);
@@ -639,8 +467,12 @@ impl AppState {
         quota: Option<QuotaSnapshot>,
     ) {
         match (provider, quota) {
-            (Provider::Codex, Some(quota)) => self.update_codex_quota_for_profile(profile_id, quota),
-            (Provider::Claude, Some(quota)) => self.update_claude_quota_for_profile(profile_id, quota),
+            (Provider::Codex, Some(quota)) => {
+                self.update_codex_quota_for_profile(profile_id, quota)
+            }
+            (Provider::Claude, Some(quota)) => {
+                self.update_claude_quota_for_profile(profile_id, quota)
+            }
             (_, None) => self.accounts_tab.quota_loading = false,
         }
     }

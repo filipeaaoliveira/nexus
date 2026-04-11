@@ -1,6 +1,4 @@
-use crate::codex_profiles::quota::QuotaSnapshot;
-use crate::domain::accounts::{AccountEntry, Provider};
-use crate::domain::accounts::{ClaudeProfile, CodexProfile};
+use crate::domain::accounts::{AccountEntry, ClaudeProfile, CodexProfile, Provider, QuotaSnapshot};
 
 pub type ProfileId = String;
 
@@ -8,6 +6,22 @@ pub type ProfileId = String;
 pub enum AccountProfile {
     Codex(CodexProfile),
     Claude(ClaudeProfile),
+}
+
+impl AccountProfile {
+    pub fn provider(&self) -> Provider {
+        match self {
+            Self::Codex(_) => Provider::Codex,
+            Self::Claude(_) => Provider::Claude,
+        }
+    }
+
+    pub fn profile_id(&self) -> &str {
+        match self {
+            Self::Codex(profile) => &profile.id,
+            Self::Claude(profile) => &profile.id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,10 +79,9 @@ mod tests {
     use chrono::Utc;
     use std::path::PathBuf;
 
-    use crate::claude_profiles::profile::ClaudeProfile;
-    use crate::codex_profiles::profile::CodexProfile;
-    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
-    use crate::domain::accounts::{AccountEntry, Provider};
+    use crate::domain::accounts::{
+        AccountEntry, ClaudeProfile, CodexProfile, Confidence, LimitState, Provider, QuotaSnapshot,
+    };
 
     use super::*;
 
@@ -162,6 +175,14 @@ mod tests {
             }
             other => panic!("unexpected result: {other:?}"),
         }
+    }
+
+    #[test]
+    fn account_profile_exposes_provider_and_profile_id_for_state_keying() {
+        let profile = AccountProfile::Claude(claude_profile("claude-main"));
+
+        assert_eq!(profile.provider(), Provider::Claude);
+        assert_eq!(profile.profile_id(), "claude-main");
     }
 
     #[test]

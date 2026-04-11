@@ -1,5 +1,8 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
+use super::effect::AccountProfile;
+use crate::domain::accounts::QuotaSnapshot;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 use crate::types::{AgentId, SortMode};
 
@@ -124,10 +127,56 @@ pub enum AccountsMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountKey {
+    pub provider: Provider,
+    pub profile_id: String,
+}
+
+impl AccountKey {
+    pub fn new(provider: Provider, profile_id: impl Into<String>) -> Self {
+        Self {
+            provider,
+            profile_id: profile_id.into(),
+        }
+    }
+
+    pub fn for_entry(entry: &AccountEntry) -> Self {
+        Self::new(entry.provider, entry.profile_id.clone())
+    }
+
+    pub fn for_profile(profile: &AccountProfile) -> Self {
+        Self::new(profile.provider(), profile.profile_id())
+    }
+}
+
+impl Ord for AccountKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        provider_rank(self.provider)
+            .cmp(&provider_rank(other.provider))
+            .then_with(|| self.profile_id.cmp(&other.profile_id))
+    }
+}
+
+impl PartialOrd for AccountKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+const fn provider_rank(provider: Provider) -> u8 {
+    match provider {
+        Provider::Codex => 0,
+        Provider::Claude => 1,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountsState {
     pub mode: AccountsMode,
     pub selected_index: Option<usize>,
     pub entries: Vec<AccountEntry>,
+    pub profiles_by_key: BTreeMap<AccountKey, AccountProfile>,
+    pub quota_by_key: BTreeMap<AccountKey, QuotaSnapshot>,
     pub provider_filter: ProviderFilter,
     pub status_message: Option<String>,
 }
@@ -138,6 +187,8 @@ impl Default for AccountsState {
             mode: AccountsMode::Normal,
             selected_index: None,
             entries: Vec::new(),
+            profiles_by_key: BTreeMap::new(),
+            quota_by_key: BTreeMap::new(),
             provider_filter: ProviderFilter::All,
             status_message: None,
         }
@@ -260,8 +311,62 @@ impl RootState {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+    use std::path::PathBuf;
+
     use super::*;
-    use crate::domain::accounts::Provider;
+    use crate::app::effect::AccountProfile;
+    use crate::domain::accounts::{
+        ClaudeProfile, CodexProfile, Confidence, LimitState, Provider, QuotaSnapshot,
+    };
+
+    fn codex_profile(id: &str) -> CodexProfile {
+        let now = Utc::now();
+        CodexProfile {
+            id: id.to_string(),
+            label: format!("Codex {id}"),
+            email: Some(format!("{id}@example.com")),
+            plan: Some("pro".to_string()),
+            notes: Some("notes".to_string()),
+            enabled: true,
+            last_used: None,
+            created_at: now,
+            updated_at: now,
+            profile_dir: PathBuf::from(format!("/tmp/{id}")),
+            auth_path: PathBuf::from(format!("/tmp/{id}/auth.json")),
+        }
+    }
+
+    fn claude_profile(id: &str) -> ClaudeProfile {
+        let now = Utc::now();
+        ClaudeProfile {
+            id: id.to_string(),
+            label: format!("Claude {id}"),
+            email: Some(format!("{id}@example.com")),
+            plan: Some("max".to_string()),
+            notes: Some("notes".to_string()),
+            enabled: true,
+            last_used: None,
+            created_at: now,
+            updated_at: now,
+            profile_dir: PathBuf::from(format!("/tmp/{id}")),
+            auth_path: PathBuf::from(format!("/tmp/{id}/.credentials.json")),
+        }
+    }
+
+    fn quota_snapshot(summary: &str) -> QuotaSnapshot {
+        QuotaSnapshot::legacy_fallback(
+            Utc::now(),
+            Confidence::Exact,
+            LimitState::Available,
+            None,
+            Some(42),
+            LimitState::Available,
+            None,
+            Some(84),
+            summary.to_string(),
+        )
+    }
 
     #[test]
     fn root_state_composes_workspace_overview_accounts_and_system() {
@@ -326,6 +431,8 @@ mod tests {
 
         assert_eq!(state.selected_index, None);
         assert!(state.entries.is_empty());
+        assert!(state.profiles_by_key.is_empty());
+        assert!(state.quota_by_key.is_empty());
         assert_eq!(state.provider_filter, ProviderFilter::All);
         assert_eq!(state.status_message, None);
     }
@@ -361,6 +468,54 @@ mod tests {
                 provider: Provider::Codex,
                 profile_id: "codex-main".to_string(),
             })
+        );
+    }
+
+    #[test]
+    fn accounts_state_can_store_profiles_and_quota_by_account_key() {
+        let mut state = AccountsState::default();
+        let codex_key = AccountKey::for_entry(&AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-main".to_string(),
+        });
+        let claude_key =
+            AccountKey::for_profile(&AccountProfile::Claude(claude_profile("claude-main")));
+
+        state.profiles_by_key.insert(
+            codex_key.clone(),
+            AccountProfile::Codex(codex_profile("codex-main")),
+        );
+        state.profiles_by_key.insert(
+            claude_key.clone(),
+            AccountProfile::Claude(claude_profile("claude-main")),
+        );
+        state
+            .quota_by_key
+            .insert(codex_key.clone(), quota_snapshot("codex fresh"));
+        state
+            .quota_by_key
+            .insert(claude_key.clone(), quota_snapshot("claude fresh"));
+
+        assert_eq!(state.profiles_by_key.len(), 2);
+        assert_eq!(state.quota_by_key[&codex_key].summary, "codex fresh");
+        assert_eq!(state.quota_by_key[&claude_key].summary, "claude fresh");
+    }
+
+    #[test]
+    fn account_keys_align_entries_profiles_and_quota_payloads() {
+        let entry = AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-main".to_string(),
+        };
+        let profile = AccountProfile::Codex(codex_profile("codex-main"));
+
+        assert_eq!(
+            AccountKey::for_entry(&entry),
+            AccountKey::for_profile(&profile)
+        );
+        assert_ne!(
+            AccountKey::for_entry(&entry),
+            AccountKey::new(Provider::Claude, "codex-main"),
         );
     }
 

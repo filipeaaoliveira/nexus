@@ -320,6 +320,262 @@ fn overview_reducer_codex_discovery_updates_all_ambiguous_live_session_rows() {
 }
 
 #[test]
+fn overview_reducer_codex_process_exit_retires_all_session_rows_sharing_pid() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 44, "session-a", None, false, None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 44, "session-b", None, false, None),
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_process_exited(AgentTool::Codex, 44),
+    );
+
+    let visible = state.overview.visible_agents();
+    assert_eq!(visible.len(), 2);
+    assert!(visible.iter().all(|agent| agent.id.is_session()));
+    assert!(visible.iter().all(|agent| agent.pid == Some(44)));
+    assert!(visible
+        .iter()
+        .all(|agent| agent.status == PrimaryStatus::Exited));
+}
+
+#[test]
+fn overview_reducer_codex_session_info_absorbs_stale_process_row_after_pid_resolution() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::Discovered {
+            id: AgentId::session(AgentTool::Codex, "session-a"),
+            pid: None,
+            cwd: PathBuf::from("/tmp/ambiguous"),
+            started_at: None,
+        }),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 77, "/tmp/ambiguous", None),
+    );
+
+    assert_eq!(state.overview.agents.len(), 2);
+    assert_eq!(
+        state.overview
+            .agents
+            .iter()
+            .filter(|agent| agent.id.is_session())
+            .count(),
+        1
+    );
+    assert_eq!(
+        state.overview
+            .agents
+            .iter()
+            .filter(|agent| agent.id.is_process())
+            .count(),
+        1
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 77, "session-a", None, false, None),
+    );
+
+    assert_eq!(state.overview.agents.len(), 1);
+    let agent = &state.overview.agents[0];
+    assert!(agent.id.is_session());
+    assert_eq!(agent.pid, Some(77));
+    assert_eq!(agent.cwd, PathBuf::from("/tmp/ambiguous"));
+    assert_eq!(agent.session_id.as_deref(), Some("session-a"));
+    assert_eq!(state.overview.visible_agents().len(), 1);
+}
+
+#[test]
+fn overview_reducer_codex_process_discovery_preserves_terminal_session_status() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 15642, "session-a", None, false, None),
+    );
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::StatusChanged {
+            id: AgentId::session(AgentTool::Codex, "session-a"),
+            pid: Some(15642),
+            old: PrimaryStatus::Running,
+            new: PrimaryStatus::Done,
+        }),
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 15642, "/tmp/project", None),
+    );
+
+    assert_eq!(state.overview.agents.len(), 1);
+    let agent = &state.overview.agents[0];
+    assert!(agent.id.is_session());
+    assert_eq!(agent.pid, Some(15642));
+    assert_eq!(agent.status, PrimaryStatus::Done);
+    assert_eq!(agent.cwd, PathBuf::from("/tmp/project"));
+}
+
+#[test]
+fn overview_reducer_codex_process_discovery_does_not_revive_exited_session_on_pid_reuse() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 44, "session-a", None, false, None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_process_exited(AgentTool::Codex, 44),
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 44, "/tmp/reused", None),
+    );
+
+    assert_eq!(state.overview.agents.len(), 2);
+    assert_eq!(
+        state.overview
+            .agents
+            .iter()
+            .filter(|agent| agent.id.is_session())
+            .count(),
+        1
+    );
+    assert_eq!(
+        state.overview
+            .agents
+            .iter()
+            .filter(|agent| agent.id.is_process())
+            .count(),
+        1
+    );
+
+    let exited_session = state
+        .overview
+        .agents
+        .iter()
+        .find(|agent| agent.id.is_session())
+        .expect("exited session row");
+    assert_eq!(exited_session.status, PrimaryStatus::Exited);
+    assert_eq!(exited_session.pid, Some(44));
+
+    let process_agent = state
+        .overview
+        .agents
+        .iter()
+        .find(|agent| agent.id.is_process())
+        .expect("replacement process row");
+    assert_eq!(process_agent.status, PrimaryStatus::Running);
+    assert_eq!(process_agent.cwd, PathBuf::from("/tmp/reused"));
+}
+
+#[test]
+fn overview_reducer_codex_process_discovery_revives_exited_session_with_same_pid_and_cwd() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::Discovered {
+            id: AgentId::session(AgentTool::Codex, "session-a"),
+            pid: Some(44),
+            cwd: PathBuf::from("/tmp/revive"),
+            started_at: None,
+        }),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(AgentTool::Codex, 44, "session-a", None, false, None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_process_exited(AgentTool::Codex, 44),
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 44, "/tmp/revive", None),
+    );
+
+    assert_eq!(state.overview.agents.len(), 1);
+    let agent = &state.overview.agents[0];
+    assert!(agent.id.is_session());
+    assert_eq!(agent.pid, Some(44));
+    assert_eq!(agent.status, PrimaryStatus::Running);
+    assert_eq!(agent.cwd, PathBuf::from("/tmp/revive"));
+}
+
+#[test]
+fn overview_reducer_codex_placeholder_session_transitions_preserve_pid_visibility() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::SessionInfo {
+            id: AgentId::session(AgentTool::Codex, "codex-a"),
+            pid: None,
+            session_id: "codex-a".to_string(),
+            branch: Some("main".to_string()),
+            is_worktree: false,
+            started_at: None,
+        }),
+    );
+
+    assert_eq!(state.overview.agents.len(), 1);
+    assert!(state.overview.visible_agents().is_empty());
+    assert_eq!(state.overview.selected_index, None);
+    assert_eq!(
+        state.overview.agents[0].normalized.status,
+        NormalizedStatus::Unknown
+    );
+
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(
+            AgentTool::Codex,
+            42,
+            "codex-a",
+            Some("main".to_string()),
+            true,
+            None,
+        ),
+    );
+
+    assert_eq!(state.overview.visible_agents().len(), 1);
+    assert_eq!(state.overview.selected_index, Some(0));
+    assert_eq!(state.overview.agents[0].pid, Some(42));
+    assert_eq!(state.overview.agents[0].branch.as_deref(), Some("main"));
+    assert!(state.overview.agents[0].is_worktree);
+
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::SessionInfo {
+            id: AgentId::session(AgentTool::Codex, "codex-a"),
+            pid: None,
+            session_id: "codex-a".to_string(),
+            branch: Some("main".to_string()),
+            is_worktree: false,
+            started_at: None,
+        }),
+    );
+
+    assert_eq!(state.overview.visible_agents().len(), 1);
+    assert_eq!(state.overview.agents[0].pid, Some(42));
+}
+
+#[test]
 fn overview_reducer_rename_start_confirm_and_cancel_are_pure_state_transitions() {
     let mut state = overview_root_state();
     reduce_overview(

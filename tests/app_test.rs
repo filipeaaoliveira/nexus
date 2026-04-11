@@ -272,6 +272,54 @@ fn overview_reducer_detector_updates_overview_agents() {
 }
 
 #[test]
+fn overview_reducer_codex_discovery_updates_all_ambiguous_live_session_rows() {
+    let mut state = overview_root_state();
+
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::SessionInfo {
+            id: AgentId::session(AgentTool::Codex, "session-a"),
+            pid: Some(44),
+            session_id: "session-a".to_string(),
+            branch: None,
+            is_worktree: false,
+            started_at: None,
+        }),
+    );
+    reduce_overview(
+        &mut state,
+        Action::Detector(DetectorAction::SessionInfo {
+            id: AgentId::session(AgentTool::Codex, "session-b"),
+            pid: Some(44),
+            session_id: "session-b".to_string(),
+            branch: None,
+            is_worktree: false,
+            started_at: None,
+        }),
+    );
+
+    let visible = state.overview.visible_agents();
+    assert_eq!(visible.len(), 2);
+    assert!(visible.iter().all(|agent| agent.cwd.as_os_str().is_empty()));
+
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 44, "/tmp/ambiguous", None),
+    );
+
+    let visible = state.overview.visible_agents();
+    assert_eq!(visible.len(), 2);
+    assert!(visible.iter().all(|agent| agent.id.is_session()));
+    assert!(visible.iter().all(|agent| agent.pid == Some(44)));
+    assert!(visible
+        .iter()
+        .all(|agent| agent.cwd == PathBuf::from("/tmp/ambiguous")));
+    assert!(visible
+        .iter()
+        .all(|agent| agent.status == PrimaryStatus::Running));
+}
+
+#[test]
 fn overview_reducer_rename_start_confirm_and_cancel_are_pure_state_transitions() {
     let mut state = overview_root_state();
     reduce_overview(

@@ -203,22 +203,33 @@ fn handle_discovered(
 
     if id.tool() == AgentTool::Codex {
         if let Some(pid) = pid {
-            if let Some(agent) = state.agents.iter_mut().find(|agent| {
-                agent.id.tool() == id.tool()
-                    && agent.id.is_session()
-                    && agent.pid == Some(pid)
-                    && agent.status != PrimaryStatus::Exited
-                    && (agent.cwd.as_os_str().is_empty() || agent.cwd == cwd)
-            }) {
-                agent.cwd = cwd;
-                agent.pid = Some(pid);
-                if !preserve_codex_session_status {
-                    agent.status = PrimaryStatus::Running;
-                }
-                if started_at.is_some()
-                    && (agent.started_at.is_none() || started_at < agent.started_at)
-                {
-                    agent.started_at = started_at;
+            let matching_agent_indices: Vec<_> = state
+                .agents
+                .iter()
+                .enumerate()
+                .filter(|(_, agent)| {
+                    agent.id.tool() == id.tool()
+                        && agent.id.is_session()
+                        && agent.pid == Some(pid)
+                        && agent.status != PrimaryStatus::Exited
+                        && (agent.cwd.as_os_str().is_empty() || agent.cwd == cwd)
+                })
+                .map(|(idx, _)| idx)
+                .collect();
+
+            if !matching_agent_indices.is_empty() {
+                for agent_idx in matching_agent_indices {
+                    let agent = &mut state.agents[agent_idx];
+                    agent.cwd = cwd.clone();
+                    agent.pid = Some(pid);
+                    if !preserve_codex_session_status {
+                        agent.status = PrimaryStatus::Running;
+                    }
+                    if started_at.is_some()
+                        && (agent.started_at.is_none() || started_at < agent.started_at)
+                    {
+                        agent.started_at = started_at;
+                    }
                 }
                 state.clamp_selection();
                 return;

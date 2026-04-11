@@ -205,19 +205,11 @@ async fn run_loop(
         // Check for async quota results (non-blocking).
         // None means the fetch failed — clear quota_loading without updating data.
         while let Ok((profile_id, quota)) = quota_rx.try_recv() {
-            if let Some(quota) = quota {
-                state.update_codex_quota_for_profile(&profile_id, quota);
-            } else {
-                state.accounts_tab.quota_loading = false;
-            }
+            state.apply_quota_refresh_result(nexus::app::Provider::Codex, &profile_id, quota);
         }
 
         while let Ok((profile_id, quota)) = claude_quota_rx.try_recv() {
-            if let Some(quota) = quota {
-                state.update_claude_quota_for_profile(&profile_id, quota);
-            } else {
-                state.accounts_tab.quota_loading = false;
-            }
+            state.apply_quota_refresh_result(nexus::app::Provider::Claude, &profile_id, quota);
         }
 
         // Clear any status-bar messages whose 5-second display window has elapsed.

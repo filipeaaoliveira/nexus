@@ -39,19 +39,6 @@ fn quota_snapshot(summary: &str) -> QuotaSnapshot {
     )
 }
 
-fn apply_quota_refresh_result(
-    state: &mut AppState,
-    provider: Provider,
-    profile_id: &str,
-    quota: Option<QuotaSnapshot>,
-) {
-    match (provider, quota) {
-        (Provider::Codex, Some(quota)) => state.update_codex_quota_for_profile(profile_id, quota),
-        (Provider::Claude, Some(quota)) => state.update_claude_quota_for_profile(profile_id, quota),
-        (_, None) => state.accounts_tab.quota_loading = false,
-    }
-}
-
 fn discovered(
     tool: AgentTool,
     pid: u32,
@@ -318,7 +305,7 @@ fn accounts_filter_confirm_keeps_text_until_dismissed() {
 }
 
 #[test]
-fn accounts_edit_starts_blank_and_cancels_cleanly() {
+fn accounts_edit_starts_with_selected_label_and_cancels_cleanly() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
     state.accounts_tab.codex_profile_ids = vec!["profile-01".to_string()];
@@ -346,12 +333,7 @@ fn quota_refresh_updates_selected_profile_and_cache_only() {
     state.accounts_tab.quota = Some(existing.clone());
     let refreshed = quota_snapshot("refreshed");
 
-    apply_quota_refresh_result(
-        &mut state,
-        Provider::Codex,
-        "codex-b",
-        Some(refreshed.clone()),
-    );
+    state.apply_quota_refresh_result(Provider::Codex, "codex-b", Some(refreshed.clone()));
 
     assert!(!state.accounts_tab.quota_loading);
     assert_eq!(state.accounts_tab.quota, Some(existing));
@@ -383,7 +365,7 @@ fn quota_refresh_failure_clears_loading_without_overwriting_data() {
     state.accounts_tab.quota = Some(cached.clone());
     state.accounts_tab.codex_quota_cache = Some(Default::default());
 
-    apply_quota_refresh_result(&mut state, Provider::Codex, "codex-a", None);
+    state.apply_quota_refresh_result(Provider::Codex, "codex-a", None);
 
     assert!(!state.accounts_tab.quota_loading);
     assert_eq!(state.accounts_tab.quota, Some(cached));

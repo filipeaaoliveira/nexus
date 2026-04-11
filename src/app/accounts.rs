@@ -632,6 +632,19 @@ impl AppState {
         }
     }
 
+    pub fn apply_quota_refresh_result(
+        &mut self,
+        provider: Provider,
+        profile_id: &str,
+        quota: Option<QuotaSnapshot>,
+    ) {
+        match (provider, quota) {
+            (Provider::Codex, Some(quota)) => self.update_codex_quota_for_profile(profile_id, quota),
+            (Provider::Claude, Some(quota)) => self.update_claude_quota_for_profile(profile_id, quota),
+            (_, None) => self.accounts_tab.quota_loading = false,
+        }
+    }
+
     pub fn set_active_codex_profile(&mut self, profile_id: Option<String>) {
         self.accounts_tab.set_active(profile_id);
     }
@@ -666,4 +679,3 @@ impl AppState {
         };
     }
 }
-

@@ -205,11 +205,19 @@ async fn run_loop(
         // Check for async quota results (non-blocking).
         // None means the fetch failed — clear quota_loading without updating data.
         while let Ok((profile_id, quota)) = quota_rx.try_recv() {
-            state.apply_quota_refresh_result(nexus::app::Provider::Codex, &profile_id, quota);
+            state.apply_quota_refresh_result(
+                nexus::domain::accounts::Provider::Codex,
+                &profile_id,
+                quota,
+            );
         }
 
         while let Ok((profile_id, quota)) = claude_quota_rx.try_recv() {
-            state.apply_quota_refresh_result(nexus::app::Provider::Claude, &profile_id, quota);
+            state.apply_quota_refresh_result(
+                nexus::domain::accounts::Provider::Claude,
+                &profile_id,
+                quota,
+            );
         }
 
         // Clear any status-bar messages whose 5-second display window has elapsed.
@@ -377,7 +385,7 @@ async fn run_loop(
             Some(input::Action::AccountsRefreshQuota) => {
                 if state.active_tab() == ActiveTab::Accounts {
                     match state.selected_account() {
-                        Some((nexus::app::Provider::Claude, profile_id)) => {
+                        Some((nexus::domain::accounts::Provider::Claude, profile_id)) => {
                             let profile_id = profile_id.to_string();
                             let creds_path = state
                                 .config
@@ -402,7 +410,7 @@ async fn run_loop(
                                 }
                             }
                         }
-                        Some((nexus::app::Provider::Codex, profile_id)) => {
+                        Some((nexus::domain::accounts::Provider::Codex, profile_id)) => {
                             let profile_id = profile_id.to_string();
                             let auth_path = state
                                 .config

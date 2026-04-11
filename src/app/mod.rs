@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,42 +16,11 @@ use crate::codex_profiles::profile::{
 };
 use crate::codex_profiles::quota::{load_quota_cache, save_quota_cache, QuotaCache, QuotaSnapshot};
 use crate::config::Config;
+pub use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 use crate::event::AgentEvent;
 use crate::types::*;
 
 const MAX_RECENT_EVENTS: usize = 20;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Provider {
-    Codex,
-    Claude,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ProviderFilter {
-    #[default]
-    All,
-    Codex,
-    Claude,
-}
-
-impl ProviderFilter {
-    pub fn next(self) -> Self {
-        match self {
-            Self::All => Self::Codex,
-            Self::Codex => Self::Claude,
-            Self::Claude => Self::All,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::All => "all",
-            Self::Codex => "codex",
-            Self::Claude => "claude",
-        }
-    }
-}
 
 /// Which destructive action is awaiting confirmation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,17 +29,18 @@ pub enum ConfirmKind {
     WriteToHome,
 }
 
-/// A profile entry in the unified account list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccountEntry {
-    pub provider: Provider,
-    pub profile_id: String,
-}
-
 /// Returns the length of the unified list without allocating a `Vec`.
 fn unified_list_len(codex_ids: &[String], claude_ids: &[String], filter: ProviderFilter) -> usize {
-    let n_codex = if filter != ProviderFilter::Claude { codex_ids.len() } else { 0 };
-    let n_claude = if filter != ProviderFilter::Codex { claude_ids.len() } else { 0 };
+    let n_codex = if filter != ProviderFilter::Claude {
+        codex_ids.len()
+    } else {
+        0
+    };
+    let n_claude = if filter != ProviderFilter::Codex {
+        claude_ids.len()
+    } else {
+        0
+    };
     n_codex + n_claude
 }
 
@@ -200,7 +171,11 @@ impl AccountsTabState {
     }
 
     pub fn next_profile(&mut self) {
-        let len = unified_list_len(&self.codex_profile_ids, &self.claude_profile_ids, self.active_filter);
+        let len = unified_list_len(
+            &self.codex_profile_ids,
+            &self.claude_profile_ids,
+            self.active_filter,
+        );
         if len == 0 {
             self.selected_index = None;
             self.quota = None;
@@ -216,7 +191,11 @@ impl AccountsTabState {
     }
 
     pub fn previous_profile(&mut self) {
-        let len = unified_list_len(&self.codex_profile_ids, &self.claude_profile_ids, self.active_filter);
+        let len = unified_list_len(
+            &self.codex_profile_ids,
+            &self.claude_profile_ids,
+            self.active_filter,
+        );
         if len == 0 {
             self.selected_index = None;
             self.quota = None;
@@ -336,6 +315,7 @@ pub struct AppState {
     pub rename_input: String,
     pub config: Config,
     pub should_quit: bool,
+    detector_issues: BTreeMap<String, String>,
     visible_agent_cache: RefCell<VisibleAgentCache>,
     agents_version: Cell<u64>,
     codex_profiles_last_reload: Cell<std::time::Instant>,
@@ -395,6 +375,7 @@ impl AppState {
             rename_input: String::new(),
             config,
             should_quit: false,
+            detector_issues: BTreeMap::new(),
             visible_agent_cache: RefCell::new(VisibleAgentCache::default()),
             agents_version: Cell::new(0),
             // Set to past so first reload always runs
@@ -440,6 +421,11 @@ impl AppState {
     pub fn handle_event(&mut self, event: AgentEvent) {
         let now = Local::now();
         match event {
+            AgentEvent::DetectorHealthChanged {
+                detector,
+                healthy,
+                message,
+            } => self.handle_detector_health_changed(detector, healthy, message),
             AgentEvent::Discovered {
                 id,
                 pid,
@@ -515,6 +501,12 @@ impl AppState {
         })
     }
 
+    pub fn primary_detector_issue(&self) -> Option<&str> {
+        self.detector_issues
+            .values()
+            .next()
+            .map(std::string::String::as_str)
+    }
 }
 
 fn push_event(

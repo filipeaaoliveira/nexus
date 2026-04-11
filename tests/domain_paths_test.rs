@@ -1,3 +1,7 @@
+use std::fs;
+use std::path::Path;
+
+use nexus::domain::accounts::{AccountEntry as DomainAccountEntry, Provider as DomainProvider};
 use nexus::domain::accounts::model::{
     AccountEntry, AuthMetadata, ClaudeProfile, ClaudeProfileMetadata, CodexProfile, ProfileMetadata,
 };
@@ -5,6 +9,7 @@ use nexus::domain::accounts::provider::{Provider, ProviderFilter};
 use nexus::domain::accounts::quota::{
     Confidence, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
 };
+use nexus::domain::agents::{Agent as DomainAgent, AgentTool as DomainAgentTool};
 use nexus::domain::agents::activity::{
     Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem, TodoPriority, TodoStatus,
 };
@@ -12,6 +17,10 @@ use nexus::domain::agents::ids::{AgentId, AgentIdentity, AgentTool};
 use nexus::domain::agents::model::{Agent, SortMode};
 use nexus::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+};
+use nexus::domain::system::{
+    CodexBackendHealth as DomainCodexBackendHealth,
+    DetectorNotification as DomainDetectorNotification,
 };
 use nexus::domain::system::health::CodexBackendHealth;
 use nexus::domain::system::notification::DetectorNotification;
@@ -49,4 +58,26 @@ fn domain_modules_export_expected_paths() {
     let _ = std::any::TypeId::of::<LimitState>();
     let _ = std::any::TypeId::of::<CodexBackendHealth>();
     let _ = std::any::TypeId::of::<DetectorNotification>();
+    let _ = std::any::TypeId::of::<DomainProvider>();
+    let _ = std::any::TypeId::of::<DomainAccountEntry>();
+    let _ = std::any::TypeId::of::<DomainAgentTool>();
+    let _ = std::any::TypeId::of::<DomainAgent>();
+    let _ = std::any::TypeId::of::<DomainCodexBackendHealth>();
+    let _ = std::any::TypeId::of::<DomainDetectorNotification>();
+}
+
+#[test]
+fn accounts_domain_owns_its_provider_and_entry_types() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let provider = fs::read_to_string(repo_root.join("src/domain/accounts/provider.rs")).unwrap();
+    let model = fs::read_to_string(repo_root.join("src/domain/accounts/model.rs")).unwrap();
+
+    assert!(
+        !provider.contains("crate::app"),
+        "provider.rs should define domain-owned types instead of importing them from app",
+    );
+    assert!(
+        !model.contains("crate::app"),
+        "model.rs should define domain-owned types instead of importing them from app",
+    );
 }

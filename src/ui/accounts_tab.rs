@@ -4,12 +4,13 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{build_unified_list, AppState, ConfirmKind, EditField, Provider};
+use crate::app::{build_unified_list, AppState, ConfirmKind, EditField};
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::{
     detect_live_profile_id, extract_auth_metadata, load_profile_metadata,
 };
 use crate::codex_profiles::quota::{Confidence, CreditsState, LimitState, QuotaWindow};
+use crate::domain::accounts::{Provider, ProviderFilter};
 use serde_json::Value;
 
 use super::{footer, header, theme, RenderData};
@@ -294,9 +295,9 @@ fn render_profile_list(frame: &mut Frame, state: &AppState, area: Rect) {
 
     if unified.is_empty() {
         let hint = match state.accounts_tab.active_filter {
-            crate::app::ProviderFilter::Codex => "No Codex profiles. Press i to import.",
-            crate::app::ProviderFilter::Claude => "No Claude profiles. Press I to import.",
-            crate::app::ProviderFilter::All => "No profiles. Press i (Codex) or I (Claude) to import.",
+            ProviderFilter::Codex => "No Codex profiles. Press i to import.",
+            ProviderFilter::Claude => "No Claude profiles. Press I to import.",
+            ProviderFilter::All => "No profiles. Press i (Codex) or I (Claude) to import.",
         };
         let para = Paragraph::new(vec![
             Line::from(""),
@@ -823,13 +824,13 @@ mod tests {
 
     #[test]
     fn test_provider_badge_codex() {
-        let badge = provider_badge(crate::app::Provider::Codex);
+        let badge = provider_badge(Provider::Codex);
         assert_eq!(badge, "[CX]");
     }
 
     #[test]
     fn test_provider_badge_claude() {
-        let badge = provider_badge(crate::app::Provider::Claude);
+        let badge = provider_badge(Provider::Claude);
         assert_eq!(badge, "[CL]");
     }
 

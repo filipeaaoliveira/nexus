@@ -354,6 +354,28 @@ fn quota_refresh_updates_selected_profile_and_cache_only() {
 }
 
 #[test]
+fn quota_refresh_updates_selected_claude_profile_and_cache() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.accounts_tab.claude_profile_ids = vec!["claude-a".to_string()];
+    state.accounts_tab.selected_index = Some(0);
+    state.accounts_tab.quota_loading = true;
+
+    let refreshed = quota_snapshot("claude refreshed");
+    state.apply_quota_refresh_result(Provider::Claude, "claude-a", Some(refreshed.clone()));
+
+    assert!(!state.accounts_tab.quota_loading);
+    assert_eq!(state.accounts_tab.quota, Some(refreshed.clone()));
+    assert_eq!(
+        state.accounts_tab
+            .claude_quota_cache
+            .as_ref()
+            .and_then(|cache| cache.by_profile.get("claude-a")),
+        Some(&refreshed)
+    );
+}
+
+#[test]
 fn quota_refresh_failure_clears_loading_without_overwriting_data() {
     let (_tmp, mut state) = make_state();
     state.next_tab();

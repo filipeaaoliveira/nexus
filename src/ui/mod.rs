@@ -14,7 +14,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{ActiveTab, AppState};
-use crate::types::{Agent, NormalizedStatus, PrimaryStatus};
+use crate::types::{Agent, NormalizedStatus};
 
 pub struct HeaderStats {
     pub total: usize,
@@ -22,7 +22,6 @@ pub struct HeaderStats {
     pub waiting: usize,
     pub error: usize,
     pub done: usize,
-    pub exited: usize,
     pub subagent_count: usize,
 }
 
@@ -37,12 +36,6 @@ impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
         let visible_agents = state.visible_agents();
         let selected_agent = state.selected.and_then(|i| visible_agents.get(i).copied());
-        let count_visible_with_primary_status = |status| {
-            visible_agents
-                .iter()
-                .filter(|agent| agent.status == status)
-                .count()
-        };
         let count_visible_with_normalized_status = |status| {
             visible_agents
                 .iter()
@@ -65,7 +58,6 @@ impl<'a> RenderData<'a> {
             waiting: count_visible_with_normalized_status(NormalizedStatus::NeedsInput),
             error: error_count,
             done: count_visible_with_normalized_status(NormalizedStatus::Done),
-            exited: count_visible_with_primary_status(PrimaryStatus::Exited),
             subagent_count: visible_agents
                 .iter()
                 .map(|agent| agent.subagents.len())

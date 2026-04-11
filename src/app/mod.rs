@@ -22,17 +22,18 @@ use crate::types::*;
 
 pub mod action;
 pub mod effect;
+pub mod reducer;
 pub mod state;
 
 pub use action::{
-    AccountsAction, Action as SemanticAction, DetectorAction, OverviewAction, SystemAction,
+    AccountsAction, Action, Action as SemanticAction, DetectorAction, OverviewAction, SystemAction,
     WorkspaceAction,
 };
 pub use effect::{AccountProfile, Effect, EffectResult, ProfileId};
 pub use state::{
-    AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, DetectorHealth,
-    Overlay, OverviewMode, OverviewState, ProfileDraft, RootState, SystemState, Workflow,
-    Workspace, WorkspaceState,
+    AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, DetectorHealth, Overlay,
+    OverviewAgent, OverviewMode, OverviewState, OverviewStatusCounts, ProfileDraft, RootState,
+    SystemState, Workflow, Workspace, WorkspaceState,
 };
 
 const MAX_RECENT_EVENTS: usize = 20;

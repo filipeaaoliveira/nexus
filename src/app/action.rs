@@ -1,10 +1,13 @@
+use std::path::PathBuf;
+
+use chrono::{DateTime, Local};
+
 use crate::domain::accounts::ProviderFilter;
-use crate::types::AgentId;
+use crate::types::{AgentId, NormalizedState, PrimaryStatus};
 
 use super::effect::EffectResult;
 use super::state::{
-    AccountsConfirmAction, AccountsMode, Overlay, OverviewMode, ProfileDraft, Workflow,
-    Workspace,
+    AccountsConfirmAction, AccountsMode, Overlay, OverviewMode, ProfileDraft, Workflow, Workspace,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,12 +33,15 @@ pub enum WorkspaceAction {
 pub enum OverviewAction {
     SelectNext,
     SelectPrevious,
+    CycleSortMode,
     StartFiltering,
     UpdateFilter(String),
-    StartRenaming {
-        agent_id: AgentId,
-    },
+    ConfirmFilter,
+    ClearFilter,
+    StartRenaming { agent_id: AgentId },
     UpdateRenameInput(String),
+    DismissExited,
+    DismissSelected,
     SetMode(OverviewMode),
     ConfirmRename,
     CancelMode,
@@ -73,5 +79,34 @@ pub enum DetectorAction {
         detector: String,
         healthy: bool,
         message: String,
+    },
+    Discovered {
+        id: AgentId,
+        pid: Option<u32>,
+        cwd: PathBuf,
+        started_at: Option<DateTime<Local>>,
+    },
+    SessionInfo {
+        id: AgentId,
+        pid: Option<u32>,
+        session_id: String,
+        branch: Option<String>,
+        is_worktree: bool,
+        started_at: Option<DateTime<Local>>,
+    },
+    StatusChanged {
+        id: AgentId,
+        pid: Option<u32>,
+        old: PrimaryStatus,
+        new: PrimaryStatus,
+    },
+    NormalizedStateChanged {
+        id: AgentId,
+        pid: Option<u32>,
+        state: NormalizedState,
+    },
+    ProcessExited {
+        id: AgentId,
+        pid: Option<u32>,
     },
 }

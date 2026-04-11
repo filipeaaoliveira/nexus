@@ -1,5 +1,7 @@
 use super::*;
 
+// Legacy runtime compatibility lives here for now. The additive overview reducer
+// in `crate::app::reducer::overview` is the future source of truth.
 impl AppState {
     pub fn move_selection_down(&mut self) {
         let count = self.visible_agent_count();
@@ -90,11 +92,11 @@ impl AppState {
     }
 
     pub fn start_rename(&mut self) {
-        let Some((real_idx, _)) = self.resolve_selected() else {
+        let Some((_real_idx, _)) = self.resolve_selected() else {
             return;
         };
         self.rename_mode = true;
-        self.rename_input = self.agents[real_idx].display_name().to_string();
+        self.rename_input.clear();
     }
 
     pub fn rename_push_char(&mut self, c: char) {

@@ -1,10 +1,15 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use chrono::{DateTime, Local};
 
 use super::effect::AccountProfile;
 use crate::domain::accounts::QuotaSnapshot;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
-use crate::types::{AgentId, SortMode};
+use crate::types::{
+    AgentId, AgentTool, NormalizedState, NormalizedStatus, PrimaryStatus, SortMode,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Workspace {
@@ -75,6 +80,8 @@ pub struct OverviewState {
     pub mode: OverviewMode,
     pub selected_index: Option<usize>,
     pub sort_mode: SortMode,
+    pub filter: Option<String>,
+    pub agents: Vec<OverviewAgent>,
 }
 
 impl Default for OverviewState {
@@ -83,7 +90,154 @@ impl Default for OverviewState {
             mode: OverviewMode::Normal,
             selected_index: None,
             sort_mode: SortMode::Name,
+            filter: None,
+            agents: Vec::new(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverviewAgent {
+    pub id: AgentId,
+    pub pid: Option<u32>,
+    pub status: PrimaryStatus,
+    pub normalized: NormalizedState,
+    pub cwd: PathBuf,
+    pub branch: Option<String>,
+    pub is_worktree: bool,
+    pub started_at: Option<DateTime<Local>>,
+    pub session_id: Option<String>,
+    pub alias: Option<String>,
+}
+
+impl OverviewAgent {
+    pub fn display_name(&self) -> &str {
+        self.alias.as_deref().unwrap_or(self.id.tool().as_str())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OverviewStatusCounts {
+    pub total: usize,
+    pub running: usize,
+    pub waiting: usize,
+    pub error: usize,
+    pub done: usize,
+}
+
+impl OverviewState {
+    pub fn visible_agents(&self) -> Vec<&OverviewAgent> {
+        self.visible_agent_indices()
+            .into_iter()
+            .map(|idx| &self.agents[idx])
+            .collect()
+    }
+
+    pub fn visible_agent_count(&self) -> usize {
+        self.visible_agent_indices().len()
+    }
+
+    pub fn selected_agent_id(&self) -> Option<AgentId> {
+        let visible_idx = self.selected_index?;
+        let real_idx = *self.visible_agent_indices().get(visible_idx)?;
+        Some(self.agents[real_idx].id.clone())
+    }
+
+    pub fn clamp_selection(&mut self) {
+        let count = self.visible_agent_count();
+        if count == 0 {
+            self.selected_index = None;
+        } else if self.selected_index.is_none() {
+            self.selected_index = Some(0);
+        } else if let Some(idx) = self.selected_index {
+            if idx >= count {
+                self.selected_index = Some(count - 1);
+            }
+        }
+    }
+
+    pub fn normalized_status_counts(&self) -> OverviewStatusCounts {
+        let mut counts = OverviewStatusCounts::default();
+        for agent in self.visible_agents() {
+            counts.total += 1;
+            match agent.normalized.status {
+                NormalizedStatus::Working => counts.running += 1,
+                NormalizedStatus::NeedsInput => counts.waiting += 1,
+                NormalizedStatus::Done => counts.done += 1,
+                NormalizedStatus::Blocked | NormalizedStatus::Unknown => counts.error += 1,
+            }
+        }
+        counts
+    }
+
+    fn visible_agent_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self
+            .agents
+            .iter()
+            .enumerate()
+            .filter(|(_, agent)| {
+                !(agent.id.tool() == AgentTool::Codex
+                    && agent.id.is_session()
+                    && agent.pid.is_none())
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+
+        if let Some(filter) = self.filter.as_deref() {
+            let filter = filter.to_lowercase();
+            indices.retain(|&idx| Self::agent_matches_filter(&self.agents[idx], &filter));
+        }
+
+        match self.sort_mode {
+            SortMode::Urgency => {
+                indices.sort_by_key(|&idx| {
+                    let agent = &self.agents[idx];
+                    (std::cmp::Reverse(agent.normalized.status), agent.status)
+                });
+            }
+            SortMode::Name => {
+                indices.sort_by(|&left, &right| {
+                    let a = &self.agents[left];
+                    let b = &self.agents[right];
+                    a.display_name()
+                        .cmp(b.display_name())
+                        .then_with(|| a.pid.cmp(&b.pid))
+                        .then_with(|| a.id.session_id().cmp(&b.id.session_id()))
+                });
+            }
+            SortMode::Elapsed => {
+                indices.sort_by(|&left, &right| {
+                    self.agents[left]
+                        .started_at
+                        .cmp(&self.agents[right].started_at)
+                });
+            }
+        }
+
+        indices
+    }
+
+    fn agent_matches_filter(agent: &OverviewAgent, filter: &str) -> bool {
+        agent.display_name().to_lowercase().contains(filter)
+            || agent.status.as_str().to_lowercase().contains(filter)
+            || agent
+                .normalized
+                .status
+                .as_str()
+                .to_lowercase()
+                .contains(filter)
+            || agent
+                .normalized
+                .reason
+                .as_ref()
+                .map(|reason| reason.as_str().to_lowercase().contains(filter))
+                .unwrap_or(false)
+            || agent.cwd.to_string_lossy().to_lowercase().contains(filter)
+            || agent
+                .branch
+                .as_deref()
+                .map(|branch| branch.to_lowercase().contains(filter))
+                .unwrap_or(false)
     }
 }
 

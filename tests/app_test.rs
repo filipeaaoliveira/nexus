@@ -1,8 +1,11 @@
 use chrono::Utc;
-use nexus::app::{AccountsTabState, ActiveTab, AppState, ConfirmKind, EditField, Provider};
+use nexus::app::{
+    reducer, AccountsTabState, Action, ActiveTab, AppState, ConfirmKind, DetectorAction, EditField,
+    OverviewAction, OverviewMode, Provider, RootState,
+};
+use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use nexus::config::Config;
 use nexus::event::AgentEvent;
-use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use nexus::types::*;
 use nexus::ui::{agent_list, footer, help};
 use std::path::PathBuf;
@@ -125,6 +128,90 @@ fn todos_updated(tool: AgentTool, pid: u32, todos: Vec<TodoItem>) -> AgentEvent 
     }
 }
 
+fn overview_root_state() -> RootState {
+    RootState::default()
+}
+
+fn overview_detector_discovered(
+    tool: AgentTool,
+    pid: u32,
+    cwd: impl Into<PathBuf>,
+    started_at: Option<chrono::DateTime<chrono::Local>>,
+) -> Action {
+    Action::Detector(DetectorAction::Discovered {
+        id: AgentId::new(tool, pid),
+        pid: Some(pid),
+        cwd: cwd.into(),
+        started_at,
+    })
+}
+
+fn overview_detector_session_info(
+    tool: AgentTool,
+    pid: u32,
+    session_id: impl Into<String>,
+    branch: Option<String>,
+    is_worktree: bool,
+    started_at: Option<chrono::DateTime<chrono::Local>>,
+) -> Action {
+    let session_id = session_id.into();
+    let id = if tool == AgentTool::Codex && !session_id.is_empty() {
+        AgentId::session(tool, session_id.clone())
+    } else {
+        AgentId::new(tool, pid)
+    };
+
+    Action::Detector(DetectorAction::SessionInfo {
+        id,
+        pid: Some(pid),
+        session_id,
+        branch,
+        is_worktree,
+        started_at,
+    })
+}
+
+fn overview_detector_status_changed(
+    tool: AgentTool,
+    pid: u32,
+    old: PrimaryStatus,
+    new: PrimaryStatus,
+) -> Action {
+    Action::Detector(DetectorAction::StatusChanged {
+        id: AgentId::new(tool, pid),
+        pid: Some(pid),
+        old,
+        new,
+    })
+}
+
+fn overview_detector_normalized_state_changed(
+    tool: AgentTool,
+    pid: u32,
+    state: NormalizedState,
+) -> Action {
+    Action::Detector(DetectorAction::NormalizedStateChanged {
+        id: AgentId::new(tool, pid),
+        pid: Some(pid),
+        state,
+    })
+}
+
+fn overview_detector_process_exited(tool: AgentTool, pid: u32) -> Action {
+    Action::Detector(DetectorAction::ProcessExited {
+        id: AgentId::new(tool, pid),
+        pid: Some(pid),
+    })
+}
+
+fn reduce_overview(state: &mut RootState, action: Action) {
+    let effects = reducer::root::reduce(state, &action);
+    assert!(
+        effects.is_empty(),
+        "unexpected effects for {action:?}: {effects:?}"
+    );
+}
+
 #[test]
 fn test_initial_state_is_empty() {
     let (_tmp, state) = make_state();
@@ -132,6 +219,252 @@ fn test_initial_state_is_empty() {
     assert_eq!(state.selected, None);
     assert_eq!(state.sort_mode, SortMode::Name);
     assert!(!state.show_help);
+}
+
+#[test]
+fn overview_reducer_detector_updates_overview_agents() {
+    let mut state = overview_root_state();
+    let past = chrono::Local::now() - chrono::Duration::minutes(30);
+
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Claude, 41, "/tmp/overview", Some(past)),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_session_info(
+            AgentTool::Claude,
+            41,
+            "session-a",
+            Some("feature/reducer".to_string()),
+            true,
+            None,
+        ),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_status_changed(
+            AgentTool::Claude,
+            41,
+            PrimaryStatus::Running,
+            PrimaryStatus::Waiting,
+        ),
+    );
+
+    assert_eq!(state.overview.selected_index, Some(0));
+    assert_eq!(state.overview.agents.len(), 1);
+    assert_eq!(state.overview.visible_agents().len(), 1);
+    assert_eq!(state.overview.visible_agents()[0].pid, Some(41));
+    assert_eq!(
+        state.overview.visible_agents()[0].session_id.as_deref(),
+        Some("session-a")
+    );
+    assert_eq!(
+        state.overview.visible_agents()[0].branch.as_deref(),
+        Some("feature/reducer")
+    );
+    assert!(state.overview.visible_agents()[0].is_worktree);
+    assert_eq!(
+        state.overview.visible_agents()[0].status,
+        PrimaryStatus::Waiting
+    );
+    assert_eq!(state.overview.visible_agents()[0].started_at, Some(past));
+}
+
+#[test]
+fn overview_reducer_rename_start_confirm_and_cancel_are_pure_state_transitions() {
+    let mut state = overview_root_state();
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Claude, 42, "/tmp/rename", None),
+    );
+
+    let agent_id = state.overview.agents[0].id.clone();
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::StartRenaming {
+            agent_id: agent_id.clone(),
+        }),
+    );
+    assert_eq!(
+        state.overview.mode,
+        OverviewMode::Renaming {
+            agent_id: agent_id.clone(),
+            input: String::new(),
+        }
+    );
+
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::UpdateRenameInput(
+            "renamed-claude".to_string(),
+        )),
+    );
+    reduce_overview(&mut state, Action::Overview(OverviewAction::ConfirmRename));
+
+    assert_eq!(state.overview.mode, OverviewMode::Normal);
+    assert_eq!(
+        state.overview.agents[0].alias.as_deref(),
+        Some("renamed-claude")
+    );
+
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::StartRenaming {
+            agent_id: agent_id.clone(),
+        }),
+    );
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::UpdateRenameInput("discard-me".to_string())),
+    );
+    reduce_overview(&mut state, Action::Overview(OverviewAction::CancelMode));
+
+    assert_eq!(state.overview.mode, OverviewMode::Normal);
+    assert_eq!(
+        state.overview.agents[0].alias.as_deref(),
+        Some("renamed-claude")
+    );
+}
+
+#[test]
+fn overview_reducer_filter_and_sort_transitions_update_visible_order() {
+    let mut state = overview_root_state();
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::OpenCode, 1, "/tmp/opencode", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Claude, 2, "/tmp/claude", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 3, "/tmp/codex", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_normalized_state_changed(
+            AgentTool::OpenCode,
+            1,
+            NormalizedState::new(
+                NormalizedStatus::Done,
+                Some(NormalizedReason::ReadyForNextTask),
+            ),
+        ),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_normalized_state_changed(
+            AgentTool::Claude,
+            2,
+            NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
+        ),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_normalized_state_changed(
+            AgentTool::Codex,
+            3,
+            NormalizedState::new(NormalizedStatus::Blocked, Some(NormalizedReason::Error)),
+        ),
+    );
+
+    reduce_overview(&mut state, Action::Overview(OverviewAction::StartFiltering));
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::UpdateFilter("claude".to_string())),
+    );
+    assert_eq!(
+        state.overview.mode,
+        OverviewMode::Filtering {
+            input: "claude".to_string(),
+        }
+    );
+    assert_eq!(state.overview.filter.as_deref(), Some("claude"));
+    assert_eq!(state.overview.visible_agents().len(), 1);
+    assert_eq!(state.overview.selected_index, Some(0));
+
+    reduce_overview(&mut state, Action::Overview(OverviewAction::ConfirmFilter));
+    assert_eq!(state.overview.mode, OverviewMode::Normal);
+
+    reduce_overview(&mut state, Action::Overview(OverviewAction::ClearFilter));
+    reduce_overview(&mut state, Action::Overview(OverviewAction::CycleSortMode));
+    reduce_overview(&mut state, Action::Overview(OverviewAction::CycleSortMode));
+
+    let visible = state.overview.visible_agents();
+    assert_eq!(state.overview.sort_mode, SortMode::Urgency);
+    assert_eq!(visible[0].pid, Some(2));
+    assert_eq!(visible[1].pid, Some(3));
+    assert_eq!(visible[2].pid, Some(1));
+}
+
+#[test]
+fn overview_reducer_dismiss_actions_remove_exited_and_selected_agents() {
+    let mut state = overview_root_state();
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Claude, 11, "/tmp/one", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::OpenCode, 12, "/tmp/two", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_process_exited(AgentTool::Claude, 11),
+    );
+
+    assert_eq!(state.overview.agents.len(), 1);
+    assert_eq!(state.overview.visible_agents().len(), 1);
+
+    reduce_overview(&mut state, Action::Overview(OverviewAction::DismissExited));
+    assert_eq!(state.overview.agents.len(), 1);
+    assert_eq!(state.overview.visible_agents()[0].pid, Some(12));
+    assert_eq!(state.overview.selected_index, Some(0));
+
+    reduce_overview(
+        &mut state,
+        Action::Overview(OverviewAction::DismissSelected),
+    );
+    assert!(state.overview.agents.is_empty());
+    assert!(state.overview.visible_agents().is_empty());
+    assert_eq!(state.overview.selected_index, None);
+}
+
+#[test]
+fn overview_reducer_tracks_normalized_status_inputs_for_header_aggregation() {
+    let mut state = overview_root_state();
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Codex, 21, "/tmp/codex", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_discovered(AgentTool::Claude, 22, "/tmp/claude", None),
+    );
+    reduce_overview(
+        &mut state,
+        overview_detector_normalized_state_changed(
+            AgentTool::Claude,
+            22,
+            NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Approval),
+            ),
+        ),
+    );
+
+    assert_eq!(
+        state.overview.normalized_status_counts(),
+        nexus::app::OverviewStatusCounts {
+            total: 2,
+            running: 0,
+            waiting: 1,
+            error: 1,
+            done: 0,
+        }
+    );
 }
 
 #[test]
@@ -268,8 +601,9 @@ fn overview_empty_state_surfaces_detector_dependency_failure() {
     state.handle_event(AgentEvent::DetectorHealthChanged {
         detector: "process scanner".to_string(),
         healthy: false,
-        message: "Process scanner degraded: `lsof` is unavailable; install it to enable agent detection."
-            .to_string(),
+        message:
+            "Process scanner degraded: `lsof` is unavailable; install it to enable agent detection."
+                .to_string(),
     });
 
     assert_eq!(
@@ -338,14 +672,16 @@ fn quota_refresh_updates_selected_profile_and_cache_only() {
     assert!(!state.accounts_tab.quota_loading);
     assert_eq!(state.accounts_tab.quota, Some(existing));
     assert_eq!(
-        state.accounts_tab
+        state
+            .accounts_tab
             .codex_quota_cache
             .as_ref()
             .and_then(|cache| cache.by_profile.get("codex-b")),
         Some(&refreshed)
     );
     assert_eq!(
-        state.accounts_tab
+        state
+            .accounts_tab
             .codex_quota_cache
             .as_ref()
             .and_then(|cache| cache.by_profile.get("codex-a")),
@@ -367,7 +703,8 @@ fn quota_refresh_updates_selected_claude_profile_and_cache() {
     assert!(!state.accounts_tab.quota_loading);
     assert_eq!(state.accounts_tab.quota, Some(refreshed.clone()));
     assert_eq!(
-        state.accounts_tab
+        state
+            .accounts_tab
             .claude_quota_cache
             .as_ref()
             .and_then(|cache| cache.by_profile.get("claude-a")),
@@ -391,15 +728,13 @@ fn quota_refresh_failure_clears_loading_without_overwriting_data() {
 
     assert!(!state.accounts_tab.quota_loading);
     assert_eq!(state.accounts_tab.quota, Some(cached));
-    assert!(
-        state
-            .accounts_tab
-            .codex_quota_cache
-            .as_ref()
-            .expect("cache should remain present")
-            .by_profile
-            .is_empty()
-    );
+    assert!(state
+        .accounts_tab
+        .codex_quota_cache
+        .as_ref()
+        .expect("cache should remain present")
+        .by_profile
+        .is_empty());
 }
 
 #[test]

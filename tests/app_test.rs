@@ -1,8 +1,10 @@
-use nexus::app::{AccountsTabState, ActiveTab, AppState};
+use chrono::Utc;
+use nexus::app::{AccountsTabState, ActiveTab, AppState, ConfirmKind, EditField, Provider};
 use nexus::config::Config;
 use nexus::event::AgentEvent;
+use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use nexus::types::*;
-use nexus::ui::{footer, help};
+use nexus::ui::{agent_list, footer, help};
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -21,6 +23,33 @@ fn make_state() -> (tempfile::TempDir, AppState) {
     config.opencode_data_dir = root.join("opencode");
 
     (temp, AppState::new(config))
+}
+
+fn quota_snapshot(summary: &str) -> QuotaSnapshot {
+    QuotaSnapshot::legacy_fallback(
+        Utc::now(),
+        Confidence::Exact,
+        LimitState::Available,
+        None,
+        Some(25),
+        LimitState::Available,
+        None,
+        Some(40),
+        summary.to_string(),
+    )
+}
+
+fn apply_quota_refresh_result(
+    state: &mut AppState,
+    provider: Provider,
+    profile_id: &str,
+    quota: Option<QuotaSnapshot>,
+) {
+    match (provider, quota) {
+        (Provider::Codex, Some(quota)) => state.update_codex_quota_for_profile(profile_id, quota),
+        (Provider::Claude, Some(quota)) => state.update_claude_quota_for_profile(profile_id, quota),
+        (_, None) => state.accounts_tab.quota_loading = false,
+    }
 }
 
 fn discovered(
@@ -201,6 +230,8 @@ fn codex_footer_uses_codex_shortcuts() {
     let footer = footer::shortcut_text(&state);
     assert!(footer.contains("import codex"));
     assert!(footer.contains("import claude"));
+    assert!(footer.contains("R refresh"));
+    assert!(footer.contains("? help"));
     assert!(!footer.contains("sort:"));
     assert!(!footer.contains(" rename"));
 }
@@ -224,7 +255,147 @@ fn help_overlay_lists_import_and_management_shortcuts() {
     assert!(content
         .iter()
         .any(|line| line.contains("Import Claude credentials")));
+    assert!(content.iter().any(|line| line.contains("Refresh quota")));
+    assert!(content.iter().any(|line| line.contains("Toggle help")));
     assert!(content.iter().any(|line| line.contains("Accounts")));
+}
+
+#[test]
+fn overview_empty_state_is_generic_when_detector_health_is_nominal() {
+    let (_tmp, mut state) = make_state();
+    state.started_at = std::time::Instant::now()
+        - std::time::Duration::from_secs(state.config.poll_interval_secs + 1);
+
+    assert_eq!(
+        agent_list::empty_state_message(&state),
+        "No agents detected. Start Claude, Codex, or OpenCode to see them here."
+    );
+}
+
+#[test]
+fn overview_empty_state_surfaces_detector_dependency_failure() {
+    let (_tmp, mut state) = make_state();
+    state.started_at = std::time::Instant::now()
+        - std::time::Duration::from_secs(state.config.poll_interval_secs + 1);
+
+    state.handle_event(AgentEvent::DetectorHealthChanged {
+        detector: "process scanner".to_string(),
+        healthy: false,
+        message: "Process scanner degraded: `lsof` is unavailable; install it to enable agent detection."
+            .to_string(),
+    });
+
+    assert_eq!(
+        agent_list::empty_state_message(&state),
+        "Process scanner degraded: `lsof` is unavailable; install it to enable agent detection."
+    );
+}
+
+#[test]
+fn accounts_filter_confirm_keeps_text_until_dismissed() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+
+    state.start_accounts_filter();
+    state.accounts_filter_push_char('q');
+    state.accounts_filter_push_char('1');
+    state.confirm_accounts_filter();
+
+    assert!(!state.accounts_tab.filter_mode);
+    assert_eq!(state.accounts_tab.filter_input, "q1");
+
+    state.accounts_tab.edit_mode = true;
+    state.accounts_tab.edit_label = "Temp".to_string();
+    state.accounts_tab.pending_confirm = Some(ConfirmKind::DeleteProfile);
+
+    state.dismiss_accounts_overlay();
+
+    assert!(!state.accounts_tab.filter_mode);
+    assert_eq!(state.accounts_tab.filter_input, "");
+    assert!(!state.accounts_tab.edit_mode);
+    assert_eq!(state.accounts_tab.edit_label, "");
+    assert!(state.accounts_tab.pending_confirm.is_none());
+}
+
+#[test]
+fn accounts_edit_starts_blank_and_cancels_cleanly() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.accounts_tab.codex_profile_ids = vec!["profile-01".to_string()];
+    state.accounts_tab.selected_index = Some(0);
+
+    state.start_accounts_edit();
+    assert!(state.accounts_tab.edit_mode);
+    assert_eq!(state.accounts_tab.edit_label, "profile-01");
+    assert_eq!(state.accounts_tab.edit_field, EditField::Label);
+
+    state.cancel_accounts_edit();
+    assert!(!state.accounts_tab.edit_mode);
+    assert_eq!(state.accounts_tab.edit_label, "");
+}
+
+#[test]
+fn quota_refresh_updates_selected_profile_and_cache_only() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.accounts_tab.codex_profile_ids = vec!["codex-a".to_string(), "codex-b".to_string()];
+    state.accounts_tab.selected_index = Some(0);
+    state.accounts_tab.quota_loading = true;
+
+    let existing = quota_snapshot("existing");
+    state.accounts_tab.quota = Some(existing.clone());
+    let refreshed = quota_snapshot("refreshed");
+
+    apply_quota_refresh_result(
+        &mut state,
+        Provider::Codex,
+        "codex-b",
+        Some(refreshed.clone()),
+    );
+
+    assert!(!state.accounts_tab.quota_loading);
+    assert_eq!(state.accounts_tab.quota, Some(existing));
+    assert_eq!(
+        state.accounts_tab
+            .codex_quota_cache
+            .as_ref()
+            .and_then(|cache| cache.by_profile.get("codex-b")),
+        Some(&refreshed)
+    );
+    assert_eq!(
+        state.accounts_tab
+            .codex_quota_cache
+            .as_ref()
+            .and_then(|cache| cache.by_profile.get("codex-a")),
+        None
+    );
+}
+
+#[test]
+fn quota_refresh_failure_clears_loading_without_overwriting_data() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.accounts_tab.codex_profile_ids = vec!["codex-a".to_string()];
+    state.accounts_tab.selected_index = Some(0);
+    state.accounts_tab.quota_loading = true;
+
+    let cached = quota_snapshot("cached");
+    state.accounts_tab.quota = Some(cached.clone());
+    state.accounts_tab.codex_quota_cache = Some(Default::default());
+
+    apply_quota_refresh_result(&mut state, Provider::Codex, "codex-a", None);
+
+    assert!(!state.accounts_tab.quota_loading);
+    assert_eq!(state.accounts_tab.quota, Some(cached));
+    assert!(
+        state
+            .accounts_tab
+            .codex_quota_cache
+            .as_ref()
+            .expect("cache should remain present")
+            .by_profile
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1674,7 +1845,7 @@ fn test_mixed_process_and_session_identities_stay_independent() {
 
     state.selected = Some(1);
     state.start_rename();
-    assert_eq!(state.rename_input, "codex");
+    assert_eq!(state.rename_input, "");
     state.rename_input = "codex-session".to_string();
     state.confirm_rename();
 
@@ -1752,7 +1923,7 @@ fn test_start_rename_sets_mode() {
     state.selected = Some(0);
     state.start_rename();
     assert!(state.rename_mode);
-    assert_eq!(state.rename_input, "claude");
+    assert_eq!(state.rename_input, "");
 }
 
 #[test]

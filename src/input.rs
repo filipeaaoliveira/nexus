@@ -216,6 +216,47 @@ mod tests {
     }
 
     #[test]
+    fn test_esc_dismisses_modal_input_modes() {
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(action_for_key(esc, true, false, false, false), Some(Action::DismissOverlay));
+        assert_eq!(action_for_key(esc, false, true, false, false), Some(Action::DismissOverlay));
+    }
+
+    #[test]
+    fn test_confirm_mode_only_accepts_enter_and_escape() {
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                true
+            ),
+            Some(Action::AccountsConfirm)
+        );
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                true
+            ),
+            Some(Action::DismissOverlay)
+        );
+        assert_eq!(
+            action_for_key(
+                KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+                false,
+                false,
+                false,
+                true
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn test_edit_mode_keys_map_correctly() {
         assert_eq!(
             action_for_key(

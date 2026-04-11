@@ -14,7 +14,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{ActiveTab, AppState};
-use crate::types::{Agent, PrimaryStatus};
+use crate::types::{Agent, NormalizedStatus, PrimaryStatus};
 
 pub struct HeaderStats {
     pub total: usize,
@@ -37,20 +37,35 @@ impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
         let visible_agents = state.visible_agents();
         let selected_agent = state.selected.and_then(|i| visible_agents.get(i).copied());
-        let count_visible_with_status = |status| {
+        let count_visible_with_primary_status = |status| {
             visible_agents
                 .iter()
                 .filter(|agent| agent.status == status)
                 .count()
         };
+        let count_visible_with_normalized_status = |status| {
+            visible_agents
+                .iter()
+                .filter(|agent| agent.normalized.status == status)
+                .count()
+        };
+        let error_count = visible_agents
+            .iter()
+            .filter(|agent| {
+                matches!(
+                    agent.normalized.status,
+                    NormalizedStatus::Blocked | NormalizedStatus::Unknown
+                )
+            })
+            .count();
 
         let header = HeaderStats {
             total: visible_agents.len(),
-            running: count_visible_with_status(PrimaryStatus::Running),
-            waiting: count_visible_with_status(PrimaryStatus::Waiting),
-            error: count_visible_with_status(PrimaryStatus::Error),
-            done: count_visible_with_status(PrimaryStatus::Done),
-            exited: count_visible_with_status(PrimaryStatus::Exited),
+            running: count_visible_with_normalized_status(NormalizedStatus::Working),
+            waiting: count_visible_with_normalized_status(NormalizedStatus::NeedsInput),
+            error: error_count,
+            done: count_visible_with_normalized_status(NormalizedStatus::Done),
+            exited: count_visible_with_primary_status(PrimaryStatus::Exited),
             subagent_count: visible_agents
                 .iter()
                 .map(|agent| agent.subagents.len())
@@ -151,6 +166,7 @@ mod tests {
     use crate::event::AgentEvent;
     use crate::types::AgentId;
     use crate::types::AgentTool;
+    use crate::types::{NormalizedReason, NormalizedState, NormalizedStatus};
 
     use super::RenderData;
 
@@ -196,11 +212,13 @@ mod tests {
             cwd: PathBuf::from("/tmp/opencode"),
             started_at: None,
         });
-        state.handle_event(AgentEvent::StatusChanged {
+        state.handle_event(AgentEvent::NormalizedStateChanged {
             id: AgentId::new(AgentTool::OpenCode, 11),
             pid: Some(11),
-            old: crate::types::PrimaryStatus::Running,
-            new: crate::types::PrimaryStatus::Waiting,
+            state: NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Review),
+            ),
         });
         state.filter = Some("claude".to_string());
 
@@ -209,5 +227,87 @@ mod tests {
         assert_eq!(render_data.header.total, 1);
         assert_eq!(render_data.header.running, 1);
         assert_eq!(render_data.header.waiting, 0);
+    }
+
+    #[test]
+    fn header_counts_normalized_states_and_maps_unknown_to_error_bucket() {
+        let mut state = AppState::new(Config::default());
+
+        state.handle_event(AgentEvent::Discovered {
+            id: AgentId::new(AgentTool::Claude, 10),
+            pid: Some(10),
+            cwd: PathBuf::from("/tmp/claude"),
+            started_at: None,
+        });
+        state.handle_event(AgentEvent::Discovered {
+            id: AgentId::new(AgentTool::OpenCode, 11),
+            pid: Some(11),
+            cwd: PathBuf::from("/tmp/opencode"),
+            started_at: None,
+        });
+        state.handle_event(AgentEvent::Discovered {
+            id: AgentId::new(AgentTool::Codex, 12),
+            pid: Some(12),
+            cwd: PathBuf::from("/tmp/codex"),
+            started_at: None,
+        });
+        state.handle_event(AgentEvent::Discovered {
+            id: AgentId::new(AgentTool::Codex, 13),
+            pid: Some(13),
+            cwd: PathBuf::from("/tmp/codex-unknown"),
+            started_at: None,
+        });
+
+        state.handle_event(AgentEvent::NormalizedStateChanged {
+            id: AgentId::new(AgentTool::Claude, 10),
+            pid: Some(10),
+            state: NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Review),
+            ),
+        });
+        state.handle_event(AgentEvent::NormalizedStateChanged {
+            id: AgentId::new(AgentTool::OpenCode, 11),
+            pid: Some(11),
+            state: NormalizedState::new(
+                NormalizedStatus::Done,
+                Some(NormalizedReason::ReadyForNextTask),
+            ),
+        });
+
+        let render_data = RenderData::from_state(&state);
+
+        assert_eq!(render_data.header.total, 4);
+        assert_eq!(render_data.header.running, 0);
+        assert_eq!(render_data.header.waiting, 1);
+        assert_eq!(render_data.header.error, 2);
+        assert_eq!(render_data.header.done, 1);
+    }
+
+    #[test]
+    fn header_counts_blocked_in_error_bucket() {
+        let mut state = AppState::new(Config::default());
+
+        state.handle_event(AgentEvent::Discovered {
+            id: AgentId::new(AgentTool::Claude, 10),
+            pid: Some(10),
+            cwd: PathBuf::from("/tmp/claude"),
+            started_at: None,
+        });
+        state.handle_event(AgentEvent::NormalizedStateChanged {
+            id: AgentId::new(AgentTool::Claude, 10),
+            pid: Some(10),
+            state: NormalizedState::new(
+                NormalizedStatus::Blocked,
+                Some(NormalizedReason::Approval),
+            ),
+        });
+
+        let render_data = RenderData::from_state(&state);
+
+        assert_eq!(render_data.header.running, 0);
+        assert_eq!(render_data.header.waiting, 0);
+        assert_eq!(render_data.header.error, 1);
+        assert_eq!(render_data.header.done, 0);
     }
 }

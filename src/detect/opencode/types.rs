@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::types::{NormalizedState, PrimaryStatus, TodoItem};
+use crate::domain::agents::activity::TodoItem;
+use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[derive(Debug, Clone)]

@@ -1,8 +1,9 @@
 use nexus::detect::claude::*;
 use nexus::detect::registry::ClaudeLaunchInfo;
-use nexus::types::{
+use nexus::domain::agents::{
     Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
 };
+use nexus::domain::shared::from_rfc3339;
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -13,7 +14,7 @@ fn test_infer_activity_tool_use_last() {
     }];
     assert_eq!(
         infer_activity_from_last_entry(&entries),
-        Some(nexus::types::Activity::ToolCall)
+        Some(Activity::ToolCall)
     );
 }
 
@@ -23,7 +24,7 @@ fn test_infer_activity_tool_result_last() {
     let entries = parse_transcript(content);
     assert_eq!(
         infer_activity_from_last_entry(&entries),
-        Some(nexus::types::Activity::Thinking)
+        Some(Activity::Thinking)
     );
 }
 
@@ -33,7 +34,7 @@ fn test_infer_activity_user_last() {
     let entries = parse_transcript(content);
     assert_eq!(
         infer_activity_from_last_entry(&entries),
-        Some(nexus::types::Activity::Generating)
+        Some(Activity::Generating)
     );
 }
 
@@ -490,8 +491,8 @@ fn test_tool_result_does_not_imply_idle_activity() {
     let entries = parse_transcript(content);
     // The activity inferred should be Thinking, never Idle
     let activity = infer_activity_from_last_entry(&entries);
-    assert_ne!(activity, Some(nexus::types::Activity::Idle));
-    assert_eq!(activity, Some(nexus::types::Activity::Thinking));
+    assert_ne!(activity, Some(Activity::Idle));
+    assert_eq!(activity, Some(Activity::Thinking));
 }
 
 #[test]
@@ -570,7 +571,7 @@ fn test_infer_activity_restore_message_after_compaction_is_compacting() {
 
 #[test]
 fn test_transcript_start_index_for_process_skips_old_entries_for_fresh_launch() {
-    let started_at = nexus::types::from_rfc3339("2026-04-02T10:00:30Z").unwrap();
+    let started_at = from_rfc3339("2026-04-02T10:00:30Z").unwrap();
     let entries = vec![
         TranscriptEntry::ToolUse {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -617,7 +618,7 @@ fn test_transcript_start_index_for_process_skips_old_entries_for_fresh_launch() 
 
 #[test]
 fn test_transcript_start_index_for_process_does_not_skip_old_entries_for_resume_launch() {
-    let started_at = nexus::types::from_rfc3339("2026-04-02T10:00:30Z").unwrap();
+    let started_at = from_rfc3339("2026-04-02T10:00:30Z").unwrap();
     let entries = vec![
         TranscriptEntry::ToolUse {
             timestamp: "2026-04-02T10:00:00Z".to_string(),
@@ -648,11 +649,11 @@ fn test_transcript_start_index_for_process_does_not_skip_old_entries_for_resume_
 #[test]
 fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
     let fresh = ClaudeLaunchInfo {
-        started_at: Some(nexus::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        started_at: Some(from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
         resume_session_id: None,
     };
     let resumed = ClaudeLaunchInfo {
-        started_at: Some(nexus::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        started_at: Some(from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
         resume_session_id: Some("session-123".to_string()),
     };
     let matching_session = Some(&nexus::detect::claude::ProjectSessionInfo {
@@ -690,11 +691,11 @@ fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
 #[test]
 fn test_is_resume_launch_comes_from_process_metadata_only() {
     let resume_launch = ClaudeLaunchInfo {
-        started_at: Some(nexus::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        started_at: Some(from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
         resume_session_id: Some("session-123".to_string()),
     };
     let fresh_launch = ClaudeLaunchInfo {
-        started_at: Some(nexus::types::from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
+        started_at: Some(from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
         resume_session_id: None,
     };
 

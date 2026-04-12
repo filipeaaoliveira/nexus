@@ -4,7 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::types::{self, ActivityEventKind};
+use crate::domain::agents::activity::{ActivityEventKind, Subagent};
+use crate::domain::shared::time::format_duration;
 
 use super::{theme, RenderData};
 
@@ -53,10 +54,10 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             let connector = if i == count - 1 { "└─" } else { "├─" };
             let elapsed = if let Some(ended) = sub.ended_at {
                 let d = ended - sub.started_at;
-                types::format_duration(d)
+                format_duration(d)
             } else {
                 let d = chrono::Local::now() - sub.started_at;
-                types::format_duration(d)
+                format_duration(d)
             };
 
             sub_lines.push(Line::from(vec![
@@ -114,7 +115,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     frame.render_widget(Paragraph::new(event_lines), chunks[1]);
 }
 
-fn subagent_status_text(subagent: &crate::types::Subagent) -> String {
+fn subagent_status_text(subagent: &Subagent) -> String {
     match &subagent.reason {
         Some(reason) => format!("{} · {}", subagent.status.as_str(), reason.as_str()),
         None => subagent.status.as_str().to_string(),
@@ -124,8 +125,8 @@ fn subagent_status_text(subagent: &crate::types::Subagent) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::Local;
-
-    use crate::types::{NormalizedReason, PrimaryStatus, Subagent};
+    use crate::domain::agents::activity::Subagent;
+    use crate::domain::agents::status::{NormalizedReason, PrimaryStatus};
 
     use super::subagent_status_text;
 

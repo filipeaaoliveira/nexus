@@ -30,7 +30,9 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::domain::accounts::{Confidence, LimitState, QuotaCache, QuotaSnapshot};
-    use crate::services::accounts::quota::{load_quota_cache, save_quota_cache};
+    use crate::services::accounts::quota::{
+        load_quota_cache, persist_quota_snapshot, save_quota_cache,
+    };
 
     #[test]
     fn quota_cache_round_trips_snapshot_by_profile() {
@@ -61,6 +63,41 @@ mod tests {
                 .get("profile-01")
                 .map(|snapshot| snapshot.summary.as_str()),
             Some("cached snapshot")
+        );
+    }
+
+    #[test]
+    fn persist_quota_snapshot_updates_cache_and_writes_file() {
+        let temp = tempdir().unwrap();
+        let cache_path = temp.path().join("quota-cache.json");
+        let snapshot = QuotaSnapshot::legacy_fallback(
+            Utc::now(),
+            Confidence::Exact,
+            LimitState::Available,
+            None,
+            Some(20),
+            LimitState::Available,
+            None,
+            Some(200),
+            "persisted snapshot".to_string(),
+        );
+
+        let cache = persist_quota_snapshot(None, "profile-02", snapshot, &cache_path).unwrap();
+        let loaded = load_quota_cache(&cache_path).unwrap();
+
+        assert_eq!(
+            cache
+                .by_profile
+                .get("profile-02")
+                .map(|quota| quota.summary.as_str()),
+            Some("persisted snapshot")
+        );
+        assert_eq!(
+            loaded
+                .by_profile
+                .get("profile-02")
+                .map(|quota| quota.summary.as_str()),
+            Some("persisted snapshot")
         );
     }
 }

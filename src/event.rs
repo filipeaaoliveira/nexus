@@ -2,10 +2,17 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 
-use crate::types::{Activity, AgentId, PrimaryStatus, Subagent, TodoItem};
+use crate::domain::agents::activity::{Activity, Subagent, TodoItem};
+use crate::domain::agents::ids::AgentId;
+use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
+    DetectorHealthChanged {
+        detector: String,
+        healthy: bool,
+        message: String,
+    },
     Discovered {
         id: AgentId,
         pid: Option<u32>,
@@ -26,7 +33,7 @@ pub enum AgentEvent {
     NormalizedStateChanged {
         id: AgentId,
         pid: Option<u32>,
-        state: crate::types::NormalizedState,
+        state: NormalizedState,
     },
     SubagentSpawned {
         id: AgentId,

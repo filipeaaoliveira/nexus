@@ -5,7 +5,10 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::AppState;
-use crate::types::{self, Activity, Agent, NormalizedStatus};
+use crate::domain::agents::activity::Activity;
+use crate::domain::agents::model::Agent;
+use crate::domain::agents::status::NormalizedStatus;
+use crate::domain::shared::time::format_duration;
 
 use super::{theme, RenderData};
 
@@ -16,12 +19,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .style(Style::default().bg(theme::BG_MAIN));
 
     if render_data.visible_agents.is_empty() {
-        let elapsed = state.started_at.elapsed();
-        let msg = if elapsed >= std::time::Duration::from_secs(state.config.poll_interval_secs) {
-            "No agents detected. Start Claude, Codex, or OpenCode to see them here."
-        } else {
-            "Scanning for agents..."
-        };
+        let msg = empty_state_message(state);
         let para = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled(
@@ -38,7 +36,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .visible_agents
         .iter()
         .enumerate()
-        .map(|(i, agent)| render_agent_item(agent, state.selected == Some(i)))
+        .map(|(i, agent)| render_agent_item(agent, state.root.overview.selected_index == Some(i)))
         .collect();
 
     let list = List::new(items)
@@ -46,13 +44,26 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .highlight_style(theme::selected_style());
 
     let mut list_state = ListState::default();
-    list_state.select(state.selected);
+    list_state.select(state.root.overview.selected_index);
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
+pub fn empty_state_message(state: &AppState) -> String {
+    if let Some(issue) = state.primary_detector_issue() {
+        return issue.to_string();
+    }
+
+    let elapsed = state.started_at.elapsed();
+    if elapsed >= std::time::Duration::from_secs(state.config.poll_interval_secs) {
+        "No agents detected. Start Claude, Codex, or OpenCode to see them here.".to_string()
+    } else {
+        "Scanning for agents...".to_string()
+    }
+}
+
 fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
-    let elapsed = types::format_duration(agent.elapsed());
+    let elapsed = format_duration(agent.elapsed());
     let subagent_count = agent.subagents.len();
     // When the normalized state has no reason but the activity is ToolCall, show
     // "· tool call" as a hint.  This covers the common race where a poll cycle

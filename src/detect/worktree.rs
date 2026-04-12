@@ -14,7 +14,6 @@ pub fn is_git_worktree(dir: &Path) -> bool {
     git_path.is_file()
 }
 
-
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     let mut worktrees = Vec::new();
@@ -53,7 +52,6 @@ pub fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
 
     worktrees
 }
-
 
 pub async fn lookup_branch_info(cwd: &Path) -> (Option<String>, bool) {
     let is_wt = is_git_worktree(cwd);

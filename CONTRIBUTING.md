@@ -12,10 +12,21 @@ Thanks for contributing to `nexus`.
 Required checks:
 
 ```bash
+cargo check --locked
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --locked
 ```
+
+## Development setup
+
+```bash
+git clone https://github.com/filipeaaoliveira/nexus.git
+cd nexus
+cargo build --locked
+```
+
+The project is currently maintained and tested on macOS and Linux. If you change process detection, terminal lifecycle handling, or filesystem behavior, verify the change on at least one supported platform beyond your local happy path.
 
 ## Scope expectations
 
@@ -39,6 +50,30 @@ Please include:
 - any follow-up work or limitations
 
 If the change affects detection logic, include the real-world case or transcript shape that motivated it.
+
+## Release-readiness expectations
+
+Changes that affect public-user experience should be reviewed with an outside-user mindset:
+
+- a missing dependency should not fail silently
+- terminal startup and shutdown should not leave the shell in a broken state
+- README instructions should match the commands maintainers actually verify
+- platform limitations should be stated plainly
+
+## Deep Internals
+
+If you need the full internal model rather than the quick contributor summary, use the architecture docs:
+
+- [`docs/architecture/README.md`](docs/architecture/README.md)
+- [`docs/architecture/runtime-and-data-flow.md`](docs/architecture/runtime-and-data-flow.md)
+- [`docs/architecture/detection.md`](docs/architecture/detection.md)
+- [`docs/architecture/app-state-and-events.md`](docs/architecture/app-state-and-events.md)
+- [`docs/architecture/ui-and-interaction.md`](docs/architecture/ui-and-interaction.md)
+- [`docs/architecture/codex-and-claude-profiles.md`](docs/architecture/codex-and-claude-profiles.md)
+
+For release/tagging workflow, see:
+
+- [`docs/releasing.md`](docs/releasing.md)
 
 ## How Detection Works
 

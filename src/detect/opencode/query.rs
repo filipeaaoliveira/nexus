@@ -4,7 +4,7 @@ use rusqlite::OptionalExtension;
 use serde_json::Value;
 use tracing::debug;
 
-use crate::types::{TodoItem, TodoPriority, TodoStatus};
+use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
 use super::types::{AssistantMessageData, MessageData, OpenCodeSession, PartData};
 
@@ -107,7 +107,9 @@ pub fn query_opencode_sessions_conn(
             Ok(OpenCodeSession {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                directory: row.get::<_, Option<String>>(2)?.map(std::path::PathBuf::from),
+                directory: row
+                    .get::<_, Option<String>>(2)?
+                    .map(std::path::PathBuf::from),
                 parent_id: row.get(3)?,
                 time_created: row.get(4)?,
                 time_updated: row.get(5)?,
@@ -181,7 +183,9 @@ pub fn query_subagent_sessions(
             Ok(OpenCodeSession {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                directory: row.get::<_, Option<String>>(2)?.map(std::path::PathBuf::from),
+                directory: row
+                    .get::<_, Option<String>>(2)?
+                    .map(std::path::PathBuf::from),
                 parent_id: row.get(3)?,
                 time_created: row.get(4)?,
                 time_updated: row.get(5)?,
@@ -396,7 +400,9 @@ pub fn query_subagent_sessions_conn(
             Ok(OpenCodeSession {
                 id: row.get(0)?,
                 title: row.get(1)?,
-                directory: row.get::<_, Option<String>>(2)?.map(std::path::PathBuf::from),
+                directory: row
+                    .get::<_, Option<String>>(2)?
+                    .map(std::path::PathBuf::from),
                 parent_id: row.get(3)?,
                 time_created: row.get(4)?,
                 time_updated: row.get(5)?,

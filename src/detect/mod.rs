@@ -16,6 +16,8 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tracing::error;
 
+use crate::domain::agents::ids::AgentId;
+
 #[derive(Debug, Clone)]
 struct CachedWorktreeInfo {
     branch: Option<String>,
@@ -56,7 +58,7 @@ async fn emit_enriched_session_info(
     tx: mpsc::Sender<AgentEvent>,
     cache: WorktreeCache,
     cache_ttl: Duration,
-    id: crate::types::AgentId,
+    id: AgentId,
     pid: Option<u32>,
     cwd: PathBuf,
     started_at: Option<chrono::DateTime<chrono::Local>>,
@@ -216,8 +218,8 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
 #[cfg(test)]
 mod tests {
     use super::forward_agent_events;
+    use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::event::AgentEvent;
-    use crate::types::{AgentId, AgentTool};
     use chrono::Local;
     use std::path::PathBuf;
     use std::time::Duration;

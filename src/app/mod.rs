@@ -1,21 +1,29 @@
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use anyhow::{anyhow, Result};
 use chrono::Local;
 
 use crate::config::Config;
 pub use crate::domain::accounts::{
     AccountEntry, Provider, ProviderFilter, QuotaCache, QuotaSnapshot,
 };
+pub use crate::domain::agents::activity::{
+    Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem, TodoPriority, TodoStatus,
+};
+pub use crate::domain::agents::ids::{AgentId, AgentIdentity, AgentTool};
+pub use crate::domain::agents::model::{Agent, SortMode};
+pub use crate::domain::agents::status::{
+    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+};
+pub use crate::domain::system::health::CodexBackendHealth;
 use crate::event::AgentEvent;
 use crate::services::accounts::quota::load_quota_cache;
-use crate::types::*;
 
 pub mod action;
+pub mod dispatch;
 pub mod effect;
 pub mod reducer;
 pub mod state;
@@ -24,12 +32,13 @@ pub use action::{
     AccountsAction, Action, Action as SemanticAction, DetectorAction, OverviewAction, SystemAction,
     WorkspaceAction,
 };
-pub use effect::{AccountProfile, Effect, EffectResult, ProfileId};
+pub use effect::{AccountProfile, Effect, EffectResult, ProfileId, RefreshOrigin};
 pub use state::{
     AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, DetectorHealth, Overlay,
     OverviewAgent, OverviewMode, OverviewState, OverviewStatusCounts, ProfileDraft, RootState,
     SystemState, Workflow, Workspace, WorkspaceState,
 };
+pub use state::Workspace as ActiveTab;
 
 const MAX_RECENT_EVENTS: usize = 20;
 
@@ -40,258 +49,12 @@ pub enum ConfirmKind {
     WriteToHome,
 }
 
-/// Returns the length of the unified list without allocating a `Vec`.
-fn unified_list_len(codex_ids: &[String], claude_ids: &[String], filter: ProviderFilter) -> usize {
-    let n_codex = if filter != ProviderFilter::Claude {
-        codex_ids.len()
-    } else {
-        0
-    };
-    let n_claude = if filter != ProviderFilter::Codex {
-        claude_ids.len()
-    } else {
-        0
-    };
-    n_codex + n_claude
-}
-
-/// Build the unified list from codex + claude profile IDs, applying the filter.
-/// Codex profiles come first; both groups preserve their order.
-pub fn build_unified_list(
-    codex_ids: &[String],
-    claude_ids: &[String],
-    filter: ProviderFilter,
-) -> Vec<AccountEntry> {
-    let mut entries = Vec::new();
-    if filter != ProviderFilter::Claude {
-        for id in codex_ids {
-            entries.push(AccountEntry {
-                provider: Provider::Codex,
-                profile_id: id.clone(),
-            });
-        }
-    }
-    if filter != ProviderFilter::Codex {
-        for id in claude_ids {
-            entries.push(AccountEntry {
-                provider: Provider::Claude,
-                profile_id: id.clone(),
-            });
-        }
-    }
-    entries
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActiveTab {
-    Overview,
-    Accounts,
-}
-
-impl ActiveTab {
-    pub const ALL: [Self; 2] = [Self::Overview, Self::Accounts];
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::Overview => Self::Accounts,
-            Self::Accounts => Self::Overview,
-        }
-    }
-
-    pub fn previous(self) -> Self {
-        match self {
-            Self::Overview => Self::Accounts,
-            Self::Accounts => Self::Overview,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Overview => "Overview",
-            Self::Accounts => "Accounts",
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum EditField {
     #[default]
     Label,
     Notes,
     Enabled,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccountsTabState {
-    pub codex_profile_ids: Vec<String>,
-    pub selected_index: Option<usize>,
-    pub codex_active_profile_id: Option<String>,
-    pub claude_profile_ids: Vec<String>,
-    pub claude_active_profile_id: Option<String>,
-    pub claude_quota_cache: Option<QuotaCache>,
-    pub active_filter: ProviderFilter,
-    pub filter_mode: bool,
-    pub filter_input: String,
-    pub status_message: Option<String>,
-    pub edit_mode: bool,
-    pub edit_label: String,
-    pub edit_email: Option<String>,
-    pub edit_plan: Option<String>,
-    pub edit_notes: String,
-    pub edit_enabled: bool,
-    pub edit_field: EditField,
-    pub quota: Option<QuotaSnapshot>,
-    pub codex_quota_cache: Option<QuotaCache>,
-    pub quota_loading: bool, // true when async fetch is in progress
-    pub pending_confirm: Option<ConfirmKind>,
-    pub status_message_expires_at: Option<Instant>,
-}
-
-impl Default for AccountsTabState {
-    fn default() -> Self {
-        Self {
-            codex_profile_ids: Vec::new(),
-            selected_index: None,
-            codex_active_profile_id: None,
-            claude_profile_ids: Vec::new(),
-            claude_active_profile_id: None,
-            claude_quota_cache: None,
-            active_filter: ProviderFilter::All,
-            filter_mode: false,
-            filter_input: String::new(),
-            status_message: None,
-            edit_mode: false,
-            edit_label: String::new(),
-            edit_email: None,
-            edit_plan: None,
-            edit_notes: String::new(),
-            edit_enabled: true,
-            edit_field: EditField::Label,
-            quota: None,
-            codex_quota_cache: None,
-            quota_loading: false,
-            pending_confirm: None,
-            status_message_expires_at: None,
-        }
-    }
-}
-
-impl AccountsTabState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn next_profile(&mut self) {
-        let len = unified_list_len(
-            &self.codex_profile_ids,
-            &self.claude_profile_ids,
-            self.active_filter,
-        );
-        if len == 0 {
-            self.selected_index = None;
-            self.quota = None;
-            return;
-        }
-
-        let new_index = match self.selected_index {
-            Some(i) => (i + 1) % len,
-            None => 0,
-        };
-        self.selected_index = Some(new_index);
-        self.load_quota_from_cache();
-    }
-
-    pub fn previous_profile(&mut self) {
-        let len = unified_list_len(
-            &self.codex_profile_ids,
-            &self.claude_profile_ids,
-            self.active_filter,
-        );
-        if len == 0 {
-            self.selected_index = None;
-            self.quota = None;
-            return;
-        }
-
-        let new_index = match self.selected_index {
-            Some(i) => (i + len - 1) % len,
-            None => len - 1,
-        };
-        self.selected_index = Some(new_index);
-        self.load_quota_from_cache();
-    }
-
-    pub fn set_active(&mut self, profile_id: Option<String>) {
-        self.codex_active_profile_id = profile_id;
-    }
-
-    /// Load quota from cache for the currently selected profile.
-    pub fn load_quota_from_cache(&mut self) {
-        let list = build_unified_list(
-            &self.codex_profile_ids,
-            &self.claude_profile_ids,
-            self.active_filter,
-        );
-        let entry = self.selected_index.and_then(|i| list.get(i));
-        let Some(entry) = entry else {
-            self.quota = None;
-            return;
-        };
-        let quota = match entry.provider {
-            Provider::Codex => self
-                .codex_quota_cache
-                .as_ref()
-                .and_then(|c| c.by_profile.get(&entry.profile_id))
-                .cloned(),
-            Provider::Claude => self
-                .claude_quota_cache
-                .as_ref()
-                .and_then(|c| c.by_profile.get(&entry.profile_id))
-                .cloned(),
-        };
-        self.quota = quota;
-    }
-
-    pub fn start_edit(
-        &mut self,
-        label: &str,
-        email: Option<&str>,
-        plan: Option<&str>,
-        notes: &str,
-        enabled: bool,
-    ) {
-        self.edit_mode = true;
-        self.edit_label = label.to_string();
-        self.edit_email = email.map(String::from);
-        self.edit_plan = plan.map(String::from);
-        self.edit_notes = notes.to_string();
-        self.edit_enabled = enabled;
-        self.edit_field = EditField::Label;
-    }
-
-    pub fn set_status(&mut self, msg: impl Into<String>) {
-        self.status_message = Some(msg.into());
-        self.status_message_expires_at = Some(Instant::now() + std::time::Duration::from_secs(5));
-    }
-
-    pub fn clear_expired_status(&mut self) {
-        if let Some(expires) = self.status_message_expires_at {
-            if Instant::now() >= expires {
-                self.status_message = None;
-                self.status_message_expires_at = None;
-            }
-        }
-    }
-
-    pub fn cancel_edit(&mut self) {
-        self.edit_mode = false;
-        self.edit_label.clear();
-        self.edit_email = None;
-        self.edit_plan = None;
-        self.edit_notes.clear();
-        self.edit_enabled = true;
-        self.edit_field = EditField::Label;
-    }
 }
 
 #[derive(Debug, Default)]
@@ -312,25 +75,15 @@ struct SessionInfoUpdate {
 }
 
 pub struct AppState {
-    active_tab: ActiveTab,
-    pub accounts_tab: AccountsTabState,
+    pub root: RootState,
     pub agents: Vec<Agent>,
-    pub selected: Option<usize>,
-    pub sort_mode: SortMode,
-    pub show_help: bool,
-    pub help_scroll: u16,
-    pub filter: Option<String>,
-    pub filter_mode: bool,
-    pub filter_input: String,
-    pub rename_mode: bool,
-    pub rename_input: String,
     pub config: Config,
     pub should_quit: bool,
     detector_issues: BTreeMap<String, String>,
+    interactive_quota_refreshes: BTreeSet<state::AccountKey>,
+    accounts_status_message_expires_at: Option<Instant>,
     visible_agent_cache: RefCell<VisibleAgentCache>,
     agents_version: Cell<u64>,
-    codex_profiles_last_reload: Cell<std::time::Instant>,
-    claude_profiles_last_reload: Cell<std::time::Instant>,
     pub started_at: Instant,
 }
 
@@ -340,70 +93,82 @@ mod overview;
 
 impl AppState {
     pub fn new(config: Config) -> Self {
-        let mut accounts_tab = AccountsTabState::default();
+        let mut root = RootState::default();
 
         // Load cached quota from file
         if let Ok(cache) = load_quota_cache(&config.codex_quota_cache_file) {
-            accounts_tab.codex_quota_cache = Some(cache);
+            for (profile_id, quota) in &cache.by_profile {
+                root.accounts.quota_by_key.insert(
+                    state::AccountKey::new(Provider::Codex, profile_id.clone()),
+                    quota.clone(),
+                );
+            }
         }
         if let Ok(cache) = load_quota_cache(&config.claude_quota_cache_file) {
-            accounts_tab.claude_quota_cache = Some(cache);
+            for (profile_id, quota) in &cache.by_profile {
+                root.accounts.quota_by_key.insert(
+                    state::AccountKey::new(Provider::Claude, profile_id.clone()),
+                    quota.clone(),
+                );
+            }
         }
 
-        let mut state = Self {
-            active_tab: ActiveTab::Overview,
-            accounts_tab,
+        Self {
+            root,
             agents: Vec::new(),
-            selected: None,
-            sort_mode: SortMode::Name,
-            show_help: false,
-            help_scroll: 0,
-            filter: None,
-            filter_mode: false,
-            filter_input: String::new(),
-            rename_mode: false,
-            rename_input: String::new(),
             config,
             should_quit: false,
             detector_issues: BTreeMap::new(),
+            interactive_quota_refreshes: BTreeSet::new(),
+            accounts_status_message_expires_at: None,
             visible_agent_cache: RefCell::new(VisibleAgentCache::default()),
             agents_version: Cell::new(0),
-            // Set to past so first reload always runs
-            codex_profiles_last_reload: Cell::new(
-                std::time::Instant::now() - std::time::Duration::from_secs(10),
-            ),
-            claude_profiles_last_reload: Cell::new(
-                std::time::Instant::now() - std::time::Duration::from_secs(60),
-            ),
             started_at: Instant::now(),
-        };
-        state.reload_codex_profiles();
-        state.reload_claude_profiles();
-        state
+        }
     }
 
     pub fn active_tab(&self) -> ActiveTab {
-        self.active_tab
+        self.root.workspace.active
     }
 
     pub fn next_tab(&mut self) {
-        self.active_tab = self.active_tab.next();
+        self.root.next_workspace();
     }
 
     pub fn previous_tab(&mut self) {
-        self.active_tab = self.active_tab.previous();
+        self.root.previous_workspace();
+    }
+
+    pub fn show_help(&self) -> bool {
+        matches!(self.root.system.overlay, Overlay::Help { .. })
+    }
+
+    pub fn help_scroll(&self) -> u16 {
+        match self.root.system.overlay {
+            Overlay::Help { scroll } => scroll,
+            Overlay::None => 0,
+        }
+    }
+
+    pub fn clear_expired_accounts_status(&mut self) {
+        if let Some(expires) = self.accounts_status_message_expires_at {
+            if Instant::now() >= expires {
+                self.root.accounts.status_message = None;
+                self.accounts_status_message_expires_at = None;
+            }
+        }
     }
 
     pub fn active_filter_mode(&self) -> bool {
-        match self.active_tab {
-            ActiveTab::Overview => self.filter_mode,
-            ActiveTab::Accounts => self.accounts_tab.filter_mode,
+        match self.active_tab() {
+            ActiveTab::Overview => matches!(self.root.overview.mode, OverviewMode::Filtering { .. }),
+            ActiveTab::Accounts => matches!(self.root.accounts.mode, AccountsMode::Filtering { .. }),
         }
     }
 
     pub fn active_rename_mode(&self) -> bool {
-        match self.active_tab {
-            ActiveTab::Overview => self.rename_mode,
+        match self.active_tab() {
+            ActiveTab::Overview => matches!(self.root.overview.mode, OverviewMode::Renaming { .. }),
             ActiveTab::Accounts => false,
         }
     }
@@ -474,6 +239,8 @@ impl AppState {
                 self.handle_todos_updated(id, pid, todos, now)
             }
         }
+        self.sync_root_overview_agents();
+        self.clamp_selection();
     }
 
     pub fn visible_agents(&self) -> Vec<&Agent> {
@@ -522,9 +289,11 @@ mod tests {
         load_profile_metadata, save_profile_metadata, CodexProfile, ProfileMetadata,
     };
     use crate::config::Config;
+    use crate::domain::agents::ids::{AgentId, AgentTool};
+    use crate::domain::agents::model::SortMode;
+    use crate::domain::agents::status::PrimaryStatus;
     use crate::event::AgentEvent;
     use crate::services::accounts::storage::next_profile_id;
-    use crate::types::{AgentId, AgentTool, PrimaryStatus, SortMode};
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -574,14 +343,14 @@ mod tests {
         state.handle_event(discovered(AgentTool::Claude, 1, "/tmp/claude"));
         state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
 
-        assert_eq!(state.visible_agent_count(), 2);
+        assert_eq!(state.root.overview.visible_agent_count(), 2);
 
-        state.filter = Some("claude".to_string());
-        assert_eq!(state.visible_agent_count(), 1);
+        state.root.overview.filter = Some("claude".to_string());
+        assert_eq!(state.root.overview.visible_agent_count(), 1);
         assert_eq!(state.visible_agents()[0].pid, Some(1));
 
-        state.filter = Some("opencode".to_string());
-        assert_eq!(state.visible_agent_count(), 1);
+        state.root.overview.filter = Some("opencode".to_string());
+        assert_eq!(state.root.overview.visible_agent_count(), 1);
         assert_eq!(state.visible_agents()[0].pid, Some(2));
     }
 
@@ -593,7 +362,7 @@ mod tests {
 
         assert_eq!(state.visible_agents()[0].pid, Some(1));
 
-        state.sort_mode = SortMode::Elapsed;
+        state.root.overview.sort_mode = SortMode::Elapsed;
         assert_eq!(state.visible_agents()[0].pid, Some(2));
 
         state.handle_event(AgentEvent::StatusChanged {
@@ -602,7 +371,7 @@ mod tests {
             old: PrimaryStatus::Running,
             new: PrimaryStatus::Waiting,
         });
-        state.sort_mode = SortMode::Urgency;
+        state.root.overview.sort_mode = SortMode::Urgency;
         assert_eq!(state.visible_agents()[0].pid, Some(2));
     }
 
@@ -650,53 +419,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_unified_list_all_filter() {
-        let codex = vec!["c1".to_string(), "c2".to_string()];
-        let claude = vec!["cl1".to_string()];
-        let list = build_unified_list(&codex, &claude, ProviderFilter::All);
-        assert_eq!(list.len(), 3);
-        assert_eq!(
-            list[0],
-            AccountEntry {
-                provider: Provider::Codex,
-                profile_id: "c1".to_string()
-            }
-        );
-        assert_eq!(
-            list[1],
-            AccountEntry {
-                provider: Provider::Codex,
-                profile_id: "c2".to_string()
-            }
-        );
-        assert_eq!(
-            list[2],
-            AccountEntry {
-                provider: Provider::Claude,
-                profile_id: "cl1".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn test_build_unified_list_codex_filter() {
-        let codex = vec!["c1".to_string()];
-        let claude = vec!["cl1".to_string()];
-        let list = build_unified_list(&codex, &claude, ProviderFilter::Codex);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].provider, Provider::Codex);
-    }
-
-    #[test]
-    fn test_build_unified_list_claude_filter() {
-        let codex = vec!["c1".to_string()];
-        let claude = vec!["cl1".to_string()];
-        let list = build_unified_list(&codex, &claude, ProviderFilter::Claude);
-        assert_eq!(list.len(), 1);
-        assert_eq!(list[0].provider, Provider::Claude);
-    }
-
-    #[test]
     fn test_provider_filter_cycle() {
         assert_eq!(ProviderFilter::All.next(), ProviderFilter::Codex);
         assert_eq!(ProviderFilter::Codex.next(), ProviderFilter::Claude);
@@ -704,26 +426,67 @@ mod tests {
     }
 
     #[test]
-    fn test_build_unified_list_empty() {
-        let list = build_unified_list(&[], &[], ProviderFilter::All);
-        assert!(list.is_empty());
+    fn accounts_state_visible_entries_respect_provider_filter() {
+        let mut state = AccountsState {
+            entries: vec![
+                AccountEntry {
+                    provider: Provider::Codex,
+                    profile_id: "c1".to_string(),
+                },
+                AccountEntry {
+                    provider: Provider::Codex,
+                    profile_id: "c2".to_string(),
+                },
+                AccountEntry {
+                    provider: Provider::Claude,
+                    profile_id: "cl1".to_string(),
+                },
+            ],
+            ..AccountsState::default()
+        };
+
+        assert_eq!(state.visible_entries().len(), 3);
+
+        state.provider_filter = ProviderFilter::Codex;
+        let codex_only = state.visible_entries();
+        assert_eq!(codex_only.len(), 2);
+        assert!(codex_only.iter().all(|entry| entry.provider == Provider::Codex));
+
+        state.provider_filter = ProviderFilter::Claude;
+        let claude_only = state.visible_entries();
+        assert_eq!(claude_only.len(), 1);
+        assert_eq!(claude_only[0].provider, Provider::Claude);
     }
 
     #[test]
-    fn edit_field_cycle_includes_enabled() {
+    fn app_state_workspace_navigation_uses_root_workspace_state() {
         let mut state = AppState::new(Config::default());
-        state.accounts_tab.edit_field = EditField::Label;
 
-        state.accounts_edit_next_field();
-        assert_eq!(state.accounts_tab.edit_field, EditField::Notes);
+        assert_eq!(state.root.workspace.active, Workspace::Overview);
 
-        state.accounts_edit_next_field();
-        assert_eq!(state.accounts_tab.edit_field, EditField::Enabled);
+        state.next_tab();
+        assert_eq!(state.root.workspace.active, Workspace::Accounts);
 
-        state.accounts_edit_next_field();
-        assert_eq!(state.accounts_tab.edit_field, EditField::Label);
+        state.previous_tab();
+        assert_eq!(state.root.workspace.active, Workspace::Overview);
+    }
 
-        state.accounts_edit_prev_field();
-        assert_eq!(state.accounts_tab.edit_field, EditField::Enabled);
+    #[test]
+    fn app_state_help_overlay_uses_root_system_overlay() {
+        let mut state = AppState::new(Config::default());
+
+        assert_eq!(state.root.system.overlay, Overlay::None);
+
+        state.toggle_help();
+        assert_eq!(state.root.system.overlay, Overlay::Help { scroll: 0 });
+
+        state.scroll_help_down();
+        match state.root.system.overlay {
+            Overlay::Help { scroll } => assert!(scroll > 0),
+            Overlay::None => panic!("help overlay should stay visible while scrolling"),
+        }
+
+        state.toggle_help();
+        assert_eq!(state.root.system.overlay, Overlay::None);
     }
 }

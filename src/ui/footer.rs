@@ -3,18 +3,15 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::AppState;
+use crate::app::{AccountsMode, AppState};
 
 use super::theme;
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
-    if state.rename_mode {
+    if let crate::app::OverviewMode::Renaming { input, .. } = &state.root.overview.mode {
         let line = Line::from(vec![
             Span::styled(" rename: ", theme::bar_style().fg(theme::STATUS_WAITING)),
-            Span::styled(
-                &state.rename_input,
-                theme::bar_style().fg(theme::FG_DEFAULT),
-            ),
+            Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
             Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
         ]);
         let footer = Paragraph::new(line).style(theme::bar_style());
@@ -22,13 +19,10 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
-    if state.filter_mode {
+    if let crate::app::OverviewMode::Filtering { input } = &state.root.overview.mode {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
-            Span::styled(
-                &state.filter_input,
-                theme::bar_style().fg(theme::FG_DEFAULT),
-            ),
+            Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
             Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
         ]);
         let footer = Paragraph::new(line).style(theme::bar_style());
@@ -36,13 +30,10 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
-    if state.accounts_tab.filter_mode {
+    if let AccountsMode::Filtering { input } = &state.root.accounts.mode {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
-            Span::styled(
-                &state.accounts_tab.filter_input,
-                theme::bar_style().fg(theme::FG_DEFAULT),
-            ),
+            Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
             Span::styled("_", theme::bar_style().fg(theme::STATUS_WAITING)),
         ]);
         let footer = Paragraph::new(line).style(theme::bar_style());
@@ -73,7 +64,7 @@ fn shortcut_line(state: &AppState) -> Line<'static> {
 }
 
 fn overview_shortcut_line(state: &AppState) -> Line<'static> {
-    let sort_label = state.sort_mode.as_str();
+    let sort_label = state.root.overview.sort_mode.as_str();
     Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" navigate", theme::bar_style().fg(theme::FG_DIMMED)),
@@ -100,7 +91,7 @@ fn overview_shortcut_line(state: &AppState) -> Line<'static> {
 }
 
 fn accounts_shortcut_line(state: &AppState) -> Line<'static> {
-    if state.accounts_tab.pending_confirm.is_some() {
+    if matches!(state.root.accounts.mode, AccountsMode::Confirming { .. }) {
         return Line::from(vec![
             Span::styled(" Enter", theme::bar_style().fg(theme::FG_DEFAULT)),
             Span::styled(" confirm", theme::bar_style().fg(theme::FG_DIMMED)),
@@ -121,10 +112,14 @@ fn accounts_shortcut_line(state: &AppState) -> Line<'static> {
         Span::styled(" import claude", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  w", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" write", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  R", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" refresh", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  f", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" filter", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  /", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" search", theme::bar_style().fg(theme::FG_DIMMED)),
+        Span::styled("  ?", theme::bar_style().fg(theme::FG_DEFAULT)),
+        Span::styled(" help", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  Tab", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" switch", theme::bar_style().fg(theme::FG_DIMMED)),
         Span::styled("  q", theme::bar_style().fg(theme::FG_DEFAULT)),

@@ -7,9 +7,9 @@ use chrono::{DateTime, Local};
 use super::effect::AccountProfile;
 use crate::domain::accounts::QuotaSnapshot;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
-use crate::types::{
-    AgentId, AgentTool, NormalizedState, NormalizedStatus, PrimaryStatus, SortMode,
-};
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::model::SortMode;
+use crate::domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Workspace {
@@ -331,8 +331,11 @@ pub struct AccountsState {
     pub entries: Vec<AccountEntry>,
     pub profiles_by_key: BTreeMap<AccountKey, AccountProfile>,
     pub quota_by_key: BTreeMap<AccountKey, QuotaSnapshot>,
+    pub quota_loading: bool,
     pub provider_filter: ProviderFilter,
     pub status_message: Option<String>,
+    pub active_codex_profile_id: Option<String>,
+    pub active_claude_profile_id: Option<String>,
 }
 
 impl Default for AccountsState {
@@ -343,9 +346,49 @@ impl Default for AccountsState {
             entries: Vec::new(),
             profiles_by_key: BTreeMap::new(),
             quota_by_key: BTreeMap::new(),
+            quota_loading: false,
             provider_filter: ProviderFilter::All,
             status_message: None,
+            active_codex_profile_id: None,
+            active_claude_profile_id: None,
         }
+    }
+}
+
+impl AccountsState {
+    pub fn visible_entry_indices(&self) -> Vec<usize> {
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| match self.provider_filter {
+                ProviderFilter::All => true,
+                ProviderFilter::Codex => entry.provider == Provider::Codex,
+                ProviderFilter::Claude => entry.provider == Provider::Claude,
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    pub fn visible_entries(&self) -> Vec<&AccountEntry> {
+        self.visible_entry_indices()
+            .into_iter()
+            .map(|idx| &self.entries[idx])
+            .collect()
+    }
+
+    pub fn selected_entry(&self) -> Option<&AccountEntry> {
+        let visible_idx = self.selected_index?;
+        let real_idx = *self.visible_entry_indices().get(visible_idx)?;
+        self.entries.get(real_idx)
+    }
+
+    pub fn clamp_selection(&mut self) {
+        let len = self.visible_entry_indices().len();
+        self.selected_index = match (self.selected_index, len) {
+            (_, 0) => None,
+            (Some(idx), len) if idx < len => Some(idx),
+            _ => Some(0),
+        };
     }
 }
 
@@ -375,6 +418,10 @@ pub enum Workflow {
     },
     ImportingProfile {
         provider: Provider,
+    },
+    SavingProfile {
+        provider: Provider,
+        profile_id: String,
     },
     WritingProfileToHome {
         provider: Provider,

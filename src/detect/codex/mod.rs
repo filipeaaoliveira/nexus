@@ -3,18 +3,18 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use crate::event::AgentEvent;
 use crate::detect::registry::AgentRegistry;
+use crate::event::AgentEvent;
 
-mod types;
 mod rollout;
-mod sqlite;
 mod snapshot;
+mod sqlite;
+mod types;
 
-pub use types::*;
 pub use rollout::*;
-pub use sqlite::*;
 pub use snapshot::*;
+pub use sqlite::*;
+pub use types::*;
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
 const SAME_CWD_MULTI_BIND_MAX_SKEW_SECS: i64 = 90;
@@ -67,9 +67,11 @@ mod tests {
         CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
         ObservedCodexSubagent, ObservedCodexThread,
     };
+    use crate::domain::agents::ids::{AgentId, AgentTool};
+    use crate::domain::agents::status::PrimaryStatus;
+    use crate::domain::shared::time::from_epoch_secs;
     use crate::detect::registry::AgentRegistry;
     use crate::event::AgentEvent;
-    use crate::types::{AgentId, AgentTool, PrimaryStatus};
     use rusqlite::Connection;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -244,7 +246,7 @@ mod tests {
                 pid: Some(44),
                 cwd: PathBuf::from("/tmp/project"),
                 branch: Some("main".into()),
-                started_at: crate::types::from_epoch_secs(1),
+                started_at: from_epoch_secs(1),
                 status: PrimaryStatus::Running,
                 final_output: None,
                 final_output_is_completion: false,

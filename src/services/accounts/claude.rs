@@ -7,6 +7,7 @@ use tempfile::TempPath;
 use crate::claude_profiles::profile::{
     save_claude_profile_metadata, ClaudeProfile, ClaudeProfileMetadata,
 };
+use crate::runtime_support::run_blocking_compatible;
 
 use super::storage;
 
@@ -86,12 +87,7 @@ fn credentials_source_from_home(home_dir: &Path) -> Result<(std::path::PathBuf, 
             ])
             .output()
     };
-    let output = if tokio::runtime::Handle::try_current().is_ok() {
-        tokio::task::block_in_place(run_security)
-    } else {
-        run_security()
-    }
-    .context("failed to run security CLI")?;
+    let output = run_blocking_compatible(run_security).context("failed to run security CLI")?;
     if !output.status.success() {
         bail!("No Claude credentials found. Run `claude` once to log in first.");
     }

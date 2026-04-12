@@ -1,12 +1,17 @@
 use chrono::Utc;
 use nexus::app::{
-    reducer, AccountsTabState, Action, ActiveTab, AppState, ConfirmKind, DetectorAction, EditField,
-    OverviewAction, OverviewMode, Provider, RootState,
+    reducer, AccountProfile, AccountsAction, AccountsConfirmAction, AccountsEditField,
+    AccountsMode, Action, ActiveTab, AppState, DetectorAction, Effect, EffectResult,
+    OverviewAction, OverviewMode, ProfileDraft, Provider, RootState, Workflow,
 };
 use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use nexus::config::Config;
+use nexus::domain::accounts::{AccountEntry, ProviderFilter};
+use nexus::domain::agents::{
+    ActivityEventKind, AgentId, AgentIdentity, AgentTool, NormalizedReason, NormalizedState,
+    NormalizedStatus, PrimaryStatus, SortMode, Subagent, TodoItem, TodoPriority, TodoStatus,
+};
 use nexus::event::AgentEvent;
-use nexus::types::*;
 use nexus::ui::{agent_list, footer, help};
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -212,13 +217,37 @@ fn reduce_overview(state: &mut RootState, action: Action) {
     );
 }
 
+fn accounts_root_state() -> RootState {
+    let mut state = RootState::default();
+    state.accounts.entries = vec![
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string(),
+        },
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-b".to_string(),
+        },
+        AccountEntry {
+            provider: Provider::Claude,
+            profile_id: "claude-a".to_string(),
+        },
+    ];
+    state.accounts.selected_index = Some(0);
+    state
+}
+
+fn reduce_accounts(state: &mut RootState, action: Action) -> Vec<Effect> {
+    reducer::root::reduce(state, &action)
+}
+
 #[test]
 fn test_initial_state_is_empty() {
     let (_tmp, state) = make_state();
     assert!(state.agents.is_empty());
-    assert_eq!(state.selected, None);
-    assert_eq!(state.sort_mode, SortMode::Name);
-    assert!(!state.show_help);
+    assert_eq!(state.root.overview.selected_index, None);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Name);
+    assert!(!state.show_help());
 }
 
 #[test]
@@ -272,6 +301,416 @@ fn overview_reducer_detector_updates_overview_agents() {
 }
 
 #[test]
+fn accounts_reducer_selects_next_and_previous_with_provider_filter() {
+    let mut state = accounts_root_state();
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::SetProviderFilter(ProviderFilter::Claude)),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.provider_filter, ProviderFilter::Claude);
+    assert_eq!(state.accounts.selected_index, Some(0));
+
+    let effects = reduce_accounts(&mut state, Action::Accounts(AccountsAction::SelectNext));
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.selected_index, Some(0));
+
+    let effects = reduce_accounts(&mut state, Action::Accounts(AccountsAction::SelectPrevious));
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.selected_index, Some(0));
+}
+
+#[test]
+fn accounts_reducer_uses_explicit_filtering_and_editing_modes() {
+    let mut state = accounts_root_state();
+
+    let effects = reduce_accounts(&mut state, Action::Accounts(AccountsAction::StartFiltering));
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Filtering {
+            input: String::new()
+        }
+    );
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::UpdateFilter("cod".to_string())),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Filtering {
+            input: "cod".to_string()
+        }
+    );
+
+    let draft = ProfileDraft {
+        label: "Profile".to_string(),
+        email: Some("person@example.com".to_string()),
+        plan: Some("pro".to_string()),
+        notes: "notes".to_string(),
+        enabled: true,
+    };
+    let effects = reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::StartEditing(draft.clone())),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Editing {
+            draft,
+            field: AccountsEditField::Label
+        }
+    );
+}
+
+#[test]
+fn accounts_reducer_confirming_delete_emits_effect_and_sets_workflow() {
+    let mut state = accounts_root_state();
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::RequestConfirmation(
+            AccountsConfirmAction::DeleteProfile,
+        )),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Confirming {
+            action: AccountsConfirmAction::DeleteProfile
+        }
+    );
+
+    let effects = reduce_accounts(&mut state, Action::Accounts(AccountsAction::Confirm));
+    assert_eq!(
+        effects,
+        vec![Effect::DeleteProfile {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string()
+        }]
+    );
+    assert_eq!(state.accounts.mode, AccountsMode::Normal);
+    assert_eq!(
+        state.system.workflow,
+        Workflow::DeletingProfile {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string()
+        }
+    );
+}
+
+#[test]
+fn accounts_reducer_confirming_edit_emits_save_effect_with_updated_draft() {
+    let mut state = accounts_root_state();
+    let draft = ProfileDraft {
+        label: "Original".to_string(),
+        email: Some("person@example.com".to_string()),
+        plan: Some("pro".to_string()),
+        notes: "old".to_string(),
+        enabled: true,
+    };
+    reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::StartEditing(draft)),
+    );
+    reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::UpdateEditBuffer("Renamed".to_string())),
+    );
+    reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::SetMode(AccountsMode::Editing {
+            draft: ProfileDraft {
+                label: "Renamed".to_string(),
+                email: Some("person@example.com".to_string()),
+                plan: Some("pro".to_string()),
+                notes: "old".to_string(),
+                enabled: true,
+            },
+            field: AccountsEditField::Notes,
+        })),
+    );
+    reduce_accounts(
+        &mut state,
+        Action::Accounts(AccountsAction::UpdateEditBuffer("fresh notes".to_string())),
+    );
+    reduce_accounts(&mut state, Action::Accounts(AccountsAction::ToggleEnabled));
+
+    let effects = reduce_accounts(&mut state, Action::Accounts(AccountsAction::Confirm));
+    assert_eq!(
+        effects,
+        vec![Effect::SaveProfileEdits {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string(),
+            draft: ProfileDraft {
+                label: "Renamed".to_string(),
+                email: Some("person@example.com".to_string()),
+                plan: Some("pro".to_string()),
+                notes: "fresh notes".to_string(),
+                enabled: false,
+            }
+        }]
+    );
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Editing {
+            draft: ProfileDraft {
+                label: "Renamed".to_string(),
+                email: Some("person@example.com".to_string()),
+                plan: Some("pro".to_string()),
+                notes: "fresh notes".to_string(),
+                enabled: false,
+            },
+            field: AccountsEditField::Notes,
+        }
+    );
+    assert_eq!(
+        state.system.workflow,
+        Workflow::SavingProfile {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string()
+        }
+    );
+}
+
+#[test]
+fn accounts_reducer_failed_save_keeps_edit_draft_open() {
+    let mut state = accounts_root_state();
+    state.accounts.mode = AccountsMode::Editing {
+        draft: ProfileDraft {
+            label: "Renamed".to_string(),
+            email: Some("person@example.com".to_string()),
+            plan: Some("pro".to_string()),
+            notes: "fresh notes".to_string(),
+            enabled: false,
+        },
+        field: AccountsEditField::Notes,
+    };
+    state.system.workflow = Workflow::SavingProfile {
+        provider: Provider::Codex,
+        profile_id: "codex-a".to_string(),
+    };
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::Failed {
+            effect: Effect::SaveProfileEdits {
+                provider: Provider::Codex,
+                profile_id: "codex-a".to_string(),
+                draft: ProfileDraft {
+                    label: "Renamed".to_string(),
+                    email: Some("person@example.com".to_string()),
+                    plan: Some("pro".to_string()),
+                    notes: "fresh notes".to_string(),
+                    enabled: false,
+                },
+            },
+            message: "save failed".to_string(),
+        }),
+    );
+    assert!(effects.is_empty());
+    assert!(matches!(state.accounts.mode, AccountsMode::Editing { .. }));
+    assert_eq!(state.system.workflow, Workflow::Idle);
+    assert_eq!(
+        state.accounts.status_message.as_deref(),
+        Some("save failed")
+    );
+}
+
+#[test]
+fn accounts_reducer_profile_saved_closes_edit_mode() {
+    let mut state = accounts_root_state();
+    state.accounts.mode = AccountsMode::Editing {
+        draft: ProfileDraft {
+            label: "Renamed".to_string(),
+            email: Some("person@example.com".to_string()),
+            plan: Some("pro".to_string()),
+            notes: "fresh notes".to_string(),
+            enabled: false,
+        },
+        field: AccountsEditField::Notes,
+    };
+    state.system.workflow = Workflow::SavingProfile {
+        provider: Provider::Codex,
+        profile_id: "codex-a".to_string(),
+    };
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::ProfileSaved {
+            profile: AccountProfile::Codex(nexus::domain::accounts::CodexProfile {
+                id: "codex-a".to_string(),
+                label: "Renamed".to_string(),
+                email: Some("person@example.com".to_string()),
+                plan: Some("pro".to_string()),
+                notes: Some("fresh notes".to_string()),
+                enabled: false,
+                last_used: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                profile_dir: PathBuf::from("/tmp/codex-a"),
+                auth_path: PathBuf::from("/tmp/codex-a/auth.json"),
+            }),
+        }),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.mode, AccountsMode::Normal);
+    assert_eq!(state.system.workflow, Workflow::Idle);
+    assert_eq!(
+        state.accounts.status_message.as_deref(),
+        Some("Saved profile codex-a")
+    );
+}
+
+#[test]
+fn accounts_reducer_effect_results_update_profiles_quota_and_failures() {
+    let mut state = accounts_root_state();
+    let codex_profile = nexus::domain::accounts::CodexProfile {
+        id: "codex-a".to_string(),
+        label: "Codex A".to_string(),
+        email: Some("codex@example.com".to_string()),
+        plan: Some("pro".to_string()),
+        notes: Some("notes".to_string()),
+        enabled: true,
+        last_used: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        profile_dir: PathBuf::from("/tmp/codex-a"),
+        auth_path: PathBuf::from("/tmp/codex-a/auth.json"),
+    };
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::ProfilesLoaded {
+            profiles: vec![AccountProfile::Codex(codex_profile.clone())],
+            entries: vec![AccountEntry {
+                provider: Provider::Codex,
+                profile_id: "codex-a".to_string(),
+            }],
+        }),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.entries.len(), 1);
+    assert_eq!(state.accounts.profiles_by_key.len(), 1);
+
+    let quota = quota_snapshot("fresh quota");
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::CodexQuotaRefreshed {
+            profile_id: "codex-a".to_string(),
+            quota: quota.clone(),
+            origin: nexus::app::RefreshOrigin::Manual,
+        }),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.quota_by_key.len(), 1);
+    assert_eq!(state.accounts.quota_by_key.values().next(), Some(&quota));
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::Failed {
+            effect: Effect::RefreshCodexQuota {
+                profile_id: "codex-a".to_string(),
+                origin: nexus::app::RefreshOrigin::Manual,
+            },
+            message: "network failed".to_string(),
+        }),
+    );
+    assert!(effects.is_empty());
+    assert_eq!(state.system.workflow, Workflow::Idle);
+    assert_eq!(
+        state.accounts.status_message.as_deref(),
+        Some("network failed")
+    );
+}
+
+#[test]
+fn accounts_reducer_profile_draft_loaded_enters_edit_mode_for_selected_profile() {
+    let mut state = accounts_root_state();
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::ProfileDraftLoaded {
+            provider: Provider::Claude,
+            profile_id: "claude-a".to_string(),
+            draft: ProfileDraft {
+                label: "Claude A".to_string(),
+                email: Some("claude@example.com".to_string()),
+                plan: Some("max".to_string()),
+                notes: "notes".to_string(),
+                enabled: false,
+            },
+        }),
+    );
+
+    assert!(effects.is_empty());
+    assert_eq!(
+        state.accounts.selected_entry(),
+        Some(&AccountEntry {
+            provider: Provider::Claude,
+            profile_id: "claude-a".to_string(),
+        })
+    );
+    assert_eq!(
+        state.accounts.mode,
+        AccountsMode::Editing {
+            draft: ProfileDraft {
+                label: "Claude A".to_string(),
+                email: Some("claude@example.com".to_string()),
+                plan: Some("max".to_string()),
+                notes: "notes".to_string(),
+                enabled: false,
+            },
+            field: AccountsEditField::Label,
+        }
+    );
+    assert_eq!(state.system.workflow, Workflow::Idle);
+}
+
+#[test]
+fn accounts_reducer_imported_profile_becomes_selected_and_visible() {
+    let mut state = accounts_root_state();
+    state.accounts.entries = vec![AccountEntry {
+        provider: Provider::Claude,
+        profile_id: "claude-a".to_string(),
+    }];
+    state.accounts.provider_filter = ProviderFilter::Claude;
+    state.accounts.selected_index = Some(0);
+
+    let imported = AccountProfile::Codex(nexus::domain::accounts::CodexProfile {
+        id: "codex-new".to_string(),
+        label: "Codex New".to_string(),
+        email: Some("codex@example.com".to_string()),
+        plan: Some("pro".to_string()),
+        notes: None,
+        enabled: true,
+        last_used: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+        profile_dir: PathBuf::from("/tmp/codex-new"),
+        auth_path: PathBuf::from("/tmp/codex-new/auth.json"),
+    });
+
+    let effects = reduce_accounts(
+        &mut state,
+        Action::EffectResult(EffectResult::ProfileImported { profile: imported }),
+    );
+
+    assert!(effects.is_empty());
+    assert_eq!(state.accounts.provider_filter, ProviderFilter::Codex);
+    assert_eq!(
+        state.accounts.selected_entry(),
+        Some(&AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-new".to_string(),
+        })
+    );
+}
+
+#[test]
 fn overview_reducer_codex_discovery_updates_all_ambiguous_live_session_rows() {
     let mut state = overview_root_state();
 
@@ -313,7 +752,7 @@ fn overview_reducer_codex_discovery_updates_all_ambiguous_live_session_rows() {
     assert!(visible.iter().all(|agent| agent.pid == Some(44)));
     assert!(visible
         .iter()
-        .all(|agent| agent.cwd == PathBuf::from("/tmp/ambiguous")));
+        .all(|agent| agent.cwd == std::path::Path::new("/tmp/ambiguous")));
     assert!(visible
         .iter()
         .all(|agent| agent.status == PrimaryStatus::Running));
@@ -366,7 +805,8 @@ fn overview_reducer_codex_session_info_absorbs_stale_process_row_after_pid_resol
 
     assert_eq!(state.overview.agents.len(), 2);
     assert_eq!(
-        state.overview
+        state
+            .overview
             .agents
             .iter()
             .filter(|agent| agent.id.is_session())
@@ -374,7 +814,8 @@ fn overview_reducer_codex_session_info_absorbs_stale_process_row_after_pid_resol
         1
     );
     assert_eq!(
-        state.overview
+        state
+            .overview
             .agents
             .iter()
             .filter(|agent| agent.id.is_process())
@@ -447,7 +888,8 @@ fn overview_reducer_codex_process_discovery_does_not_revive_exited_session_on_pi
 
     assert_eq!(state.overview.agents.len(), 2);
     assert_eq!(
-        state.overview
+        state
+            .overview
             .agents
             .iter()
             .filter(|agent| agent.id.is_session())
@@ -455,7 +897,8 @@ fn overview_reducer_codex_process_discovery_does_not_revive_exited_session_on_pi
         1
     );
     assert_eq!(
-        state.overview
+        state
+            .overview
             .agents
             .iter()
             .filter(|agent| agent.id.is_process())
@@ -778,23 +1221,6 @@ fn test_initial_state_starts_on_overview_tab() {
 }
 
 #[test]
-fn codex_tab_selection_wraps() {
-    let mut state = AccountsTabState::new();
-    state.codex_profile_ids = vec!["a".into(), "b".into()];
-    state.selected_index = Some(1);
-    state.next_profile();
-    assert_eq!(state.selected_index, Some(0));
-}
-
-#[test]
-fn codex_tab_next_profile_selects_first_when_unset() {
-    let mut state = AccountsTabState::new();
-    state.codex_profile_ids = vec!["a".into(), "b".into()];
-    state.next_profile();
-    assert_eq!(state.selected_index, Some(0));
-}
-
-#[test]
 fn test_tab_navigation_cycles_between_tabs() {
     let (_tmp, mut state) = make_state();
     assert_eq!(state.active_tab(), ActiveTab::Overview);
@@ -812,38 +1238,59 @@ fn test_tab_navigation_cycles_between_tabs() {
     assert_eq!(state.active_tab(), ActiveTab::Overview);
 }
 
-#[test]
-fn codex_tab_navigation_keys_do_not_move_overview_selection() {
+#[tokio::test]
+async fn codex_tab_navigation_keys_do_not_move_overview_selection() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
     assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
-    state.accounts_tab.codex_profile_ids = vec!["one".into(), "two".into()];
-    state.handle_accounts_move_down();
+    state.root.accounts.entries = vec![
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "one".to_string(),
+        },
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "two".to_string(),
+        },
+    ];
+    state.apply_accounts_effect_result(EffectResult::ProfilesLoaded {
+        profiles: Vec::new(),
+        entries: state.root.accounts.entries.clone(),
+    });
+    state
+        .run_accounts_reducer_action(AccountsAction::SelectNext)
+        .await;
 
-    assert_eq!(state.accounts_tab.selected_index, Some(0));
-    assert_eq!(state.selected, None);
+    assert_eq!(state.root.accounts.selected_index, Some(1));
+    assert_eq!(state.root.overview.selected_index, None);
 }
 
-#[test]
-fn codex_tab_filter_input_stays_on_codex_state() {
+#[tokio::test]
+async fn codex_tab_filter_input_stays_on_codex_state() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
     assert_eq!(state.active_tab(), ActiveTab::Accounts);
 
-    state.start_accounts_filter();
-    state.accounts_filter_push_char('q');
-    state.accounts_filter_push_char('1');
+    state
+        .run_accounts_reducer_action(AccountsAction::StartFiltering)
+        .await;
+    state
+        .run_accounts_reducer_action(AccountsAction::UpdateFilter("q1".to_string()))
+        .await;
 
-    assert!(state.filter.is_none());
-    assert!(!state.filter_mode);
-    assert_eq!(state.filter_input, "");
-    assert!(state.accounts_tab.filter_mode);
-    assert_eq!(state.accounts_tab.filter_input, "q1");
+    assert!(state.root.overview.filter.is_none());
+    assert_eq!(
+        state.root.accounts.mode,
+        AccountsMode::Filtering {
+            input: "q1".to_string()
+        }
+    );
 
-    state.confirm_accounts_filter();
-    assert!(!state.accounts_tab.filter_mode);
-    assert_eq!(state.accounts_tab.filter_input, "q1");
+    state
+        .run_accounts_reducer_action(AccountsAction::Confirm)
+        .await;
+    assert_eq!(state.root.accounts.mode, AccountsMode::Normal);
 }
 
 #[test]
@@ -916,80 +1363,209 @@ fn overview_empty_state_surfaces_detector_dependency_failure() {
     );
 }
 
-#[test]
-fn accounts_filter_confirm_keeps_text_until_dismissed() {
+#[tokio::test]
+async fn accounts_filter_confirm_keeps_text_until_dismissed() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
 
-    state.start_accounts_filter();
-    state.accounts_filter_push_char('q');
-    state.accounts_filter_push_char('1');
-    state.confirm_accounts_filter();
+    state
+        .run_accounts_reducer_action(AccountsAction::StartFiltering)
+        .await;
+    state
+        .run_accounts_reducer_action(AccountsAction::UpdateFilter("q1".to_string()))
+        .await;
+    state
+        .run_accounts_reducer_action(AccountsAction::Confirm)
+        .await;
 
-    assert!(!state.accounts_tab.filter_mode);
-    assert_eq!(state.accounts_tab.filter_input, "q1");
+    assert_eq!(state.root.accounts.mode, AccountsMode::Normal);
 
-    state.accounts_tab.edit_mode = true;
-    state.accounts_tab.edit_label = "Temp".to_string();
-    state.accounts_tab.pending_confirm = Some(ConfirmKind::DeleteProfile);
+    state.root.accounts.mode = AccountsMode::Editing {
+        draft: ProfileDraft {
+            label: "Temp".to_string(),
+            email: None,
+            plan: None,
+            notes: String::new(),
+            enabled: true,
+        },
+        field: AccountsEditField::Label,
+    };
 
     state.dismiss_accounts_overlay();
 
-    assert!(!state.accounts_tab.filter_mode);
-    assert_eq!(state.accounts_tab.filter_input, "");
-    assert!(!state.accounts_tab.edit_mode);
-    assert_eq!(state.accounts_tab.edit_label, "");
-    assert!(state.accounts_tab.pending_confirm.is_none());
+    assert_eq!(state.root.accounts.mode, AccountsMode::Normal);
 }
 
-#[test]
-fn accounts_edit_starts_with_selected_label_and_cancels_cleanly() {
+#[tokio::test]
+async fn accounts_edit_starts_with_selected_label_and_cancels_cleanly() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
-    state.accounts_tab.codex_profile_ids = vec!["profile-01".to_string()];
-    state.accounts_tab.selected_index = Some(0);
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "profile-01".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.apply_accounts_effect_result(EffectResult::ProfilesLoaded {
+        profiles: Vec::new(),
+        entries: state.root.accounts.entries.clone(),
+    });
 
-    state.start_accounts_edit();
-    assert!(state.accounts_tab.edit_mode);
-    assert_eq!(state.accounts_tab.edit_label, "profile-01");
-    assert_eq!(state.accounts_tab.edit_field, EditField::Label);
+    state
+        .run_accounts_effect(Effect::LoadProfileDraft {
+            provider: Provider::Codex,
+            profile_id: "profile-01".to_string(),
+        })
+        .await;
+    match &state.root.accounts.mode {
+        AccountsMode::Editing { draft, field } => {
+            assert_eq!(draft.label, "profile-01");
+            assert_eq!(*field, AccountsEditField::Label);
+        }
+        mode => panic!("expected editing mode, got {mode:?}"),
+    }
 
-    state.cancel_accounts_edit();
-    assert!(!state.accounts_tab.edit_mode);
-    assert_eq!(state.accounts_tab.edit_label, "");
+    state.root.accounts.mode = AccountsMode::Normal;
+    assert_eq!(state.root.accounts.mode, AccountsMode::Normal);
+}
+
+#[tokio::test]
+async fn accounts_edit_uses_saved_metadata_when_codex_auth_json_is_invalid() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    let profile_dir = state.config.codex_profiles_dir.join("profile-01");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(profile_dir.join("auth.json"), "{not-json").unwrap();
+    std::fs::write(
+        profile_dir.join("profile.json"),
+        r#"{
+            "id":"profile-01",
+            "label":"Saved Label",
+            "notes":"saved notes",
+            "enabled":false
+        }"#,
+    )
+    .unwrap();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "profile-01".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.apply_accounts_effect_result(EffectResult::ProfilesLoaded {
+        profiles: Vec::new(),
+        entries: state.root.accounts.entries.clone(),
+    });
+
+    state
+        .run_accounts_effect(Effect::LoadProfileDraft {
+            provider: Provider::Codex,
+            profile_id: "profile-01".to_string(),
+        })
+        .await;
+
+    match &state.root.accounts.mode {
+        AccountsMode::Editing { draft, .. } => {
+            assert_eq!(draft.label, "Saved Label");
+            assert_eq!(draft.notes, "saved notes");
+            assert!(!draft.enabled);
+        }
+        mode => panic!("expected editing mode, got {mode:?}"),
+    }
+}
+
+#[tokio::test]
+async fn accounts_edit_can_rewrite_corrupted_codex_profile_metadata() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    let profile_dir = state.config.codex_profiles_dir.join("profile-02");
+    std::fs::create_dir_all(&profile_dir).unwrap();
+    std::fs::write(
+        profile_dir.join("auth.json"),
+        r#"{"email":"current@example.com","plan":"team"}"#,
+    )
+    .unwrap();
+    std::fs::write(profile_dir.join("profile.json"), "{broken-json").unwrap();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "profile-02".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.apply_accounts_effect_result(EffectResult::ProfilesLoaded {
+        profiles: Vec::new(),
+        entries: state.root.accounts.entries.clone(),
+    });
+
+    state
+        .run_accounts_effect(Effect::LoadProfileDraft {
+            provider: Provider::Codex,
+            profile_id: "profile-02".to_string(),
+        })
+        .await;
+    state
+        .run_accounts_reducer_action(AccountsAction::SetMode(AccountsMode::Editing {
+            draft: ProfileDraft {
+                label: "Recovered Profile".to_string(),
+                email: Some("current@example.com".to_string()),
+                plan: Some("team".to_string()),
+                notes: "fixed notes".to_string(),
+                enabled: false,
+            },
+            field: AccountsEditField::Label,
+        }))
+        .await;
+    state
+        .run_accounts_reducer_action(AccountsAction::Confirm)
+        .await;
+
+    let saved = nexus::codex_profiles::profile::load_profile_metadata(&profile_dir).unwrap();
+    assert_eq!(saved.label.as_deref(), Some("Recovered Profile"));
+    assert_eq!(saved.notes.as_deref(), Some("fixed notes"));
+    assert!(!saved.enabled);
 }
 
 #[test]
 fn quota_refresh_updates_selected_profile_and_cache_only() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
-    state.accounts_tab.codex_profile_ids = vec!["codex-a".to_string(), "codex-b".to_string()];
-    state.accounts_tab.selected_index = Some(0);
-    state.accounts_tab.quota_loading = true;
+    state.root.accounts.entries = vec![
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string(),
+        },
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-b".to_string(),
+        },
+    ];
+    state.root.accounts.selected_index = Some(0);
+    state.root.accounts.quota_loading = true;
 
     let existing = quota_snapshot("existing");
-    state.accounts_tab.quota = Some(existing.clone());
+    state.root.accounts.quota_by_key.insert(
+        nexus::app::state::AccountKey::new(Provider::Codex, "codex-a".to_string()),
+        existing.clone(),
+    );
     let refreshed = quota_snapshot("refreshed");
 
-    state.apply_quota_refresh_result(Provider::Codex, "codex-b", Some(refreshed.clone()));
+    state.apply_accounts_effect_result(EffectResult::CodexQuotaRefreshed {
+        profile_id: "codex-b".to_string(),
+        quota: refreshed.clone(),
+        origin: nexus::app::RefreshOrigin::Manual,
+    });
 
-    assert!(!state.accounts_tab.quota_loading);
-    assert_eq!(state.accounts_tab.quota, Some(existing));
+    assert!(!state.root.accounts.quota_loading);
     assert_eq!(
-        state
-            .accounts_tab
-            .codex_quota_cache
-            .as_ref()
-            .and_then(|cache| cache.by_profile.get("codex-b")),
+        state.root.accounts.quota_by_key.get(&nexus::app::state::AccountKey::new(
+            Provider::Codex,
+            "codex-b".to_string()
+        )),
         Some(&refreshed)
     );
     assert_eq!(
-        state
-            .accounts_tab
-            .codex_quota_cache
-            .as_ref()
-            .and_then(|cache| cache.by_profile.get("codex-a")),
-        None
+        state.root.accounts.quota_by_key.get(&nexus::app::state::AccountKey::new(
+            Provider::Codex,
+            "codex-a".to_string()
+        )),
+        Some(&existing)
     );
 }
 
@@ -997,48 +1573,400 @@ fn quota_refresh_updates_selected_profile_and_cache_only() {
 fn quota_refresh_updates_selected_claude_profile_and_cache() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
-    state.accounts_tab.claude_profile_ids = vec!["claude-a".to_string()];
-    state.accounts_tab.selected_index = Some(0);
-    state.accounts_tab.quota_loading = true;
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Claude,
+        profile_id: "claude-a".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.root.accounts.quota_loading = true;
 
     let refreshed = quota_snapshot("claude refreshed");
-    state.apply_quota_refresh_result(Provider::Claude, "claude-a", Some(refreshed.clone()));
+    state.apply_accounts_effect_result(EffectResult::ClaudeQuotaRefreshed {
+        profile_id: "claude-a".to_string(),
+        quota: refreshed.clone(),
+        origin: nexus::app::RefreshOrigin::Manual,
+    });
 
-    assert!(!state.accounts_tab.quota_loading);
-    assert_eq!(state.accounts_tab.quota, Some(refreshed.clone()));
+    assert!(!state.root.accounts.quota_loading);
     assert_eq!(
-        state
-            .accounts_tab
-            .claude_quota_cache
-            .as_ref()
-            .and_then(|cache| cache.by_profile.get("claude-a")),
+        state.root.accounts.quota_by_key.get(&nexus::app::state::AccountKey::new(
+            Provider::Claude,
+            "claude-a".to_string()
+        )),
         Some(&refreshed)
     );
 }
 
 #[test]
-fn quota_refresh_failure_clears_loading_without_overwriting_data() {
+fn manual_quota_refresh_failure_clears_loading_and_preserves_existing_data() {
     let (_tmp, mut state) = make_state();
     state.next_tab();
-    state.accounts_tab.codex_profile_ids = vec!["codex-a".to_string()];
-    state.accounts_tab.selected_index = Some(0);
-    state.accounts_tab.quota_loading = true;
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "codex-a".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.begin_manual_quota_refresh(Provider::Codex, "codex-a");
 
     let cached = quota_snapshot("cached");
-    state.accounts_tab.quota = Some(cached.clone());
-    state.accounts_tab.codex_quota_cache = Some(Default::default());
+    state.root.accounts.quota_by_key.insert(
+        nexus::app::state::AccountKey::new(Provider::Codex, "codex-a".to_string()),
+        cached.clone(),
+    );
 
-    state.apply_quota_refresh_result(Provider::Codex, "codex-a", None);
+    state.apply_accounts_effect_result(EffectResult::Failed {
+        effect: Effect::RefreshCodexQuota {
+            profile_id: "codex-a".to_string(),
+            origin: nexus::app::RefreshOrigin::Manual,
+        },
+        message: "manual refresh failed".to_string(),
+    });
 
-    assert!(!state.accounts_tab.quota_loading);
-    assert_eq!(state.accounts_tab.quota, Some(cached));
-    assert!(state
-        .accounts_tab
-        .codex_quota_cache
-        .as_ref()
-        .expect("cache should remain present")
-        .by_profile
-        .is_empty());
+    assert!(!state.root.accounts.quota_loading);
+    assert_eq!(
+        state.root.accounts.status_message.as_deref(),
+        Some("manual refresh failed")
+    );
+    assert_eq!(
+        state.root.accounts.quota_by_key.get(&nexus::app::state::AccountKey::new(
+            Provider::Codex,
+            "codex-a".to_string()
+        )),
+        Some(&cached)
+    );
+}
+
+#[test]
+fn background_quota_refresh_failure_does_not_set_status_message() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.apply_accounts_effect_result(EffectResult::Failed {
+        effect: Effect::RefreshCodexQuota {
+            profile_id: "codex-a".to_string(),
+            origin: nexus::app::RefreshOrigin::Background,
+        },
+        message: "background refresh failed".to_string(),
+    });
+
+    assert_eq!(state.root.accounts.status_message, None);
+}
+
+#[test]
+fn background_refresh_failure_does_not_cancel_manual_refresh_in_flight() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.begin_manual_quota_refresh(Provider::Claude, "claude-a");
+
+    state.apply_accounts_effect_result(EffectResult::Failed {
+        effect: Effect::RefreshCodexQuota {
+            profile_id: "codex-a".to_string(),
+            origin: nexus::app::RefreshOrigin::Background,
+        },
+        message: "background refresh failed".to_string(),
+    });
+
+    assert!(state.root.accounts.quota_loading);
+    assert_eq!(state.root.accounts.status_message, None);
+}
+
+#[test]
+fn background_refresh_success_for_same_profile_does_not_finish_manual_refresh() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.begin_manual_quota_refresh(Provider::Claude, "claude-a");
+
+    state.apply_accounts_effect_result(EffectResult::ClaudeQuotaRefreshed {
+        profile_id: "claude-a".to_string(),
+        quota: quota_snapshot("background still loading"),
+        origin: nexus::app::RefreshOrigin::Background,
+    });
+
+    assert!(state.root.accounts.quota_loading);
+}
+
+#[test]
+fn app_state_new_does_not_eagerly_reload_profile_lists() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+
+    let mut config = Config::default();
+    config.codex_management_dir = root.join("codex-management");
+    config.codex_profiles_dir = config.codex_management_dir.join("profiles");
+    config.claude_management_dir = root.join("claude-management");
+    config.claude_profiles_dir = config.claude_management_dir.join("profiles");
+    std::fs::create_dir_all(config.codex_profiles_dir.join("profile-01")).unwrap();
+    std::fs::write(
+        config
+            .codex_profiles_dir
+            .join("profile-01")
+            .join("auth.json"),
+        "{}",
+    )
+    .unwrap();
+    std::fs::create_dir_all(config.claude_profiles_dir.join("profile-02")).unwrap();
+    std::fs::write(
+        config
+            .claude_profiles_dir
+            .join("profile-02")
+            .join(".credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"ref","expiresAt":9999999999000}}"#,
+    )
+    .unwrap();
+
+    let state = AppState::new(config);
+
+    assert!(state.root.accounts.entries.is_empty());
+}
+
+#[tokio::test]
+async fn initialize_accounts_loads_profiles_via_dispatcher() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+
+    let mut config = Config::default();
+    config.codex_management_dir = root.join("codex-management");
+    config.codex_profiles_dir = config.codex_management_dir.join("profiles");
+    config.claude_management_dir = root.join("claude-management");
+    config.claude_profiles_dir = config.claude_management_dir.join("profiles");
+    std::fs::create_dir_all(config.codex_profiles_dir.join("profile-01")).unwrap();
+    std::fs::write(
+        config
+            .codex_profiles_dir
+            .join("profile-01")
+            .join("auth.json"),
+        r#"{"email":"dev@example.com","plan":"pro"}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(config.claude_profiles_dir.join("profile-02")).unwrap();
+    std::fs::write(
+        config
+            .claude_profiles_dir
+            .join("profile-02")
+            .join(".credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"ref","expiresAt":9999999999000,"subscriptionType":"claude_max"}}"#,
+    )
+    .unwrap();
+
+    let mut state = AppState::new(config);
+    state.initialize_accounts().await;
+
+    assert_eq!(
+        state.root.accounts.entries,
+        vec![
+            AccountEntry {
+                provider: Provider::Codex,
+                profile_id: "profile-01".to_string(),
+            },
+            AccountEntry {
+                provider: Provider::Claude,
+                profile_id: "profile-02".to_string(),
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn initialize_accounts_skips_invalid_profile_and_loads_remaining_profiles() {
+    let temp = tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+
+    let mut config = Config::default();
+    config.codex_management_dir = root.join("codex-management");
+    config.codex_profiles_dir = config.codex_management_dir.join("profiles");
+    config.claude_management_dir = root.join("claude-management");
+    config.claude_profiles_dir = config.claude_management_dir.join("profiles");
+
+    std::fs::create_dir_all(config.codex_profiles_dir.join("profile-01")).unwrap();
+    std::fs::write(
+        config
+            .codex_profiles_dir
+            .join("profile-01")
+            .join("auth.json"),
+        r#"{"email":"dev@example.com","plan":"pro"}"#,
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(config.claude_profiles_dir.join("profile-02")).unwrap();
+    std::fs::write(
+        config
+            .claude_profiles_dir
+            .join("profile-02")
+            .join(".credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"ref","expiresAt":9999999999000}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        config
+            .claude_profiles_dir
+            .join("profile-02")
+            .join("profile.json"),
+        "{broken-json",
+    )
+    .unwrap();
+
+    let mut state = AppState::new(config);
+    state.initialize_accounts().await;
+
+    assert_eq!(
+        state.root.accounts.entries,
+        vec![AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "profile-01".to_string(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn accounts_reducer_updates_root_accounts_mode_and_filter_state() {
+    let (_tmp, mut state) = make_state();
+
+    assert_eq!(state.root.accounts.mode, AccountsMode::Normal);
+    assert_eq!(state.root.accounts.provider_filter, ProviderFilter::All);
+
+    state
+        .run_accounts_reducer_action(AccountsAction::StartFiltering)
+        .await;
+    assert_eq!(
+        state.root.accounts.mode,
+        AccountsMode::Filtering {
+            input: String::new()
+        }
+    );
+
+    state
+        .run_accounts_reducer_action(AccountsAction::UpdateFilter("cod".to_string()))
+        .await;
+    assert_eq!(
+        state.root.accounts.mode,
+        AccountsMode::Filtering {
+            input: "cod".to_string()
+        }
+    );
+
+    state
+        .run_accounts_reducer_action(AccountsAction::SetProviderFilter(ProviderFilter::Claude))
+        .await;
+    assert_eq!(state.root.accounts.provider_filter, ProviderFilter::Claude);
+}
+
+#[tokio::test]
+async fn accounts_reducer_updates_root_accounts_selection() {
+    let (_tmp, mut state) = make_state();
+    state.root.accounts.entries = vec![
+        AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "codex-a".to_string(),
+        },
+        AccountEntry {
+            provider: Provider::Claude,
+            profile_id: "claude-a".to_string(),
+        },
+    ];
+    state
+        .run_accounts_reducer_action(AccountsAction::SelectNext)
+        .await;
+    assert_eq!(state.root.accounts.selected_index, Some(0));
+
+    state
+        .run_accounts_reducer_action(AccountsAction::SelectNext)
+        .await;
+    assert_eq!(state.root.accounts.selected_index, Some(1));
+}
+
+#[test]
+fn quota_refresh_persist_failure_keeps_updated_cache_in_memory() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "codex-a".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.root.accounts.quota_loading = true;
+    std::fs::create_dir_all(state.config.codex_management_dir.join("quota-cache-dir")).unwrap();
+    state.config.codex_quota_cache_file = state.config.codex_management_dir.join("quota-cache-dir");
+
+    let refreshed = quota_snapshot("persist failure still cached");
+    state.apply_accounts_effect_result(EffectResult::CodexQuotaRefreshed {
+        profile_id: "codex-a".to_string(),
+        quota: refreshed.clone(),
+        origin: nexus::app::RefreshOrigin::Manual,
+    });
+
+    assert!(!state.root.accounts.quota_loading);
+    assert_eq!(
+        state.root.accounts.quota_by_key.get(&nexus::app::state::AccountKey::new(
+            Provider::Codex,
+            "codex-a".to_string()
+        )),
+        Some(&refreshed)
+    );
+}
+
+#[test]
+fn quota_refresh_effect_result_persists_cache_to_disk() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "codex-a".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+
+    let refreshed = quota_snapshot("persisted from effect result");
+    state.apply_accounts_effect_result(EffectResult::CodexQuotaRefreshed {
+        profile_id: "codex-a".to_string(),
+        quota: refreshed.clone(),
+        origin: nexus::app::RefreshOrigin::Manual,
+    });
+
+    let saved =
+        nexus::services::accounts::quota::load_quota_cache(&state.config.codex_quota_cache_file)
+            .expect("quota cache should be written");
+    assert_eq!(saved.by_profile.get("codex-a"), Some(&refreshed));
+}
+
+#[test]
+fn deleting_active_codex_profile_clears_active_badge() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Codex,
+        profile_id: "profile-01".to_string(),
+    }];
+    state.root.accounts.selected_index = Some(0);
+    state.set_active_codex_profile(Some("profile-01".to_string()));
+
+    state.apply_accounts_effect_result(EffectResult::ProfileDeleted {
+        entry: AccountEntry {
+            provider: Provider::Codex,
+            profile_id: "profile-01".to_string(),
+        },
+    });
+
+    assert_eq!(state.active_codex_profile_id(), None);
+}
+
+#[test]
+fn deleting_active_claude_profile_clears_active_badge() {
+    let (_tmp, mut state) = make_state();
+    state.next_tab();
+    state.root.accounts.entries = vec![AccountEntry {
+        provider: Provider::Claude,
+        profile_id: "profile-02".to_string(),
+    }];
+    state.root.accounts.provider_filter = ProviderFilter::Claude;
+    state.root.accounts.selected_index = Some(0);
+    state.root.accounts.active_claude_profile_id = Some("profile-02".to_string());
+
+    state.apply_accounts_effect_result(EffectResult::ProfileDeleted {
+        entry: AccountEntry {
+            provider: Provider::Claude,
+            profile_id: "profile-02".to_string(),
+        },
+    });
+
+    assert_eq!(state.root.accounts.active_claude_profile_id, None);
 }
 
 #[test]
@@ -1054,7 +1982,7 @@ fn test_discover_agent() {
     assert_eq!(state.agents[0].pid, Some(1234));
     assert_eq!(state.agents[0].id.tool(), AgentTool::Claude);
     assert_eq!(state.agents[0].status, PrimaryStatus::Running);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1207,19 +2135,19 @@ fn test_move_selection() {
             None,
         ));
     }
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
     state.move_selection_down();
-    assert_eq!(state.selected, Some(1));
+    assert_eq!(state.root.overview.selected_index, Some(1));
     state.move_selection_down();
-    assert_eq!(state.selected, Some(2));
+    assert_eq!(state.root.overview.selected_index, Some(2));
     state.move_selection_down();
-    assert_eq!(state.selected, Some(0)); // wraps to top
+    assert_eq!(state.root.overview.selected_index, Some(0)); // wraps to top
     state.move_selection_up();
-    assert_eq!(state.selected, Some(2)); // wraps to bottom
+    assert_eq!(state.root.overview.selected_index, Some(2)); // wraps to bottom
     state.move_selection_up();
-    assert_eq!(state.selected, Some(1));
+    assert_eq!(state.root.overview.selected_index, Some(1));
     state.move_selection_up();
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1253,29 +2181,29 @@ fn test_count_by_status() {
 #[test]
 fn test_cycle_sort_mode() {
     let (_tmp, mut state) = make_state();
-    assert_eq!(state.sort_mode, SortMode::Name);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Name);
     state.cycle_sort_mode();
-    assert_eq!(state.sort_mode, SortMode::Elapsed);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Elapsed);
     state.cycle_sort_mode();
-    assert_eq!(state.sort_mode, SortMode::Urgency);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Urgency);
     state.cycle_sort_mode();
-    assert_eq!(state.sort_mode, SortMode::Name);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Name);
 }
 
 #[test]
 fn test_toggle_help() {
     let (_tmp, mut state) = make_state();
-    assert!(!state.show_help);
+    assert!(!state.show_help());
     state.toggle_help();
-    assert!(state.show_help);
+    assert!(state.show_help());
     state.toggle_help();
-    assert!(!state.show_help);
+    assert!(!state.show_help());
 }
 
 #[test]
 fn test_visible_agents_sort_by_urgency() {
     let (_tmp, mut state) = make_state();
-    state.sort_mode = SortMode::Urgency;
+    state.root.overview.sort_mode = SortMode::Urgency;
     // Add agents with different statuses
     for (pid, tool) in [
         (1, AgentTool::Claude),
@@ -1312,7 +2240,7 @@ fn test_visible_agents_sort_by_urgency() {
 #[test]
 fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
     let (_tmp, mut state) = make_state();
-    state.sort_mode = SortMode::Urgency;
+    state.root.overview.sort_mode = SortMode::Urgency;
 
     for (pid, normalized) in [
         (
@@ -1349,7 +2277,7 @@ fn test_visible_agents_sort_by_urgency_uses_normalized_precedence() {
 #[test]
 fn test_visible_agents_sort_by_name() {
     let (_tmp, mut state) = make_state();
-    state.sort_mode = SortMode::Name;
+    state.root.overview.sort_mode = SortMode::Name;
     for (pid, tool) in [
         (1, AgentTool::OpenCode),
         (2, AgentTool::Claude),
@@ -1385,18 +2313,18 @@ fn test_visible_agents_filter() {
         ));
     }
     // Filter for "claude"
-    state.filter = Some("claude".to_string());
+    state.root.overview.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id.tool(), AgentTool::Claude);
 
     // Filter for status "RUNNING" — should match all
-    state.filter = Some("running".to_string());
+    state.root.overview.filter = Some("running".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 3);
 
     // Filter for something that matches nothing
-    state.filter = Some("zzz".to_string());
+    state.root.overview.filter = Some("zzz".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 0);
 }
@@ -1413,7 +2341,7 @@ fn test_filter_by_tool_name() {
     ));
     state.handle_event(discovered(AgentTool::Codex, 3, PathBuf::from("/c"), None));
 
-    state.filter = Some("claude".to_string());
+    state.root.overview.filter = Some("claude".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id.tool(), AgentTool::Claude);
@@ -1446,7 +2374,7 @@ fn test_filter_by_branch() {
         None,
     ));
 
-    state.filter = Some("auth".to_string());
+    state.root.overview.filter = Some("auth".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].pid.unwrap(), 1);
@@ -1469,7 +2397,7 @@ fn test_filter_by_status() {
         None,
     ));
 
-    state.filter = Some("waiting".to_string());
+    state.root.overview.filter = Some("waiting".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].pid.unwrap(), 1);
@@ -1485,12 +2413,12 @@ fn test_filter_matches_normalized_status_and_reason() {
         NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
     ));
 
-    state.filter = Some("needs input".to_string());
+    state.root.overview.filter = Some("needs input".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].pid.unwrap(), 1);
 
-    state.filter = Some("review".to_string());
+    state.root.overview.filter = Some("review".to_string());
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].pid.unwrap(), 1);
@@ -1509,7 +2437,7 @@ fn test_filter_clamps_selected_index() {
         ));
     }
     // Select the last agent (index 3)
-    state.selected = Some(3);
+    state.root.overview.selected_index = Some(3);
 
     // Apply a filter that matches only 1 agent by cwd
     state.start_filter();
@@ -1517,7 +2445,7 @@ fn test_filter_clamps_selected_index() {
 
     // Only 1 visible agent, so selected must be clamped to 0
     assert_eq!(state.visible_agents().len(), 1);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1634,7 +2562,7 @@ fn test_normalized_state_changed_before_discovered_is_preserved() {
 #[test]
 fn test_session_info_before_discovered_selects_first_visible_agent() {
     let (_tmp, mut state) = make_state();
-    assert_eq!(state.selected, None);
+    assert_eq!(state.root.overview.selected_index, None);
 
     state.handle_event(AgentEvent::SessionInfo {
         id: AgentId::new(AgentTool::Claude, 42),
@@ -1646,7 +2574,7 @@ fn test_session_info_before_discovered_selects_first_visible_agent() {
     });
 
     assert_eq!(state.visible_agents().len(), 1);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1673,11 +2601,11 @@ fn test_remove_exited_agents() {
     // Exit agent 100 and 300
     state.handle_event(process_exited(AgentTool::Claude, 100));
     state.handle_event(process_exited(AgentTool::Codex, 300));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.remove_exited();
     assert_eq!(state.agents.len(), 1);
     assert_eq!(state.agents[0].pid.unwrap(), 200);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1689,10 +2617,10 @@ fn test_remove_exited_no_exited_agents() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.remove_exited();
     assert_eq!(state.agents.len(), 1); // no change
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1705,10 +2633,10 @@ fn test_remove_exited_all_exited() {
         None,
     ));
     state.handle_event(process_exited(AgentTool::Claude, 100));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.remove_exited();
     assert_eq!(state.agents.len(), 0);
-    assert_eq!(state.selected, None);
+    assert_eq!(state.root.overview.selected_index, None);
 }
 
 #[test]
@@ -1727,11 +2655,11 @@ fn test_remove_selected_agent() {
         None,
     ));
     assert_eq!(state.agents.len(), 2);
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.remove_selected();
     assert_eq!(state.agents.len(), 1);
     assert_eq!(state.agents[0].pid.unwrap(), 200);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1749,10 +2677,10 @@ fn test_remove_selected_last_item_clamps() {
         PathBuf::from("/tmp/b"),
         None,
     ));
-    state.selected = Some(1);
+    state.root.overview.selected_index = Some(1);
     state.remove_selected();
     assert_eq!(state.agents.len(), 1);
-    assert_eq!(state.selected, Some(0));
+    assert_eq!(state.root.overview.selected_index, Some(0));
 }
 
 #[test]
@@ -1764,10 +2692,10 @@ fn test_remove_selected_only_item() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.remove_selected();
     assert_eq!(state.agents.len(), 0);
-    assert_eq!(state.selected, None);
+    assert_eq!(state.root.overview.selected_index, None);
 }
 
 #[test]
@@ -1779,7 +2707,7 @@ fn test_remove_selected_none_selected() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = None;
+    state.root.overview.selected_index = None;
     state.remove_selected();
     assert_eq!(state.agents.len(), 1); // no change
 }
@@ -1801,8 +2729,8 @@ fn test_remove_selected_with_filter_removes_correct_agent() {
         None,
     ));
     // Filter to show only opencode
-    state.filter = Some("opencode".to_string());
-    state.selected = Some(0); // first visible = opencode
+    state.root.overview.filter = Some("opencode".to_string());
+    state.root.overview.selected_index = Some(0); // first visible = opencode
     state.remove_selected();
     // opencode should be removed, claude should remain
     assert_eq!(state.agents.len(), 1);
@@ -1826,10 +2754,10 @@ fn test_rename_with_filter_renames_correct_agent() {
         None,
     ));
     // Filter to show only opencode
-    state.filter = Some("opencode".to_string());
-    state.selected = Some(0); // first visible = opencode
+    state.root.overview.filter = Some("opencode".to_string());
+    state.root.overview.selected_index = Some(0); // first visible = opencode
     state.start_rename();
-    state.rename_input = "my-oc".to_string();
+    state.run_overview_reducer_action(OverviewAction::UpdateRenameInput("my-oc".to_string()));
     state.confirm_rename();
     // opencode should be renamed, claude untouched
     let oc = state.agents.iter().find(|a| a.pid == Some(200)).unwrap();
@@ -2206,7 +3134,7 @@ fn test_codex_session_stays_visible_when_session_info_pid_is_none() {
         is_worktree: false,
         started_at: None,
     });
-    state.selected = Some(1);
+    state.root.overview.selected_index = Some(1);
 
     state.handle_event(AgentEvent::SessionInfo {
         id: AgentId::session(AgentTool::Codex, "codex-a"),
@@ -2219,7 +3147,7 @@ fn test_codex_session_stays_visible_when_session_info_pid_is_none() {
 
     // Both agents should still be visible (pid preserved on Codex session)
     assert_eq!(state.visible_agents().len(), 2);
-    assert_eq!(state.selected, Some(1));
+    assert_eq!(state.root.overview.selected_index, Some(1));
 }
 
 #[test]
@@ -2486,10 +3414,18 @@ fn test_mixed_process_and_session_identities_stay_independent() {
     assert_eq!(state.agents.len(), 2);
     assert_eq!(state.visible_agents().len(), 2);
 
-    state.selected = Some(1);
+    state.root.overview.selected_index = Some(1);
     state.start_rename();
-    assert_eq!(state.rename_input, "");
-    state.rename_input = "codex-session".to_string();
+    assert_eq!(
+        state.root.overview.mode,
+        OverviewMode::Renaming {
+            agent_id: state.agents[1].id.clone(),
+            input: String::new()
+        }
+    );
+    state.run_overview_reducer_action(OverviewAction::UpdateRenameInput(
+        "codex-session".to_string(),
+    ));
     state.confirm_rename();
 
     let claude = state
@@ -2530,7 +3466,7 @@ fn test_mixed_process_and_session_identities_stay_independent() {
 #[test]
 fn test_default_sort_mode_is_name() {
     let (_tmp, state) = make_state();
-    assert_eq!(state.sort_mode, SortMode::Name);
+    assert_eq!(state.root.overview.sort_mode, SortMode::Name);
 }
 
 #[test]
@@ -2563,10 +3499,12 @@ fn test_start_rename_sets_mode() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.start_rename();
-    assert!(state.rename_mode);
-    assert_eq!(state.rename_input, "");
+    assert!(matches!(
+        state.root.overview.mode,
+        OverviewMode::Renaming { ref input, .. } if input.is_empty()
+    ));
 }
 
 #[test]
@@ -2578,11 +3516,11 @@ fn test_confirm_rename_sets_alias() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.start_rename();
-    state.rename_input = "my-claude".to_string();
+    state.run_overview_reducer_action(OverviewAction::UpdateRenameInput("my-claude".to_string()));
     state.confirm_rename();
-    assert!(!state.rename_mode);
+    assert_eq!(state.root.overview.mode, OverviewMode::Normal);
     assert_eq!(state.agents[0].alias, Some("my-claude".to_string()));
     assert_eq!(state.agents[0].display_name(), "my-claude");
 }
@@ -2596,10 +3534,11 @@ fn test_confirm_rename_empty_keeps_existing_name() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.agents[0].alias = Some("old-name".to_string());
+    state.sync_root_overview_agents();
     state.start_rename();
-    state.rename_input.clear();
+    state.run_overview_reducer_action(OverviewAction::UpdateRenameInput(String::new()));
     state.confirm_rename();
     assert_eq!(state.agents[0].alias.as_deref(), Some("old-name"));
     assert_eq!(state.agents[0].display_name(), "old-name");
@@ -2614,21 +3553,22 @@ fn test_cancel_rename_preserves_alias() {
         PathBuf::from("/tmp/a"),
         None,
     ));
-    state.selected = Some(0);
+    state.root.overview.selected_index = Some(0);
     state.agents[0].alias = Some("keep-this".to_string());
+    state.sync_root_overview_agents();
     state.start_rename();
-    state.rename_input = "nope".to_string();
+    state.run_overview_reducer_action(OverviewAction::UpdateRenameInput("nope".to_string()));
     state.cancel_rename();
-    assert!(!state.rename_mode);
+    assert_eq!(state.root.overview.mode, OverviewMode::Normal);
     assert_eq!(state.agents[0].alias, Some("keep-this".to_string()));
 }
 
 #[test]
 fn test_start_rename_no_selection() {
     let (_tmp, mut state) = make_state();
-    state.selected = None;
+    state.root.overview.selected_index = None;
     state.start_rename();
-    assert!(!state.rename_mode);
+    assert_eq!(state.root.overview.mode, OverviewMode::Normal);
 }
 
 #[test]
@@ -2790,7 +3730,6 @@ fn test_count_by_status_consistent_with_agents_vec() {
 #[test]
 fn codex_tab_active_profile_can_be_set() {
     let mut state = AppState::new(Config::default());
-    state.accounts_tab.codex_profile_ids = vec!["profile-01".into(), "profile-02".into()];
     state.set_active_codex_profile(Some("profile-01".into()));
     assert_eq!(state.active_codex_profile_id(), Some("profile-01"));
 }

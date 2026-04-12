@@ -4,7 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::types::{self, AgentTool, TodoStatus};
+use crate::domain::agents::activity::TodoStatus;
+use crate::domain::agents::ids::AgentTool;
+use crate::domain::agents::status::NormalizedStatus;
+use crate::domain::shared::time::format_duration_short;
 
 use super::{theme, RenderData};
 
@@ -103,7 +106,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
                 ),
                 Span::styled("  idle: ", Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    types::format_duration_short(agent.idle_duration()),
+                    format_duration_short(agent.idle_duration()),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
             ]));
@@ -156,7 +159,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-fn normalized_status_badge_style(status: crate::types::NormalizedStatus) -> Style {
+fn normalized_status_badge_style(status: NormalizedStatus) -> Style {
     let color = normalized_status_color(status);
     Style::default()
         .fg(theme::BG_HEADER)
@@ -164,12 +167,12 @@ fn normalized_status_badge_style(status: crate::types::NormalizedStatus) -> Styl
         .add_modifier(Modifier::BOLD)
 }
 
-fn normalized_status_color(status: crate::types::NormalizedStatus) -> Color {
+fn normalized_status_color(status: NormalizedStatus) -> Color {
     match status {
-        crate::types::NormalizedStatus::Working => theme::STATUS_RUNNING,
-        crate::types::NormalizedStatus::NeedsInput => theme::STATUS_WAITING,
-        crate::types::NormalizedStatus::Blocked => theme::STATUS_ERROR,
-        crate::types::NormalizedStatus::Done => theme::STATUS_DONE,
-        crate::types::NormalizedStatus::Unknown => theme::FG_DIMMED,
+        NormalizedStatus::Working => theme::STATUS_RUNNING,
+        NormalizedStatus::NeedsInput => theme::STATUS_WAITING,
+        NormalizedStatus::Blocked => theme::STATUS_ERROR,
+        NormalizedStatus::Done => theme::STATUS_DONE,
+        NormalizedStatus::Unknown => theme::FG_DIMMED,
     }
 }

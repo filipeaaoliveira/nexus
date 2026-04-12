@@ -3,13 +3,16 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 
+use crate::domain::agents::activity::{Activity, Subagent};
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::status::{
+    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+};
+use crate::domain::system::health::CodexBackendHealth;
+use crate::domain::shared::time::from_epoch_secs;
 use crate::detect::heuristics::looks_like_review_output;
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{
-    from_epoch_secs, Activity, AgentId, AgentTool, CodexBackendHealth, NormalizedReason,
-    NormalizedState, NormalizedStatus, PrimaryStatus,
-};
 
 use super::rollout::{
     extract_plan_todos, extract_subagent_spawns, extract_tool_calls, infer_rollout_status,
@@ -54,9 +57,7 @@ pub(super) fn codex_launch_started_at(registry: &AgentRegistry, pid: u32) -> Opt
         .and_then(|launch| launch.started_at.map(|started_at| started_at.timestamp()))
 }
 
-pub(super) fn thread_is_recent_enough_for_pid_binding(
-    thread: &super::types::CodexThread,
-) -> bool {
+pub(super) fn thread_is_recent_enough_for_pid_binding(thread: &super::types::CodexThread) -> bool {
     let thread_timestamp = thread.created_at.max(thread.updated_at);
     if thread_timestamp <= 0 {
         return false;
@@ -469,7 +470,6 @@ fn extract_latest_active_tool_call(
     extract_tool_calls(relevant_events).last().cloned()
 }
 
-
 fn looks_like_input_request_output(text: &str) -> Option<NormalizedReason> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -668,8 +668,7 @@ fn rollout_summary_for_thread(thread: &super::types::CodexThread) -> RolloutThre
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let events = parse_rollout(&content);
                 summary.status = codex_to_primary(infer_rollout_status(&events));
-                let (final_output, final_output_is_completion) =
-                    extract_final_output_text(&events);
+                let (final_output, final_output_is_completion) = extract_final_output_text(&events);
                 summary.final_output = final_output;
                 summary.final_output_is_completion = final_output_is_completion;
                 summary.latest_tool_call =
@@ -699,9 +698,7 @@ fn rollout_summary_for_thread(thread: &super::types::CodexThread) -> RolloutThre
     summary
 }
 
-fn child_thread_subagent_metadata(
-    child: &ObservedCodexThread,
-) -> (String, Option<String>) {
+fn child_thread_subagent_metadata(child: &ObservedCodexThread) -> (String, Option<String>) {
     let source_info = child
         .thread
         .source
@@ -787,7 +784,7 @@ fn observed_subagents_for_parent(
                     description,
                     status,
                     reason,
-                    started_at: crate::types::from_epoch_secs(child.thread.created_at),
+                    started_at: from_epoch_secs(child.thread.created_at),
                 }
             })
             .map(|subagent| (subagent.thread_id.clone(), subagent))
@@ -1003,7 +1000,7 @@ pub fn reconcile_codex_snapshots(
         let current_subagents = session
             .subagents
             .iter()
-            .map(|subagent| crate::types::Subagent {
+            .map(|subagent| Subagent {
                 name: subagent.name.clone(),
                 status: subagent.status,
                 reason: subagent.reason.clone(),
@@ -1057,7 +1054,7 @@ pub fn reconcile_codex_snapshots(
                     events.push(AgentEvent::SubagentSpawned {
                         id: session.agent_id.clone(),
                         pid: session.pid,
-                        subagent: crate::types::Subagent {
+                        subagent: Subagent {
                             name: subagent.name.clone(),
                             status: subagent.status,
                             reason: subagent.reason.clone(),

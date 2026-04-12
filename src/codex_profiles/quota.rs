@@ -570,7 +570,6 @@ pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Option<QuotaSna
     fetch_quota_async(account_id, access_token).await
 }
 
-
 async fn fetch_quota_async(account_id: &str, access_token: &str) -> Option<QuotaSnapshot> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))

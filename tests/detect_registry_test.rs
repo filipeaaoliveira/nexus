@@ -1,6 +1,6 @@
 use chrono::Local;
 use nexus::detect::registry::AgentRegistry;
-use nexus::types::AgentTool;
+use nexus::domain::agents::AgentTool;
 use std::path::PathBuf;
 
 #[test]

@@ -102,4 +102,3 @@ fn keybind_line(key: &str, desc: &str) -> Line<'static> {
         Span::styled(desc.to_string(), Style::default().fg(theme::FG_DIMMED)),
     ])
 }
-

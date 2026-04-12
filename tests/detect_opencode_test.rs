@@ -1,6 +1,9 @@
 use nexus::detect::opencode::*;
+use nexus::domain::agents::{
+    Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
+};
 use nexus::event::AgentEvent;
-use nexus::types::{Activity, AgentTool, PrimaryStatus, TodoPriority, TodoStatus};
+use nexus::domain::agents::AgentTool;
 use std::path::PathBuf;
 
 /// Create a temporary SQLite DB with the `message` table for testing.
@@ -252,8 +255,6 @@ fn test_resolve_status_running_tool_overrides_turn_completed() {
 
 #[test]
 fn test_retry_maps_to_working_retrying() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let state = normalize_opencode_state(
         Some("retry"),
         None,
@@ -313,8 +314,6 @@ fn test_latest_assistant_message_data_extracts_error() {
 
 #[test]
 fn test_assistant_error_maps_to_blocked_error_without_retry_or_working_signal() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let state = normalize_opencode_state(
         Some("idle"),
         None,
@@ -330,8 +329,6 @@ fn test_assistant_error_maps_to_blocked_error_without_retry_or_working_signal() 
 
 #[test]
 fn test_assistant_error_does_not_override_retry_or_working_signal() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let retry_state = normalize_opencode_state(
         Some("retry"),
         None,
@@ -383,8 +380,6 @@ fn test_assistant_error_does_not_override_retry_or_working_signal() {
 
 #[test]
 fn test_completed_review_maps_to_needs_input_review() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let state = normalize_opencode_state(
         Some("idle"),
         None,
@@ -406,8 +401,6 @@ fn test_completed_review_maps_to_needs_input_review() {
 
 #[test]
 fn test_incomplete_review_maps_to_needs_input_review() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let state = normalize_opencode_state(
         Some("idle"),
         None,
@@ -429,8 +422,6 @@ fn test_incomplete_review_maps_to_needs_input_review() {
 
 #[test]
 fn test_busy_review_like_text_stays_working() {
-    use nexus::types::NormalizedStatus;
-
     let state = normalize_opencode_state(
         Some("busy"),
         None,
@@ -447,13 +438,11 @@ fn test_busy_review_like_text_stays_working() {
     );
 
     assert_eq!(state.status, NormalizedStatus::Working);
-    assert_ne!(state.reason, Some(nexus::types::NormalizedReason::Review));
+    assert_ne!(state.reason, Some(NormalizedReason::Review));
 }
 
 #[test]
 fn test_completed_turn_without_assistant_text_maps_to_done_ready_for_next_task() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let state = normalize_opencode_state(
         Some("idle"),
         None,
@@ -475,8 +464,6 @@ fn test_completed_turn_without_assistant_text_maps_to_done_ready_for_next_task()
 
 #[test]
 fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() {
-    use nexus::types::NormalizedStatus;
-
     let state = normalize_opencode_state(
         Some("idle"),
         Some("bash"),
@@ -493,7 +480,7 @@ fn test_completed_tool_without_active_state_does_not_map_to_working_tool_call() 
     );
 
     assert_eq!(state.status, NormalizedStatus::Unknown);
-    assert_ne!(state.reason, Some(nexus::types::NormalizedReason::ToolCall));
+    assert_ne!(state.reason, Some(NormalizedReason::ToolCall));
 }
 
 #[test]

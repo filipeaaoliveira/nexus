@@ -1,15 +1,5 @@
 use chrono::{DateTime, Local};
 
-pub use crate::domain::agents::activity::{
-    Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem, TodoPriority, TodoStatus,
-};
-pub use crate::domain::agents::ids::{AgentId, AgentIdentity, AgentTool};
-pub use crate::domain::agents::model::{Agent, SortMode};
-pub use crate::domain::agents::status::{
-    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
-};
-pub use crate::domain::system::health::CodexBackendHealth;
-
 /// Format a duration for display: "5s", "3m12s", "2h15m".
 pub fn format_duration(d: chrono::Duration) -> String {
     let secs = d.num_seconds().max(0);

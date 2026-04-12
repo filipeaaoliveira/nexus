@@ -1,6 +1,9 @@
 use crate::detect::heuristics::looks_like_review_output;
 use crate::detect::registry::ClaudeLaunchInfo;
-use crate::types::{Activity, NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus};
+use crate::domain::agents::activity::Activity;
+use crate::domain::agents::status::{
+    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+};
 
 use super::parser::{is_compaction_restore_message, last_non_assistant_entry};
 use super::types::{InferredStatus, ProjectSessionInfo, TranscriptEntry};

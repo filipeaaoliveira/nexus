@@ -6,9 +6,12 @@ use anyhow::Result;
 use chrono::Local;
 use tokio::sync::mpsc;
 
+use crate::domain::agents::activity::Subagent;
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::status::PrimaryStatus;
+use crate::domain::shared::time::from_rfc3339;
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
-use crate::types::{from_rfc3339, AgentId, AgentTool, PrimaryStatus};
 
 mod inference;
 mod parser;
@@ -482,7 +485,7 @@ pub async fn run_claude_detector(
                                             .send(AgentEvent::SubagentSpawned {
                                                 id: AgentId::new(AgentTool::Claude, pid),
                                                 pid: Some(pid),
-                                                subagent: crate::types::Subagent {
+                                                subagent: Subagent {
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
                                                     reason: None,

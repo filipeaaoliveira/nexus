@@ -1,164 +1,123 @@
 use super::*;
+use crate::app::action::OverviewAction;
+use crate::app::reducer;
+use crate::app::state::{OverviewAgent, OverviewMode};
 
-// Legacy runtime compatibility lives here for now. The additive overview reducer
-// in `crate::app::reducer::overview` is the future source of truth.
 impl AppState {
     pub fn move_selection_down(&mut self) {
-        let count = self.visible_agent_count();
-        if count == 0 {
-            return;
-        }
-        let max = count - 1;
-        self.selected = Some(match self.selected {
-            Some(s) if s < max => s + 1,
-            Some(_) => 0, // wrap to top
-            None => 0,
-        });
+        self.run_overview_reducer_action(OverviewAction::SelectNext);
     }
 
     pub fn move_selection_up(&mut self) {
-        let count = self.visible_agent_count();
-        if count == 0 {
-            return;
-        }
-        let max = count - 1;
-        self.selected = Some(match self.selected {
-            Some(s) if s > 0 => s - 1,
-            Some(_) => max, // wrap to bottom
-            None => 0,
-        });
+        self.run_overview_reducer_action(OverviewAction::SelectPrevious);
     }
 
     pub fn cycle_sort_mode(&mut self) {
-        self.sort_mode = self.sort_mode.next();
+        self.run_overview_reducer_action(OverviewAction::CycleSortMode);
     }
 
     pub fn toggle_help(&mut self) {
-        self.show_help = !self.show_help;
-        if !self.show_help {
-            self.help_scroll = 0;
+        if self.show_help() {
+            self.root.clear_overlay();
+        } else {
+            self.root.show_overlay(Overlay::Help { scroll: 0 });
         }
     }
 
     pub fn scroll_help_up(&mut self) {
-        self.help_scroll = self.help_scroll.saturating_sub(1);
+        if let Overlay::Help { scroll } = &mut self.root.system.overlay {
+            *scroll = scroll.saturating_sub(1);
+        }
     }
 
     pub fn scroll_help_down(&mut self) {
         let max = crate::ui::help::help_lines(true).len() as u16;
-        self.help_scroll = self.help_scroll.saturating_add(1).min(max);
+        if let Overlay::Help { scroll } = &mut self.root.system.overlay {
+            *scroll = scroll.saturating_add(1).min(max);
+        }
     }
 
     pub fn dismiss_overlay(&mut self) {
-        self.show_help = false;
-        self.help_scroll = 0;
-        self.filter_mode = false;
-        self.filter = None;
-        self.filter_input.clear();
-        self.rename_mode = false;
-        self.rename_input.clear();
+        self.root.clear_overlay();
+        self.run_overview_reducer_action(OverviewAction::CancelMode);
         self.clamp_selection();
     }
 
     pub fn start_filter(&mut self) {
-        self.filter_mode = true;
-        self.filter_input.clear();
-        self.filter = None;
+        self.run_overview_reducer_action(OverviewAction::StartFiltering);
     }
 
     pub fn filter_push_char(&mut self, c: char) {
-        self.filter_input.push(c);
-        self.sync_filter();
+        let mut input = match &self.root.overview.mode {
+            OverviewMode::Filtering { input } => input.clone(),
+            _ => String::new(),
+        };
+        input.push(c);
+        self.run_overview_reducer_action(OverviewAction::UpdateFilter(input));
     }
 
     pub fn filter_pop_char(&mut self) {
-        self.filter_input.pop();
-        self.sync_filter();
+        let mut input = match &self.root.overview.mode {
+            OverviewMode::Filtering { input } => input.clone(),
+            _ => String::new(),
+        };
+        input.pop();
+        self.run_overview_reducer_action(OverviewAction::UpdateFilter(input));
     }
 
     pub fn confirm_filter(&mut self) {
-        self.filter_mode = false;
-        // Keep filter active
-        self.clamp_selection();
-    }
-
-    fn sync_filter(&mut self) {
-        self.filter = if self.filter_input.is_empty() {
-            None
-        } else {
-            Some(self.filter_input.clone())
-        };
+        self.run_overview_reducer_action(OverviewAction::ConfirmFilter);
         self.clamp_selection();
     }
 
     pub fn start_rename(&mut self) {
-        let Some((_real_idx, _)) = self.resolve_selected() else {
+        let Some(agent_id) = self.root.overview.selected_agent_id() else {
             return;
         };
-        self.rename_mode = true;
-        self.rename_input.clear();
+        self.run_overview_reducer_action(OverviewAction::StartRenaming { agent_id });
     }
 
     pub fn rename_push_char(&mut self, c: char) {
-        self.rename_input.push(c);
+        let mut input = match &self.root.overview.mode {
+            OverviewMode::Renaming { input, .. } => input.clone(),
+            _ => String::new(),
+        };
+        input.push(c);
+        self.run_overview_reducer_action(OverviewAction::UpdateRenameInput(input));
     }
 
     pub fn rename_pop_char(&mut self) {
-        self.rename_input.pop();
+        let mut input = match &self.root.overview.mode {
+            OverviewMode::Renaming { input, .. } => input.clone(),
+            _ => String::new(),
+        };
+        input.pop();
+        self.run_overview_reducer_action(OverviewAction::UpdateRenameInput(input));
     }
 
     pub fn confirm_rename(&mut self) {
-        if let Some((real_idx, _id)) = self.resolve_selected() {
-            if real_idx < self.agents.len() && !self.rename_input.is_empty() {
-                self.agents[real_idx].alias = Some(self.rename_input.clone());
-                self.mark_agents_dirty();
-            }
-        }
-        self.rename_mode = false;
-        self.rename_input.clear();
+        self.run_overview_reducer_action(OverviewAction::ConfirmRename);
+        self.sync_agent_aliases_from_root_overview();
     }
 
     pub fn cancel_rename(&mut self) {
-        self.rename_mode = false;
-        self.rename_input.clear();
+        self.run_overview_reducer_action(OverviewAction::CancelMode);
     }
 
     pub fn remove_exited(&mut self) {
-        self.agents.retain(|a| a.status != PrimaryStatus::Exited);
-        self.mark_agents_dirty();
+        self.run_overview_reducer_action(OverviewAction::DismissExited);
+        self.retain_agents_present_in_root_overview();
         self.clamp_selection();
     }
 
     pub fn remove_selected(&mut self) {
-        let (real_idx, _id) = match self.resolve_selected() {
-            Some(v) => v,
-            None => return,
-        };
-        self.agents.remove(real_idx);
-        self.mark_agents_dirty();
+        self.run_overview_reducer_action(OverviewAction::DismissSelected);
+        self.retain_agents_present_in_root_overview();
         self.clamp_selection();
     }
 
     pub(super) fn clamp_selection(&mut self) {
-        let count = self.visible_agent_count();
-        if count == 0 {
-            self.selected = None;
-        } else if self.selected.is_none() {
-            self.selected = Some(0);
-        } else if let Some(idx) = self.selected {
-            if idx >= count {
-                self.selected = Some(count - 1);
-            }
-        }
-    }
-
-    pub(super) fn resolve_selected(&self) -> Option<(usize, AgentId)> {
-        let vis_idx = self.selected?;
-        self.with_visible_agent_indices(|indices| {
-            let real_idx = *indices.get(vis_idx)?;
-            let id = self.agents[real_idx].id.clone();
-            Some((real_idx, id))
-        })
+        self.root.overview.clamp_selection();
     }
 
     pub(super) fn mark_agents_dirty(&self) {
@@ -171,10 +130,56 @@ impl AppState {
         f(&cache.indices)
     }
 
+    pub fn run_overview_reducer_action(&mut self, action: OverviewAction) {
+        let effects = reducer::root::reduce(&mut self.root, &crate::app::Action::Overview(action));
+        debug_assert!(effects.is_empty(), "overview reducer should not emit effects yet");
+    }
+
+    pub fn sync_root_overview_agents(&mut self) {
+        self.root.overview.agents = self
+            .agents
+            .iter()
+            .map(|agent| OverviewAgent {
+                id: agent.id.clone(),
+                pid: agent.pid,
+                status: agent.status,
+                normalized: agent.normalized.clone(),
+                cwd: agent.cwd.clone(),
+                branch: agent.branch.clone(),
+                is_worktree: agent.is_worktree,
+                started_at: Some(agent.started_at),
+                session_id: agent.session_id.clone(),
+                alias: agent.alias.clone(),
+            })
+            .collect();
+    }
+
+    fn sync_agent_aliases_from_root_overview(&mut self) {
+        for root_agent in &self.root.overview.agents {
+            if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == root_agent.id) {
+                agent.alias = root_agent.alias.clone();
+            }
+        }
+        self.mark_agents_dirty();
+    }
+
+    fn retain_agents_present_in_root_overview(&mut self) {
+        let retained_ids: Vec<_> = self
+            .root
+            .overview
+            .agents
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect();
+        self.agents
+            .retain(|agent| retained_ids.iter().any(|id| id == &agent.id));
+        self.mark_agents_dirty();
+    }
+
     fn refresh_visible_agent_cache(&self) {
         let current_version = self.agents_version.get();
-        let current_filter = self.filter.clone();
-        let current_sort_mode = self.sort_mode;
+        let current_filter = self.root.overview.filter.clone();
+        let current_sort_mode = self.root.overview.sort_mode;
         let should_refresh = {
             let cache = self.visible_agent_cache.borrow();
             cache.version != current_version
@@ -268,9 +273,5 @@ impl AppState {
                 .as_deref()
                 .map(|branch| branch.to_lowercase().contains(filter))
                 .unwrap_or(false)
-    }
-
-    pub(super) fn visible_agent_count(&self) -> usize {
-        self.with_visible_agent_indices(|indices| indices.len())
     }
 }

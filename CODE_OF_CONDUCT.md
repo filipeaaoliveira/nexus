@@ -14,4 +14,10 @@
 
 ## Enforcement
 
-Instances of unacceptable behaviour may be reported by opening a GitHub issue or contacting the maintainer directly. All reports will be reviewed and addressed appropriately. Maintainers reserve the right to remove, edit, or reject contributions that do not align with this code of conduct.
+Use the reporting route that matches the situation:
+
+- General conduct problems that are safe to discuss publicly: open a GitHub issue.
+- Harassment, safety concerns, doxxing, or anything involving private information: do not post the details publicly. Use the maintainer contact route exposed on the repository or GitHub profile.
+- If no private contact route is visible, open a minimal public issue requesting a private contact path and do not include sensitive details in that issue.
+
+All reports will be reviewed and handled as promptly as practical. Maintainers reserve the right to remove, edit, or reject contributions that do not align with this code of conduct.

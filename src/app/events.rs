@@ -2,6 +2,19 @@ use super::*;
 use std::collections::VecDeque;
 
 impl AppState {
+    pub(super) fn handle_detector_health_changed(
+        &mut self,
+        detector: String,
+        healthy: bool,
+        message: String,
+    ) {
+        if healthy {
+            self.detector_issues.remove(&detector);
+        } else {
+            self.detector_issues.insert(detector, message);
+        }
+    }
+
     pub(super) fn find_agent_mut_by_id(&mut self, id: &AgentId) -> Option<&mut Agent> {
         self.agents.iter_mut().find(|a| a.id == *id)
     }
@@ -245,8 +258,8 @@ impl AppState {
             todos: Vec::new(),
         });
         self.mark_agents_dirty();
-        if self.selected.is_none() {
-            self.selected = Some(0);
+        if self.root.overview.selected_index.is_none() {
+            self.root.overview.selected_index = Some(0);
         }
         self.clamp_selection();
     }

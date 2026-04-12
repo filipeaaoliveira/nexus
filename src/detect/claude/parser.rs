@@ -5,11 +5,10 @@ use chrono::{DateTime, Local};
 use serde_json::Value;
 use tracing::warn;
 
-use crate::types::{from_rfc3339, TodoItem, TodoPriority, TodoStatus};
+use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
+use crate::domain::shared::time::from_rfc3339;
 
-use super::types::{
-    ProjectSessionInfo, SessionRegistryEntry, TranscriptEntry,
-};
+use super::types::{ProjectSessionInfo, SessionRegistryEntry, TranscriptEntry};
 
 /// Parse a Claude transcript JSONL string into a list of entries.
 /// Each line is a JSON object with at least a "type" and "timestamp" field.

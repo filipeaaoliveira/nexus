@@ -1,7 +1,7 @@
 use crate::detect::registry::AgentRegistry;
+use crate::domain::agents::ids::AgentId;
+use crate::domain::agents::ids::AgentTool;
 use crate::event::AgentEvent;
-use crate::types::AgentId;
-use crate::types::AgentTool;
 use chrono::{DateTime, Local, NaiveDateTime};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -21,6 +21,17 @@ pub struct ProcessInfo {
     pub started_at: Option<DateTime<Local>>,
     pub codex_thread_id: Option<String>,
     pub claude_resume_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ScannerHealth {
+    Healthy,
+    Degraded(String),
+}
+
+struct ScanProcessesResult {
+    processes: Vec<(ProcessInfo, PathBuf)>,
+    health: ScannerHealth,
 }
 
 fn extract_codex_thread_id(cmd: &str) -> Option<String> {
@@ -302,9 +313,29 @@ pub async fn get_process_cwd(pid: u32) -> Option<PathBuf> {
 ///
 /// Returns a map of PID → PathBuf for every PID whose cwd could be resolved.
 /// PIDs whose cwd cannot be determined are absent from the map.
-pub async fn batch_get_cwds(pids: &[u32]) -> std::collections::HashMap<u32, PathBuf> {
+fn lsof_failure_message(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        "Process scanner degraded: `lsof` is unavailable; install it to enable agent detection."
+            .to_string()
+    } else {
+        format!("Process scanner degraded: failed to run `lsof`: {error}")
+    }
+}
+
+fn ps_failure_message(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        "Process scanner degraded: `ps` is unavailable; install it to enable agent detection."
+            .to_string()
+    } else {
+        format!("Process scanner degraded: failed to run `ps`: {error}")
+    }
+}
+
+pub async fn batch_get_cwds(
+    pids: &[u32],
+) -> (std::collections::HashMap<u32, PathBuf>, Option<String>) {
     if pids.is_empty() {
-        return std::collections::HashMap::new();
+        return (std::collections::HashMap::new(), None);
     }
     // Build comma-separated PID list: "1234,5678,..."
     let pid_arg = pids
@@ -321,19 +352,25 @@ pub async fn batch_get_cwds(pids: &[u32]) -> std::collections::HashMap<u32, Path
         Ok(o) => o,
         Err(e) => {
             debug!("lsof batch call failed: {e}");
-            return std::collections::HashMap::new();
+            return (
+                std::collections::HashMap::new(),
+                Some(lsof_failure_message(&e)),
+            );
         }
     };
 
     if !output.status.success() && output.stdout.is_empty() {
-        return std::collections::HashMap::new();
+        return (
+            std::collections::HashMap::new(),
+            Some("Process scanner degraded: `lsof` did not return cwd data.".to_string()),
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_lsof_cwds_multi(&stdout)
+    (parse_lsof_cwds_multi(&stdout), None)
 }
 
-pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
+async fn scan_processes() -> ScanProcessesResult {
     let output = match Command::new("ps")
         .args(["-eo", "pid,ppid,lstart,command"])
         .output()
@@ -342,7 +379,10 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
         Ok(o) => o,
         Err(e) => {
             warn!("Failed to run ps: {e}");
-            return Vec::new();
+            return ScanProcessesResult {
+                processes: Vec::new(),
+                health: ScannerHealth::Degraded(ps_failure_message(&e)),
+            };
         }
     };
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -371,7 +411,7 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
 
     // Only call lsof for PIDs we haven't cached yet
     if !new_pids.is_empty() {
-        let new_cwds = batch_get_cwds(&new_pids).await;
+        let (new_cwds, lsof_issue) = batch_get_cwds(&new_pids).await;
 
         // Update cache and results
         let mut cache = CWD_CACHE.lock().unwrap();
@@ -380,6 +420,13 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
         }
 
         pid_cwd.extend(new_cwds);
+
+        if let Some(issue) = lsof_issue {
+            return ScanProcessesResult {
+                processes: Vec::new(),
+                health: ScannerHealth::Degraded(issue),
+            };
+        }
     }
 
     // Filter out processes without CWD
@@ -435,7 +482,10 @@ pub async fn scan_processes() -> Vec<(ProcessInfo, PathBuf)> {
         })
         .collect();
 
-    results
+    ScanProcessesResult {
+        processes: results,
+        health: ScannerHealth::Healthy,
+    }
 }
 
 pub async fn run_process_scanner(
@@ -444,8 +494,39 @@ pub async fn run_process_scanner(
     registry: AgentRegistry,
 ) -> anyhow::Result<()> {
     let mut known_pids: HashSet<(AgentTool, u32)> = HashSet::new();
+    let mut last_health = ScannerHealth::Healthy;
     loop {
-        let found = scan_processes().await;
+        let scan = scan_processes().await;
+        if scan.health != last_health {
+            match &scan.health {
+                ScannerHealth::Healthy => {
+                    let _ = tx
+                        .send(AgentEvent::DetectorHealthChanged {
+                            detector: "process scanner".to_string(),
+                            healthy: true,
+                            message: "process scanner healthy".to_string(),
+                        })
+                        .await;
+                }
+                ScannerHealth::Degraded(message) => {
+                    let _ = tx
+                        .send(AgentEvent::DetectorHealthChanged {
+                            detector: "process scanner".to_string(),
+                            healthy: false,
+                            message: message.clone(),
+                        })
+                        .await;
+                }
+            }
+            last_health = scan.health.clone();
+        }
+
+        if scan.health != ScannerHealth::Healthy {
+            tokio::time::sleep(poll_interval).await;
+            continue;
+        }
+
+        let found = scan.processes;
         let mut current_pids: HashSet<(AgentTool, u32)> = HashSet::new();
         for (proc, cwd) in &found {
             let key = (proc.tool, proc.pid);

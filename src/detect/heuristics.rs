@@ -42,9 +42,13 @@ pub(crate) fn looks_like_review_output(text: &str) -> bool {
         return true;
     }
 
-    ["requested changes", "changes requested", "approve with comments"]
-        .iter()
-        .any(|marker| contains_review_section_marker(trimmed, marker))
+    [
+        "requested changes",
+        "changes requested",
+        "approve with comments",
+    ]
+    .iter()
+    .any(|marker| contains_review_section_marker(trimmed, marker))
 }
 
 #[cfg(test)]
@@ -83,7 +87,9 @@ mod tests {
 
     #[test]
     fn detects_approve_with_comments() {
-        assert!(looks_like_review_output("approve with comments: minor nits"));
+        assert!(looks_like_review_output(
+            "approve with comments: minor nits"
+        ));
     }
 
     #[test]

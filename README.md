@@ -9,6 +9,24 @@ Terminal dashboard and monitor for local AI coding agents, with partial account-
 
 The goal is one terminal surface for both observing active agents and managing Codex and Claude account workflows without opening a second TUI.
 
+## What It Solves
+
+`nexus` is for people who already use local terminal-based coding agents and want one place to:
+
+- see which agent sessions are active
+- inspect their current state and recent activity
+- switch between Codex and Claude account profiles when auth/quota workflows matter
+
+It is not a general-purpose terminal multiplexer, IDE, or remote orchestration system. It is a local operator dashboard for existing CLI-based agent workflows.
+
+## Intended Audience
+
+- developers who already run Claude, Codex, and/or OpenCode locally
+- terminal-first users who want passive session visibility
+- maintainers who need to switch local auth profiles without manually copying credential files around
+
+If you are not already using these tools locally, `nexus` will not be useful on first run.
+
 ## Status
 
 This project is still early-stage, but the core two-workspace model is in place.
@@ -26,18 +44,19 @@ Current focus:
 ```bash
 git clone https://github.com/filipeaaoliveira/nexus.git
 cd nexus
-cargo build --release
+cargo build --release --locked
 ./target/release/nexus
 ```
 
 ### From Git
 
 ```bash
-cargo install --git https://github.com/filipeaaoliveira/nexus.git
+cargo install --git https://github.com/filipeaaoliveira/nexus.git --locked
 nexus
 ```
 
 There are no pre-built binaries. There are no tagged releases; the `main` branch is the current stable version. Install from source or via `cargo install --git`.
+CI validates locked build, lint, test, and release-build workflows. `cargo install --git` is supported, but it is not currently a dedicated CI smoke-test path.
 
 ## Requirements
 
@@ -50,7 +69,7 @@ There are no pre-built binaries. There are no tagged releases; the `main` branch
 - Codex installed locally if you want to use Codex-specific actions in the `Accounts` workspace
 - OpenCode installed locally if you want OpenCode sessions to appear in the `Overview` workspace
 
-If `lsof` is absent, process detection degrades silently: agents will not appear in the `Overview` workspace even if they are running. Install it with your system package manager if needed (e.g. `apt install lsof`).
+If `lsof` is absent, the `Overview` workspace will show a degraded process-scanner warning and agent detection will not work until `lsof` is installed. Install it with your system package manager if needed (e.g. `apt install lsof`).
 
 Default local state roots:
 
@@ -67,12 +86,37 @@ Run:
 nexus
 ```
 
-Current CLI flags:
+## Quick Start
+
+Typical first-use path:
+
+1. Start one of the supported tools locally (`claude`, `codex`, or OpenCode).
+2. Launch `nexus`.
+3. Stay on `Overview` to confirm the session appears in the left pane.
+4. Press `?` to open the full keybinding overlay.
+5. Press `Tab` to switch to `Accounts` only when you need profile or quota workflows.
+
+If no supported agents are running, `Overview` should be empty. If scanner dependencies are missing, `Overview` should show a degraded warning instead of a fake healthy empty state.
+
+Sample workflows:
+
+- passive monitoring: start `codex` or `claude`, then run `nexus` in another terminal and watch status changes in `Overview`
+- account switching: open `Accounts`, import a profile, select it, then press `w` to write it back to the tool home directory
+- troubleshooting: run `RUST_LOG=debug nexus --log-file ~/.cache/nexus/debug.log` and inspect the log file after reproducing the issue
+
+## Configuration Reference
+
+`nexus` does not currently use a config file. Runtime behavior is controlled by CLI flags, environment variables, and the on-disk state of the tools it reads from.
+
+CLI flags:
 
 ```text
 --poll-interval <SECONDS>
 --log-file <PATH>
 ```
+
+- `--poll-interval <SECONDS>`: polling interval for detector refreshes
+- `--log-file <PATH>`: override the default log file path
 
 Examples:
 
@@ -81,13 +125,41 @@ nexus --poll-interval 2
 nexus --log-file ~/.cache/nexus/debug.log
 ```
 
-The `RUST_LOG` environment variable controls the log level (default: `info`). Logs go to the log file, never to stdout, so they do not interfere with the TUI.
+Environment variables:
+
+- `RUST_LOG`: controls the log level for file logging; default is `info`
+
+Logs go to the log file, never to stdout, so they do not interfere with the TUI.
 
 ```bash
 RUST_LOG=debug nexus
 ```
 
+Relevant file and state locations:
+
+- Claude home: `~/.claude`
+- Codex runtime/detection state: `~/.codex`
+- OpenCode runtime/detection state: `~/.local/share/opencode`
+- nexus-managed Codex profile data: platform local data dir under `nexus/codex/`
+- default log file: cache dir such as `~/.cache/nexus/nexus.log`
+
 If none of the supported agents (Claude, Codex, OpenCode) are running, the `Overview` workspace will be empty. Start any of the supported tools and `nexus` will detect them within one poll interval.
+
+## First Run
+
+What to expect on first launch:
+
+- `Overview` opens first
+- if supported agents are already running, they appear in the left pane within one poll interval
+- if no supported agents are running, the overview stays empty
+- if process detection dependencies are missing, the overview shows a degraded scanner warning instead of pretending everything is fine
+
+For account-management workflows:
+
+1. Press `Tab` to switch to `Accounts`
+2. Import a Codex profile with `i` or a Claude profile with `I`
+3. Select the profile you want
+4. Press `w` to write that profile back to the tool home directory when you want to switch the active local account
 
 ## Workspaces
 
@@ -169,12 +241,88 @@ Accounts:
 - `d`: delete selected profile (confirms)
 - `R`: refresh quota
 
+## Troubleshooting
+
+### Overview shows "No agents detected"
+
+Check the basics first:
+
+- make sure Claude, Codex, or OpenCode is actually running locally
+- wait at least one poll interval before assuming detection failed
+- confirm the tool stores session/runtime state in the expected default location
+
+### Overview shows a degraded process-scanner warning
+
+`nexus` depends on external system tools for process-to-working-directory resolution:
+
+- `ps`
+- `lsof`
+- `git`
+
+On Linux, `lsof` is the dependency most likely to be missing. Install it with your system package manager and restart `nexus`.
+
+### Accounts import does not find Claude credentials
+
+- on macOS, run `claude` once so the Keychain item exists
+- on Linux, make sure `~/.claude/.credentials.json` already exists
+
+### Quota data is missing or looks stale
+
+- quota refresh is best-effort and depends on undocumented or internal upstream APIs
+- try manual refresh with `R`
+- check the log file with `RUST_LOG=debug`
+- do not treat the displayed value as billing truth
+
+### Need logs for a bug report
+
+By default, logs are written to a cache location such as `~/.cache/nexus/nexus.log`. You can override the path with `--log-file`.
+
+## Platform Support
+
+- macOS: supported
+- Linux: supported
+- Windows: not supported at this time
+
+The current implementation relies on Unix-oriented process and filesystem behavior, including `ps`, `lsof`, and Unix symlink semantics.
+
+## Architecture
+
+For a deep explanation of how the application works internally, start with:
+
+- [`docs/architecture/README.md`](docs/architecture/README.md)
+
+That architecture set covers:
+
+- runtime lifecycle and data flow
+- detection internals
+- app state and event reconciliation
+- UI/rendering/input structure
+- Codex and Claude profile-management internals
+
+Maintainers preparing tagged releases should also use:
+
+- [`docs/releasing.md`](docs/releasing.md)
+
 ## Development
+
+Development setup:
+
+```bash
+git clone https://github.com/filipeaaoliveira/nexus.git
+cd nexus
+cargo build --locked
+```
 
 Format:
 
 ```bash
 cargo fmt --all
+```
+
+Check:
+
+```bash
+cargo check --locked
 ```
 
 Lint:
@@ -194,6 +342,17 @@ Build:
 ```bash
 cargo build --locked
 ```
+
+Release build:
+
+```bash
+cargo build --release --locked
+```
+
+Tagged-release process:
+
+- release discipline and tag workflow: [`docs/releasing.md`](docs/releasing.md)
+- changelog source of truth: [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Network activity
 

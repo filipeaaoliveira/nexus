@@ -5,9 +5,10 @@ pub mod config;
 pub mod detect;
 pub mod domain;
 pub mod event;
+pub mod infra;
 pub mod input;
+pub mod runtime_support;
 pub mod services;
-pub mod types;
 pub mod ui;
 
 pub use app::action::Action as SemanticAction;

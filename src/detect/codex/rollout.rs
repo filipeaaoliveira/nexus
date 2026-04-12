@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tracing::debug;
 
-use crate::types::{TodoItem, TodoPriority, TodoStatus};
+use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
 use super::types::{
     CodexInferredStatus, RolloutEvent, SessionIndexEntry, SessionMeta, SubagentSpawn, ToolCallInfo,

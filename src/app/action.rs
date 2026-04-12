@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use chrono::{DateTime, Local};
 
 use crate::domain::accounts::ProviderFilter;
-use crate::types::{AgentId, NormalizedState, PrimaryStatus};
+use crate::domain::agents::ids::AgentId;
+use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
 
 use super::effect::EffectResult;
 use super::state::{

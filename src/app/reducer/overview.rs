@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use crate::app::action::{DetectorAction, OverviewAction};
 use crate::app::effect::Effect;
 use crate::app::state::{OverviewAgent, OverviewMode, OverviewState};
-use crate::types::{AgentId, AgentTool, NormalizedState, NormalizedStatus, PrimaryStatus};
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
 pub fn reduce(state: &mut OverviewState, action: &OverviewAction) -> Vec<Effect> {
     match action {

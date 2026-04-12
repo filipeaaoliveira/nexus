@@ -6,8 +6,10 @@ use tokio::sync::mpsc;
 use tracing::debug;
 
 use crate::detect::registry::AgentRegistry;
+use crate::domain::agents::activity::TodoItem;
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::status::PrimaryStatus;
 use crate::event::AgentEvent;
-use crate::types::{AgentId, AgentTool, PrimaryStatus, TodoItem};
 
 mod inference;
 mod query;

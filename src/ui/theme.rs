@@ -1,6 +1,6 @@
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::types::PrimaryStatus;
+use crate::domain::agents::status::PrimaryStatus;
 
 // ── Backgrounds ────────────────────────────────────────────────────
 

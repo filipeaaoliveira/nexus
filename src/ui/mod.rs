@@ -1,20 +1,19 @@
-pub mod accounts_tab;
+pub mod accounts;
 pub mod activity;
 pub mod agent_list;
 pub mod detail;
 pub mod footer;
 pub mod header;
 pub mod help;
+pub mod overview;
+pub mod shared;
 pub mod theme;
 
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{ActiveTab, AppState};
-use crate::types::{Agent, NormalizedStatus};
+use crate::domain::agents::model::Agent;
+use crate::domain::agents::status::NormalizedStatus;
 
 pub struct HeaderStats {
     pub total: usize,
@@ -35,7 +34,11 @@ pub struct RenderData<'a> {
 impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
         let visible_agents = state.visible_agents();
-        let selected_agent = state.selected.and_then(|i| visible_agents.get(i).copied());
+        let selected_agent = state
+            .root
+            .overview
+            .selected_index
+            .and_then(|i| visible_agents.get(i).copied());
         let count_visible_with_normalized_status = |status| {
             visible_agents
                 .iter()
@@ -76,76 +79,16 @@ impl<'a> RenderData<'a> {
 pub fn render(frame: &mut Frame, state: &AppState) {
     let area = frame.area();
     if area.width < 40 || area.height < 8 {
-        frame.render_widget(
-            ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),
-            area,
-        );
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                " Terminal too small — resize to continue",
-                Style::default().fg(theme::FG_COMMENT),
-            ))),
-            area,
-        );
+        shared::layout::render_small_terminal_message(frame);
         return;
     }
 
     match state.active_tab() {
         ActiveTab::Overview => {
             let render_data = RenderData::from_state(state);
-            render_overview(frame, state, &render_data)
+            overview::render(frame, state, &render_data)
         }
-        ActiveTab::Accounts => accounts_tab::render(frame, state),
-    }
-}
-
-fn render_overview(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>) {
-    // Fill background
-    frame.render_widget(
-        ratatui::widgets::Block::default().style(Style::default().bg(theme::BG_MAIN)),
-        frame.area(),
-    );
-
-    // Top-level vertical layout: header, main, footer
-    let outer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // header
-            Constraint::Min(0),    // main
-            Constraint::Length(1), // footer
-        ])
-        .split(frame.area());
-
-    // Header
-    header::render(frame, state, render_data, outer[0]);
-
-    // Main: split horizontally into agent list (35%) and right pane (65%)
-    let main_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(outer[1]);
-
-    // Agent list (left)
-    agent_list::render(frame, state, render_data, main_chunks[0]);
-
-    // Right pane: split vertically into detail (40%) and activity (60%)
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .split(main_chunks[1]);
-
-    // Detail (right top)
-    detail::render(frame, render_data, right_chunks[0]);
-
-    // Activity (right bottom)
-    activity::render(frame, render_data, right_chunks[1]);
-
-    // Footer
-    footer::render(frame, state, outer[2]);
-
-    // Help overlay
-    if state.show_help {
-        help::render(frame, state.help_scroll);
+        ActiveTab::Accounts => accounts::render(frame, state),
     }
 }
 
@@ -155,12 +98,43 @@ mod tests {
 
     use crate::app::AppState;
     use crate::config::Config;
+    use crate::domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
+    use crate::domain::agents::{AgentId, AgentTool};
     use crate::event::AgentEvent;
-    use crate::types::AgentId;
-    use crate::types::AgentTool;
-    use crate::types::{NormalizedReason, NormalizedState, NormalizedStatus};
 
     use super::RenderData;
+
+    #[test]
+    fn workspace_render_modules_export_entrypoints() {
+        let _overview_render: fn(
+            &mut ratatui::Frame,
+            &crate::app::AppState,
+            &super::RenderData<'_>,
+        ) = crate::ui::overview::render;
+        let _accounts_render: fn(&mut ratatui::Frame, &crate::app::AppState) =
+            crate::ui::accounts::render;
+        let _accounts_list_render: fn(
+            &mut ratatui::Frame,
+            &crate::app::AppState,
+            ratatui::layout::Rect,
+        ) = crate::ui::accounts::list::render;
+        let _accounts_detail_render: fn(
+            &mut ratatui::Frame,
+            &crate::app::AppState,
+            ratatui::layout::Rect,
+        ) = crate::ui::accounts::detail::render;
+        let _accounts_edit_render: fn(
+            &mut ratatui::Frame,
+            &crate::app::AppState,
+            ratatui::layout::Rect,
+        ) = crate::ui::accounts::edit::render;
+        let _accounts_confirm_render: fn(
+            &mut ratatui::Frame,
+            &crate::app::AppState,
+            &crate::app::ConfirmKind,
+        ) = crate::ui::accounts::confirm::render;
+        let _help_render: fn(&mut ratatui::Frame, u16) = crate::ui::shared::help::render;
+    }
 
     #[test]
     fn header_counts_only_visible_agents() {
@@ -212,7 +186,7 @@ mod tests {
                 Some(NormalizedReason::Review),
             ),
         });
-        state.filter = Some("claude".to_string());
+        state.root.overview.filter = Some("claude".to_string());
 
         let render_data = RenderData::from_state(&state);
 

@@ -1,9 +1,11 @@
+use crate::domain::shared::time::from_epoch_millis;
 use crate::detect::heuristics::looks_like_review_output;
-use crate::event::AgentEvent;
-use crate::types::{
-    from_epoch_millis, Activity, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
-    PrimaryStatus,
+use crate::domain::agents::activity::{Activity, Subagent};
+use crate::domain::agents::ids::{AgentId, AgentTool};
+use crate::domain::agents::status::{
+    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
+use crate::event::AgentEvent;
 
 use super::types::{OpenCodeSession, PartData, SessionEmitState};
 
@@ -187,7 +189,7 @@ pub fn collect_subagent_events(
                     .unwrap_or("unknown")
                     .to_string();
                 events.push(AgentEvent::SubagentCompleted {
-                    id: crate::types::AgentId::new(tool, pid),
+                    id: AgentId::new(tool, pid),
                     pid: Some(pid),
                     subagent_name: name,
                 });
@@ -202,14 +204,14 @@ pub fn collect_subagent_events(
                 .unwrap_or("unknown")
                 .to_string();
             events.push(AgentEvent::SubagentSpawned {
-                id: crate::types::AgentId::new(tool, pid),
+                id: AgentId::new(tool, pid),
                 pid: Some(pid),
-                subagent: crate::types::Subagent {
+                subagent: Subagent {
                     name: subagent_type,
                     status: if sub.time_archived.is_some() {
-                        crate::types::PrimaryStatus::Done
+                        PrimaryStatus::Done
                     } else {
-                        crate::types::PrimaryStatus::Running
+                        PrimaryStatus::Running
                     },
                     reason: None,
                     description: sub.title.clone(),
@@ -229,4 +231,3 @@ pub fn collect_subagent_events(
 
     events
 }
-

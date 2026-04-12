@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Local};
 
-use crate::types::AgentTool;
+use crate::domain::agents::ids::AgentTool;
 
 type AgentKey = (AgentTool, PathBuf);
 type PidList = Vec<u32>;

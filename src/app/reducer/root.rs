@@ -1,11 +1,18 @@
 use crate::app::action::{Action, DetectorAction, SystemAction, WorkspaceAction};
 use crate::app::effect::Effect;
-use crate::app::reducer::overview;
+use crate::app::reducer::{accounts, overview};
 use crate::app::state::{Overlay, RootState, Workflow};
 
 pub fn reduce(state: &mut RootState, action: &Action) -> Vec<Effect> {
     match action {
-        Action::Tick | Action::EffectResult(_) | Action::Accounts(_) => Vec::new(),
+        Action::Tick => Vec::new(),
+        Action::EffectResult(result) => {
+            accounts::reduce_result(&mut state.accounts, &mut state.system.workflow, result);
+            Vec::new()
+        }
+        Action::Accounts(action) => {
+            accounts::reduce(&mut state.accounts, &mut state.system.workflow, action)
+        }
         Action::QuitRequested => {
             state.system.workflow = Workflow::Quitting;
             Vec::new()

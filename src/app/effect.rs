@@ -1,6 +1,14 @@
 use crate::domain::accounts::{AccountEntry, ClaudeProfile, CodexProfile, Provider, QuotaSnapshot};
 
+use super::state::ProfileDraft;
+
 pub type ProfileId = String;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshOrigin {
+    Manual,
+    Background,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountProfile {
@@ -39,14 +47,25 @@ impl From<ClaudeProfile> for AccountProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     LoadProfiles,
+    LoadProfileDraft {
+        provider: Provider,
+        profile_id: ProfileId,
+    },
     RefreshCodexQuota {
         profile_id: ProfileId,
+        origin: RefreshOrigin,
     },
     RefreshClaudeQuota {
         profile_id: ProfileId,
+        origin: RefreshOrigin,
     },
     ImportCodexProfile,
     ImportClaudeProfile,
+    SaveProfileEdits {
+        provider: Provider,
+        profile_id: ProfileId,
+        draft: ProfileDraft,
+    },
     WriteProfileToHome {
         provider: Provider,
         profile_id: ProfileId,
@@ -63,15 +82,25 @@ pub enum EffectResult {
         profiles: Vec<AccountProfile>,
         entries: Vec<AccountEntry>,
     },
+    ProfileDraftLoaded {
+        provider: Provider,
+        profile_id: ProfileId,
+        draft: ProfileDraft,
+    },
     CodexQuotaRefreshed {
         profile_id: ProfileId,
         quota: QuotaSnapshot,
+        origin: RefreshOrigin,
     },
     ClaudeQuotaRefreshed {
         profile_id: ProfileId,
         quota: QuotaSnapshot,
+        origin: RefreshOrigin,
     },
     ProfileImported {
+        profile: AccountProfile,
+    },
+    ProfileSaved {
         profile: AccountProfile,
     },
     ProfileWrittenToHome {
@@ -178,12 +207,18 @@ mod tests {
         let result = EffectResult::CodexQuotaRefreshed {
             profile_id: "codex-main".to_string(),
             quota: quota_snapshot("fresh snapshot"),
+            origin: RefreshOrigin::Manual,
         };
 
         match result {
-            EffectResult::CodexQuotaRefreshed { profile_id, quota } => {
+            EffectResult::CodexQuotaRefreshed {
+                profile_id,
+                quota,
+                origin,
+            } => {
                 assert_eq!(profile_id, "codex-main");
                 assert_eq!(quota.summary, "fresh snapshot");
+                assert_eq!(origin, RefreshOrigin::Manual);
             }
             other => panic!("unexpected result: {other:?}"),
         }
@@ -231,6 +266,34 @@ mod tests {
                 assert_eq!(entry.profile_id, "claude-main");
             }
             other => panic!("unexpected delete result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn profile_draft_loaded_carries_selected_profile_identity_and_draft() {
+        let result = EffectResult::ProfileDraftLoaded {
+            provider: Provider::Codex,
+            profile_id: "codex-main".to_string(),
+            draft: ProfileDraft {
+                label: "Main".to_string(),
+                email: Some("main@example.com".to_string()),
+                plan: Some("pro".to_string()),
+                notes: "notes".to_string(),
+                enabled: true,
+            },
+        };
+
+        match result {
+            EffectResult::ProfileDraftLoaded {
+                provider,
+                profile_id,
+                draft,
+            } => {
+                assert_eq!(provider, Provider::Codex);
+                assert_eq!(profile_id, "codex-main");
+                assert_eq!(draft.label, "Main");
+            }
+            other => panic!("unexpected draft result: {other:?}"),
         }
     }
 }

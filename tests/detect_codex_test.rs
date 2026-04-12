@@ -1,10 +1,12 @@
 use nexus::detect::codex::*;
 use nexus::detect::registry::AgentRegistry;
-use nexus::event::AgentEvent;
-use nexus::types::{
-    Activity, AgentId, AgentTool, CodexBackendHealth, NormalizedReason, NormalizedStatus,
-    PrimaryStatus, TodoPriority, TodoStatus,
+use nexus::domain::agents::{
+    Activity, AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoItem,
+    TodoPriority, TodoStatus,
 };
+use nexus::domain::shared::from_epoch_secs;
+use nexus::domain::system::CodexBackendHealth;
+use nexus::event::AgentEvent;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -19,7 +21,7 @@ fn observed_session(
         pid,
         cwd: PathBuf::from("/tmp/project"),
         branch: Some("main".to_string()),
-        started_at: nexus::types::from_epoch_secs(10),
+        started_at: from_epoch_secs(10),
         status,
         final_output: None,
         final_output_is_completion: false,
@@ -508,8 +510,8 @@ fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
     let second_start = now - 14;
     registry.register(AgentTool::Codex, cwd.clone(), 101);
     registry.register(AgentTool::Codex, cwd.clone(), 202);
-    registry.register_codex_launch(101, nexus::types::from_epoch_secs(first_start));
-    registry.register_codex_launch(202, nexus::types::from_epoch_secs(second_start));
+    registry.register_codex_launch(101, from_epoch_secs(first_start));
+    registry.register_codex_launch(202, from_epoch_secs(second_start));
 
     let threads = vec![
         CodexThread {
@@ -592,7 +594,7 @@ fn test_build_codex_snapshot_does_not_guess_when_same_cwd_pid_count_is_ambiguous
     registry.register(AgentTool::Codex, cwd.clone(), 101);
     registry.register(AgentTool::Codex, cwd.clone(), 202);
     registry.register_codex_thread("exact-thread".to_string(), 101);
-    registry.register_codex_launch(202, nexus::types::from_epoch_secs(second_start));
+    registry.register_codex_launch(202, from_epoch_secs(second_start));
 
     let threads = vec![
         CodexThread {
@@ -865,7 +867,7 @@ fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
             pid: Some(41),
             cwd: PathBuf::from("/tmp/project"),
             branch: Some("main".into()),
-            started_at: nexus::types::from_epoch_secs(10),
+            started_at: from_epoch_secs(10),
             status: PrimaryStatus::Waiting,
             final_output: None,
             final_output_is_completion: false,
@@ -940,8 +942,6 @@ fn test_detect_codex_backend_healthy_snapshot_stays_healthy() {
 
 #[test]
 fn test_codex_open_subagent_maps_to_working_subagent() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         subagents: vec![ObservedCodexSubagent {
             thread_id: "child-1".to_string(),
@@ -962,8 +962,6 @@ fn test_codex_open_subagent_maps_to_working_subagent() {
 
 #[test]
 fn test_codex_done_review_output_beats_running_subagent() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         subagents: vec![ObservedCodexSubagent {
             thread_id: "child-1".to_string(),
@@ -984,8 +982,6 @@ fn test_codex_done_review_output_beats_running_subagent() {
 
 #[test]
 fn test_codex_waiting_question_output_beats_running_subagent() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         subagents: vec![ObservedCodexSubagent {
             thread_id: "child-1".to_string(),
@@ -1009,8 +1005,6 @@ fn test_codex_waiting_question_output_beats_running_subagent() {
 
 #[test]
 fn test_codex_waiting_subagent_approval_maps_parent_to_needs_input() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         subagents: vec![ObservedCodexSubagent {
             thread_id: "child-1".to_string(),
@@ -1031,8 +1025,6 @@ fn test_codex_waiting_subagent_approval_maps_parent_to_needs_input() {
 
 #[test]
 fn test_codex_waiting_subagent_decision_maps_parent_to_needs_input() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         subagents: vec![ObservedCodexSubagent {
             thread_id: "child-1".to_string(),
@@ -1053,8 +1045,6 @@ fn test_codex_waiting_subagent_decision_maps_parent_to_needs_input() {
 
 #[test]
 fn test_codex_running_tool_call_beats_running_subagent() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         latest_tool_call: Some(ObservedToolCall {
             name: "shell".to_string(),
@@ -1079,8 +1069,6 @@ fn test_codex_running_tool_call_beats_running_subagent() {
 
 #[test]
 fn test_codex_review_completion_maps_to_needs_input_review() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
     let normalized = normalize_codex_session(&session, Some("### Issues\n#### Critical"));
     assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
@@ -1089,8 +1077,6 @@ fn test_codex_review_completion_maps_to_needs_input_review() {
 
 #[test]
 fn test_codex_assessment_completion_maps_to_needs_input_review() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
     let normalized = normalize_codex_session(&session, Some("Merge-readiness assessment"));
     assert_eq!(normalized.status, NormalizedStatus::NeedsInput);
@@ -1099,8 +1085,6 @@ fn test_codex_assessment_completion_maps_to_needs_input_review() {
 
 #[test]
 fn test_codex_in_progress_review_like_output_stays_working() {
-    use nexus::types::NormalizedStatus;
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Running);
     let normalized = normalize_codex_session(&session, Some("Review findings in progress"));
     assert_eq!(normalized.status, NormalizedStatus::Working);
@@ -1109,8 +1093,6 @@ fn test_codex_in_progress_review_like_output_stays_working() {
 
 #[test]
 fn test_codex_done_without_final_output_maps_to_unknown() {
-    use nexus::types::NormalizedStatus;
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
     let normalized = normalize_codex_session(&session, None);
     assert_eq!(normalized.status, NormalizedStatus::Unknown);
@@ -1119,8 +1101,6 @@ fn test_codex_done_without_final_output_maps_to_unknown() {
 
 #[test]
 fn test_codex_waiting_without_rollout_evidence_maps_to_unknown() {
-    use nexus::types::NormalizedStatus;
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Waiting);
     let normalized = normalize_codex_session(&session, None);
     assert_eq!(normalized.status, NormalizedStatus::Unknown);
@@ -1129,8 +1109,6 @@ fn test_codex_waiting_without_rollout_evidence_maps_to_unknown() {
 
 #[test]
 fn test_codex_completed_rollout_does_not_reuse_stale_assistant_text_as_final_output() {
-    use nexus::types::NormalizedStatus;
-
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1245,8 +1223,6 @@ fn test_codex_new_tool_call_after_completion_revives_running_and_clears_stale_do
 
 #[test]
 fn test_live_pid_with_completed_rollout_stays_running_not_done() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1433,8 +1409,6 @@ fn test_reconcile_live_completed_session_does_not_emit_generating_activity() {
 
 #[test]
 fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
     let normalized = normalize_codex_session(
         &session,
@@ -1446,8 +1420,6 @@ fn test_codex_completed_non_review_output_is_not_misclassified_as_review() {
 
 #[test]
 fn test_codex_live_completed_non_review_output_maps_to_ready() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = ObservedCodexSession {
         final_output_is_completion: true,
         ..observed_session("session-a", Some(41), PrimaryStatus::Running)
@@ -1462,8 +1434,6 @@ fn test_codex_live_completed_non_review_output_maps_to_ready() {
 
 #[test]
 fn test_codex_live_nonfinal_assistant_output_stays_working() {
-    use nexus::types::NormalizedStatus;
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Running);
     let normalized = normalize_codex_session(
         &session,
@@ -1475,8 +1445,6 @@ fn test_codex_live_nonfinal_assistant_output_stays_working() {
 
 #[test]
 fn test_codex_requested_changes_phrase_inside_completion_message_stays_done() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let session = observed_session("session-a", Some(41), PrimaryStatus::Done);
     let normalized = normalize_codex_session(
         &session,
@@ -1597,7 +1565,7 @@ fn test_reconcile_codex_snapshots_emits_tool_completion_and_restart() {
 fn test_reconcile_codex_snapshots_emits_todos_updated_for_plan_changes() {
     let previous = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {
-            todos: vec![nexus::types::TodoItem {
+            todos: vec![TodoItem {
                 content: "Read files".to_string(),
                 status: TodoStatus::InProgress,
                 priority: TodoPriority::Medium,
@@ -1608,12 +1576,12 @@ fn test_reconcile_codex_snapshots_emits_todos_updated_for_plan_changes() {
     let current = CodexEventSnapshot {
         sessions: vec![ObservedCodexSession {
             todos: vec![
-                nexus::types::TodoItem {
+                TodoItem {
                     content: "Read files".to_string(),
                     status: TodoStatus::Completed,
                     priority: TodoPriority::Medium,
                 },
-                nexus::types::TodoItem {
+                TodoItem {
                     content: "Run tests".to_string(),
                     status: TodoStatus::InProgress,
                     priority: TodoPriority::Medium,
@@ -1884,8 +1852,6 @@ fn test_build_codex_event_snapshot_includes_rollout_only_subagents() {
 
 #[test]
 fn test_codex_open_child_without_rollout_keeps_live_parent_running() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -1966,8 +1932,6 @@ fn test_codex_open_child_without_rollout_keeps_live_parent_running() {
 
 #[test]
 fn test_codex_rollout_only_spawn_keeps_live_parent_running() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -2021,8 +1985,6 @@ fn test_codex_rollout_only_spawn_keeps_live_parent_running() {
 
 #[test]
 fn test_child_waiting_for_approval_bubbles_to_parent_needs_input() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

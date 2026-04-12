@@ -5,16 +5,17 @@ use nexus::codex_profiles::profile::{
 use nexus::codex_profiles::quota::{
     parse_legacy_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
 };
-use nexus::types::*;
-use nexus::types::{TodoItem, TodoPriority, TodoStatus};
+use nexus::domain::agents::{
+    Activity, Agent, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
+    PrimaryStatus, SortMode, TodoItem, TodoPriority, TodoStatus,
+};
+use nexus::domain::shared::{from_epoch_millis, from_epoch_secs, from_rfc3339};
 use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
 
 #[test]
 fn test_normalized_status_labels() {
-    use nexus::types::{NormalizedReason, NormalizedStatus};
-
     assert_eq!(NormalizedStatus::Working.as_str(), "working");
     assert_eq!(NormalizedStatus::NeedsInput.as_str(), "needs input");
     assert_eq!(NormalizedStatus::Blocked.as_str(), "blocked");
@@ -31,8 +32,6 @@ fn test_normalized_status_labels() {
 
 #[test]
 fn test_normalized_status_precedence_order() {
-    use nexus::types::NormalizedStatus;
-
     assert!(NormalizedStatus::NeedsInput > NormalizedStatus::Blocked);
     assert!(NormalizedStatus::Blocked > NormalizedStatus::Working);
     assert!(NormalizedStatus::Working > NormalizedStatus::Done);
@@ -41,8 +40,6 @@ fn test_normalized_status_precedence_order() {
 
 #[test]
 fn test_normalized_state_without_reason() {
-    use nexus::types::{NormalizedState, NormalizedStatus};
-
     let state = NormalizedState::new(NormalizedStatus::Working, None);
 
     assert_eq!(state.status, NormalizedStatus::Working);
@@ -51,8 +48,6 @@ fn test_normalized_state_without_reason() {
 
 #[test]
 fn test_normalized_state_with_reason() {
-    use nexus::types::{NormalizedReason, NormalizedState, NormalizedStatus};
-
     let state = NormalizedState::new(
         NormalizedStatus::Done,
         Some(NormalizedReason::ReadyForNextTask),

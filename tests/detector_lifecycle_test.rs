@@ -1,36 +1,7 @@
-#[path = "../src/config.rs"]
-mod config;
-#[path = "../src/event.rs"]
-mod event;
-#[path = "../src/infra/mod.rs"]
-mod infra;
-#[path = "../src/input/mod.rs"]
-mod input;
-#[path = "../src/domain/mod.rs"]
-mod domain;
-#[path = "../src/claude_profiles/mod.rs"]
-mod claude_profiles;
-#[path = "../src/codex_profiles/mod.rs"]
-mod codex_profiles;
-#[path = "../src/detect/mod.rs"]
-mod detect;
-#[path = "../src/runtime_support.rs"]
-mod runtime_support;
-#[path = "../src/services/mod.rs"]
-mod services;
-#[path = "../src/ui/mod.rs"]
-mod ui;
-#[path = "../src/app/mod.rs"]
-mod app;
-
-pub use app::effect::{Effect, EffectResult};
-pub use config::{Cli, Config};
-
 use std::path::PathBuf;
 
-use app::{AppState, RootState};
-use domain::agents::{AgentId, AgentTool};
-use event::AgentEvent;
+use nexus::domain::agents::{AgentId, AgentTool};
+use nexus::testing::{AgentEvent, AppState, RootState};
 
 fn discovered(pid: u32, cwd: &str) -> AgentEvent {
     AgentEvent::Discovered {

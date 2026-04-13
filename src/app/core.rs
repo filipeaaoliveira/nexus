@@ -159,26 +159,12 @@ impl AppState {
     }
 
     pub fn visible_agents(&self) -> Vec<&Agent> {
-        self.root
-            .overview()
-            .visible_agents()
-            .into_iter()
-            .filter_map(|overview_agent| {
-                self.agents
-                    .iter()
-                    .find(|agent| agent.id == overview_agent.id)
-            })
-            .collect()
+        crate::app::projection::visible_agents(&self.agents, self.root.overview())
     }
 
     #[cfg(test)]
     pub fn count_by_status(&self, status: PrimaryStatus) -> usize {
-        self.root
-            .overview()
-            .visible_agents()
-            .into_iter()
-            .filter(|agent| agent.status == status)
-            .count()
+        crate::app::projection::count_by_status(&self.agents, self.root.overview(), status)
     }
 
     pub fn primary_detector_issue(&self) -> Option<&str> {
@@ -250,14 +236,14 @@ mod tests {
         state.handle_event(discovered(AgentTool::Claude, 1, "/tmp/claude"));
         state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
 
-        assert_eq!(state.root.overview.visible_agent_count(), 2);
+        assert_eq!(state.visible_agents().len(), 2);
 
         state.root.overview.filter = Some("claude".to_string());
-        assert_eq!(state.root.overview.visible_agent_count(), 1);
+        assert_eq!(state.visible_agents().len(), 1);
         assert_eq!(state.visible_agents()[0].pid, Some(1));
 
         state.root.overview.filter = Some("opencode".to_string());
-        assert_eq!(state.root.overview.visible_agent_count(), 1);
+        assert_eq!(state.visible_agents().len(), 1);
         assert_eq!(state.visible_agents()[0].pid, Some(2));
     }
 
@@ -280,6 +266,114 @@ mod tests {
         });
         state.root.overview.sort_mode = SortMode::Urgency;
         assert_eq!(state.visible_agents()[0].pid, Some(2));
+    }
+
+    #[test]
+    fn visible_agents_projects_from_authoritative_agent_store() {
+        let mut state = AppState::new();
+        let now = chrono::Local::now();
+        state.agents = vec![
+            Agent {
+                id: AgentId::new(AgentTool::OpenCode, 2),
+                pid: Some(2),
+                status: PrimaryStatus::Running,
+                normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                activity: None,
+                cwd: PathBuf::from("/tmp/opencode"),
+                branch: Some("main".into()),
+                is_worktree: false,
+                started_at: now,
+                last_activity: now,
+                subagents: Vec::new(),
+                recent_events: std::collections::VecDeque::new(),
+                session_id: None,
+                alias: None,
+                todos: Vec::new(),
+            },
+            Agent {
+                id: AgentId::new(AgentTool::Claude, 1),
+                pid: Some(1),
+                status: PrimaryStatus::Running,
+                normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                activity: None,
+                cwd: PathBuf::from("/tmp/claude"),
+                branch: Some("main".into()),
+                is_worktree: false,
+                started_at: now,
+                last_activity: now,
+                subagents: Vec::new(),
+                recent_events: std::collections::VecDeque::new(),
+                session_id: None,
+                alias: None,
+                todos: Vec::new(),
+            },
+        ];
+
+        let visible = state.visible_agents();
+        assert_eq!(visible.len(), 2);
+        assert_eq!(visible[0].id, AgentId::new(AgentTool::Claude, 1));
+        assert_eq!(visible[1].id, AgentId::new(AgentTool::OpenCode, 2));
+    }
+
+    #[test]
+    fn visible_agents_applies_filter_without_stored_overview_rows() {
+        let mut state = AppState::new();
+        let now = chrono::Local::now();
+        state.agents = vec![
+            Agent {
+                id: AgentId::new(AgentTool::Claude, 1),
+                pid: Some(1),
+                status: PrimaryStatus::Running,
+                normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                activity: None,
+                cwd: PathBuf::from("/tmp/claude"),
+                branch: Some("main".into()),
+                is_worktree: false,
+                started_at: now,
+                last_activity: now,
+                subagents: Vec::new(),
+                recent_events: std::collections::VecDeque::new(),
+                session_id: None,
+                alias: Some("code-review".into()),
+                todos: Vec::new(),
+            },
+            Agent {
+                id: AgentId::new(AgentTool::OpenCode, 2),
+                pid: Some(2),
+                status: PrimaryStatus::Running,
+                normalized: NormalizedState::new(NormalizedStatus::NeedsInput, None),
+                activity: None,
+                cwd: PathBuf::from("/tmp/opencode"),
+                branch: Some("feature".into()),
+                is_worktree: false,
+                started_at: now,
+                last_activity: now,
+                subagents: Vec::new(),
+                recent_events: std::collections::VecDeque::new(),
+                session_id: None,
+                alias: None,
+                todos: Vec::new(),
+            },
+        ];
+        state.root.overview.filter = Some("review".into());
+
+        let visible = state.visible_agents();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, AgentId::new(AgentTool::Claude, 1));
+    }
+
+    #[test]
+    fn detector_reducer_keeps_overview_state_as_view_state_only() {
+        let mut state = AppState::new();
+
+        state.run_detector_reducer_action(DetectorAction::Discovered {
+            id: AgentId::new(AgentTool::Claude, 1),
+            pid: Some(1),
+            cwd: PathBuf::from("/tmp/claude"),
+            started_at: None,
+        });
+
+        assert!(state.visible_agents().is_empty());
     }
 
     #[test]

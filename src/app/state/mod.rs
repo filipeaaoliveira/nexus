@@ -6,7 +6,7 @@ mod workspace;
 pub use accounts::{
     AccountKey, AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, ProfileDraft,
 };
-pub use overview::{OverviewAgent, OverviewMode, OverviewState};
+pub use overview::{OverviewMode, OverviewState};
 #[cfg(test)]
 pub use system::DetectorHealth;
 pub use system::{Overlay, SystemState, Workflow};

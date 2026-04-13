@@ -21,6 +21,7 @@ pub mod state;
 mod accounts;
 mod events;
 mod overview;
+mod projection;
 mod system;
 
 pub use action::{

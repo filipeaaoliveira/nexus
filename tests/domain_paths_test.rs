@@ -18,15 +18,16 @@ use nexus::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
 use nexus::domain::agents::{Agent as DomainAgent, AgentTool as DomainAgentTool};
-use nexus::domain::system::health::CodexBackendHealth;
-use nexus::domain::system::notification::DetectorNotification;
-use nexus::domain::system::{
-    CodexBackendHealth as DomainCodexBackendHealth,
-    DetectorNotification as DomainDetectorNotification,
-};
 use nexus::domain::shared::time::{
     format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
 };
+use nexus::domain::system::health::CodexBackendHealth;
+use nexus::domain::system::notification::DetectorNotification;
+use nexus::domain::system::{
+    CodexBackendHealth as DomainCodexBackendHealth, DetectorKind,
+    DetectorNotification as DomainDetectorNotification,
+};
+use nexus::{AgentEvent, AppState, RootState};
 
 #[test]
 fn domain_modules_export_expected_paths() {
@@ -60,6 +61,7 @@ fn domain_modules_export_expected_paths() {
     let _ = std::any::TypeId::of::<Confidence>();
     let _ = std::any::TypeId::of::<LimitState>();
     let _ = std::any::TypeId::of::<CodexBackendHealth>();
+    let _ = std::any::TypeId::of::<DetectorKind>();
     let _ = std::any::TypeId::of::<DetectorNotification>();
     let _ = std::any::TypeId::of::<DomainProvider>();
     let _ = std::any::TypeId::of::<DomainAccountEntry>();
@@ -207,7 +209,7 @@ fn claude_and_detector_core_modules_no_longer_depend_on_types_shim() {
 #[test]
 fn app_core_modules_no_longer_depend_on_types_shim() {
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let files = ["src/app/state.rs", "src/app/mod.rs"];
+    let files = ["src/app/state/mod.rs", "src/app/mod.rs"];
 
     for file in files {
         let content = fs::read_to_string(repo_root.join(file)).unwrap();
@@ -216,6 +218,56 @@ fn app_core_modules_no_longer_depend_on_types_shim() {
             "{file} should import domain modules directly instead of the transitional types shim",
         );
     }
+}
+
+#[test]
+fn crate_root_exposes_behavioral_app_api() {
+    let _ = std::any::TypeId::of::<AppState>();
+    let _ = std::any::TypeId::of::<RootState>();
+    let _ = std::any::TypeId::of::<AgentEvent>();
+
+    let app = AppState::from_root(RootState::default());
+    assert_eq!(app.root().overview().visible_agent_count(), 0);
+    assert!(app.visible_agents().is_empty());
+    assert_eq!(app.primary_detector_issue(), None);
+}
+
+#[test]
+fn runtime_semantic_input_delegates_back_to_runtime_session() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let runtime_input =
+        fs::read_to_string(repo_root.join("src/services/runtime/input.rs")).unwrap();
+
+    assert!(
+        runtime_input.contains("session.dispatch_action(action).await"),
+        "src/services/runtime/input.rs should hand semantic app actions back to RuntimeSession instead of matching them inline",
+    );
+    assert!(
+        !runtime_input.contains("SystemAction::ScrollHelpDown => state.scroll_help_down()"),
+        "runtime input helpers should not special-case help scrolling once system actions flow through the app reducer path",
+    );
+}
+
+#[test]
+fn detector_events_and_actions_use_typed_detector_ids() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let event_rs = fs::read_to_string(repo_root.join("src/event.rs")).unwrap();
+    let action_rs = fs::read_to_string(repo_root.join("src/app/action.rs")).unwrap();
+
+    assert!(!event_rs.contains("detector: String"));
+    assert!(!action_rs.contains("detector: String"));
+    assert!(event_rs.contains("DetectorKind"));
+    assert!(action_rs.contains("DetectorKind"));
+}
+
+#[test]
+fn root_state_accessors_preserve_explicit_boundaries() {
+    let root = RootState::default();
+
+    assert_eq!(root.workspace().active().label(), "Overview");
+    assert_eq!(root.overview().visible_agent_count(), 0);
+    assert!(root.accounts().visible_entries().is_empty());
+    assert!(root.system().detector_health().is_empty());
 }
 
 #[test]
@@ -245,6 +297,44 @@ fn crate_root_no_longer_exports_types_shim_module() {
         !lib_rs.contains("pub mod types;"),
         "src/lib.rs should stop exporting the transitional types shim once production code no longer depends on it",
     );
+}
+
+#[test]
+fn lib_exports_only_selected_top_level_modules_and_runtime_entrypoints() {
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lib_rs = fs::read_to_string(repo_root.join("src/lib.rs")).unwrap();
+
+    for forbidden in [
+        "pub mod app;",
+        "pub mod detect;",
+        "pub mod event;",
+        "pub mod infra;",
+        "pub mod input;",
+        "pub mod services;",
+        "pub mod ui;",
+    ] {
+        assert!(
+            !lib_rs.contains(forbidden),
+            "crate root should not publicly expose internal implementation module {forbidden}",
+        );
+    }
+
+    for required in [
+        "pub mod claude_profiles;",
+        "pub mod codex_profiles;",
+        "pub mod config;",
+        "pub mod domain;",
+        "pub mod runtime_support;",
+        "pub use config::{Cli, Config};",
+        "pub use infra::config::migrate_legacy_dirs;",
+        "pub use runtime_support::run_blocking_compatible;",
+        "pub use services::runtime::run;",
+    ] {
+        assert!(
+            lib_rs.contains(required),
+            "crate root should expose curated public entrypoint {required}",
+        );
+    }
 }
 
 #[test]

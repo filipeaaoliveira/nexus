@@ -36,6 +36,10 @@ impl AppState {
         &self.root
     }
 
+    pub fn agents(&self) -> &[Agent] {
+        &self.agents
+    }
+
     #[cfg(test)]
     pub fn next_tab(&mut self) {
         self.root.next_workspace();

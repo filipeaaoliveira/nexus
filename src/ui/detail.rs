@@ -21,24 +21,20 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let lines = match render_data.selected_agent {
+    let lines = match &render_data.selected_agent {
         None => vec![Line::from(Span::styled(
             "  no agent selected",
             Style::default().fg(theme::FG_FADED),
         ))],
-        Some(agent) => {
+        Some(view) => {
+            let agent = view.agent;
             let mut lines = Vec::new();
             let (status_label, activity_label) = if agent.id.tool() == AgentTool::Claude {
                 ("  observed status: ", "  observed activity: ")
             } else {
                 ("  runtime status: ", "  runtime activity: ")
             };
-            let normalized_text = match &agent.normalized.reason {
-                Some(reason) => {
-                    format!("{} · {}", agent.normalized.status.as_str(), reason.as_str())
-                }
-                None => agent.normalized.status.as_str().to_string(),
-            };
+            let normalized_text = &view.status_label;
 
             // Normalized state badge + PID
             lines.push(Line::from(vec![

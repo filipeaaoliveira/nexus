@@ -4,8 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::domain::agents::activity::Activity;
-use crate::domain::agents::model::Agent;
+use crate::app::projection::AgentView;
 use crate::domain::agents::status::NormalizedStatus;
 use crate::domain::shared::time::format_duration;
 use crate::services::runtime::RuntimeSession;
@@ -36,8 +35,8 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderDat
         .visible_agents
         .iter()
         .enumerate()
-        .map(|(i, agent)| {
-            render_agent_item(agent, state.root().overview().selected_index() == Some(i))
+        .map(|(i, view)| {
+            render_agent_item(view, state.root().overview().selected_index() == Some(i))
         })
         .collect();
 
@@ -64,35 +63,10 @@ pub fn empty_state_message(state: &RuntimeSession) -> String {
     }
 }
 
-fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
+fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static> {
+    let agent = view.agent;
     let elapsed = format_duration(agent.elapsed());
     let subagent_count = agent.subagents.len();
-    // When the normalized state has no reason but the activity is ToolCall, show
-    // "· tool call" as a hint.  This covers the common race where a poll cycle
-    // picks up the tool_use entry and the tool_result in the same batch, so the
-    // NormalizedStateChanged event never carries Working(ToolCall).
-    let status_text = match &agent.normalized.reason {
-        Some(reason) => format!("{} · {}", agent.normalized.status.as_str(), reason.as_str()),
-        None if agent.normalized.status == NormalizedStatus::Working
-            && agent.activity == Some(Activity::ToolCall) =>
-        {
-            format!("{} · tool call", agent.normalized.status.as_str())
-        }
-        // Reachable via two paths:
-        //  1. Last entry is CompactBoundary → normalize returns Working(None),
-        //     activity returns Compacting.
-        //  2. Last entry is the restore user message that follows compact_boundary
-        //     → normalize returns Working(None) (User branch), activity returns
-        //     Compacting (content check).  normalize_claude_state only returns
-        //     Working(Compacting) when CompactBoundary is the *last* entry; the
-        //     restore message arrives immediately after and clears the reason.
-        None if agent.normalized.status == NormalizedStatus::Working
-            && agent.activity == Some(Activity::Compacting) =>
-        {
-            format!("{} · compacting", agent.normalized.status.as_str())
-        }
-        None => agent.normalized.status.as_str().to_string(),
-    };
 
     let line1 = Line::from(vec![
         Span::styled(
@@ -104,11 +78,11 @@ fn render_agent_item(agent: &Agent, _selected: bool) -> ListItem<'static> {
             normalized_status_dot_style(agent.normalized.status),
         ),
         Span::styled(
-            format!("{} ", agent.display_name()),
+            format!("{} ", view.display_name),
             Style::default().fg(theme::FG_DEFAULT),
         ),
         Span::styled(
-            format!("{status_text} "),
+            format!("{} ", view.status_label),
             Style::default().fg(normalized_status_color(agent.normalized.status)),
         ),
         Span::styled(

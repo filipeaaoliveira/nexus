@@ -21,9 +21,10 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let Some(agent) = render_data.selected_agent else {
+    let Some(view) = &render_data.selected_agent else {
         return;
     };
+    let agent = view.agent;
 
     // Split area: subagents top, events bottom
     let has_subagents = !agent.subagents.is_empty();

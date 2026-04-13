@@ -11,8 +11,8 @@ pub mod theme;
 
 use ratatui::Frame;
 
+use crate::app::projection::AgentView;
 use crate::app::{ActiveTab, AppState};
-use crate::domain::agents::model::Agent;
 use crate::domain::agents::status::NormalizedStatus;
 use crate::services::runtime::RuntimeSession;
 
@@ -27,30 +27,33 @@ pub struct HeaderStats {
 
 pub struct RenderData<'a> {
     pub active_tab: ActiveTab,
-    pub visible_agents: Vec<&'a Agent>,
-    pub selected_agent: Option<&'a Agent>,
+    pub visible_agents: Vec<AgentView<'a>>,
+    pub selected_agent: Option<AgentView<'a>>,
     pub header: HeaderStats,
 }
 
 impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
-        let visible_agents = state.visible_agents();
+        let visible_agents = crate::app::projection::project_visible_agents(
+            state.agents(),
+            state.root().overview(),
+        );
         let selected_agent = state
             .root()
             .overview()
             .selected_index()
-            .and_then(|i| visible_agents.get(i).copied());
+            .and_then(|i| visible_agents.get(i).cloned());
         let count_visible_with_normalized_status = |status| {
             visible_agents
                 .iter()
-                .filter(|agent| agent.normalized.status == status)
+                .filter(|view| view.agent.normalized.status == status)
                 .count()
         };
         let error_count = visible_agents
             .iter()
-            .filter(|agent| {
+            .filter(|view| {
                 matches!(
-                    agent.normalized.status,
+                    view.agent.normalized.status,
                     NormalizedStatus::Blocked | NormalizedStatus::Unknown
                 )
             })
@@ -64,7 +67,7 @@ impl<'a> RenderData<'a> {
             done: count_visible_with_normalized_status(NormalizedStatus::Done),
             subagent_count: visible_agents
                 .iter()
-                .map(|agent| agent.subagents.len())
+                .map(|view| view.agent.subagents.len())
                 .sum(),
         };
 

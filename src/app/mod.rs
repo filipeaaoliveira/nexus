@@ -21,7 +21,7 @@ pub mod state;
 mod accounts;
 mod events;
 mod overview;
-mod projection;
+pub mod projection;
 mod system;
 
 pub use action::{AccountsAction, Action, OverviewAction, SystemAction, WorkspaceAction};

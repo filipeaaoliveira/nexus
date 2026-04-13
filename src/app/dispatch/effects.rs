@@ -1,11 +1,11 @@
-use crate::app::effect::{AccountProfile, AppError, Effect, EffectResult, RefreshOrigin};
+use crate::app::effect::{AppError, Effect, EffectResult, RefreshOrigin};
 use crate::app::state::EditableProfile;
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed};
 use crate::codex_profiles::quota::fetch_quota_from_api;
 use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
-use crate::domain::accounts::{AccountEntry, Provider};
+use crate::domain::accounts::{AccountEntry, DomainProfile, Provider};
 use crate::services::accounts::{
     claude as claude_service, codex as codex_service, storage as storage_service,
 };
@@ -75,7 +75,7 @@ async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
                         provider: Provider::Codex,
                         profile_id: profile_id.clone().into(),
                     });
-                    profiles.push(AccountProfile::Codex(profile));
+                    profiles.push(DomainProfile::from(profile));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -96,7 +96,7 @@ async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
                         provider: Provider::Claude,
                         profile_id: profile_id.clone().into(),
                     });
-                    profiles.push(AccountProfile::Claude(profile));
+                    profiles.push(DomainProfile::from(profile));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -219,7 +219,7 @@ async fn import_codex_profile(config: &Config) -> Result<EffectResult, AppError>
     .map_err(storage_err)?
     .map_err(storage_err)?;
     Ok(EffectResult::ProfileImported {
-        profile: AccountProfile::Codex(profile),
+        profile: DomainProfile::from(profile),
     })
 }
 
@@ -233,7 +233,7 @@ async fn import_claude_profile(config: &Config) -> Result<EffectResult, AppError
     .map_err(storage_err)?
     .map_err(storage_err)?;
     Ok(EffectResult::ProfileImported {
-        profile: AccountProfile::Claude(profile),
+        profile: DomainProfile::from(profile),
     })
 }
 
@@ -256,7 +256,7 @@ async fn save_profile_edits(
                     notes_option(&draft.notes),
                     draft.enabled,
                 )?;
-                storage_service::load_codex_profile(&profile_dir).map(AccountProfile::Codex)
+                storage_service::load_codex_profile(&profile_dir).map(DomainProfile::from)
             })
             .await
             .map_err(storage_err)?
@@ -272,7 +272,7 @@ async fn save_profile_edits(
                     notes_option(&draft.notes),
                     draft.enabled,
                 )?;
-                storage_service::load_claude_profile(&profile_dir).map(AccountProfile::Claude)
+                storage_service::load_claude_profile(&profile_dir).map(DomainProfile::from)
             })
             .await
             .map_err(storage_err)?
@@ -421,9 +421,8 @@ mod tests {
         .await;
 
         match result {
-            EffectResult::ProfileSaved {
-                profile: AccountProfile::Codex(profile),
-            } => {
+            EffectResult::ProfileSaved { profile } => {
+                assert_eq!(profile.provider, Provider::Codex);
                 assert_eq!(profile.label, "Renamed");
                 assert_eq!(profile.notes.as_deref(), Some("saved"));
                 assert!(!profile.enabled);

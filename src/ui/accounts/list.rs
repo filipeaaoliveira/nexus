@@ -6,8 +6,8 @@ use ratatui::Frame;
 
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::detect_live_profile_id;
+use crate::app::state::AccountKey;
 use crate::domain::accounts::{Provider, ProviderFilter};
-use crate::services::accounts::storage as storage_service;
 use crate::services::runtime::RuntimeSession;
 
 use super::{provider_badge, provider_badge_color};
@@ -53,20 +53,11 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
                 }
             };
 
-            let profiles_dir = match entry.provider {
-                Provider::Codex => &state.config().codex_profiles_dir,
-                Provider::Claude => &state.config().claude_profiles_dir,
-            };
-            let profile_dir = profiles_dir.join(entry.profile_id.as_str());
-
-            let (display_label, is_enabled) = match entry.provider {
-                Provider::Codex => storage_service::load_codex_profile(&profile_dir)
-                    .map(|profile| (profile.label, profile.enabled))
-                    .unwrap_or_else(|_| (entry.profile_id.to_string(), true)),
-                Provider::Claude => storage_service::load_claude_profile(&profile_dir)
-                    .map(|profile| (profile.label, profile.enabled))
-                    .unwrap_or_else(|_| (entry.profile_id.to_string(), true)),
-            };
+            let key = AccountKey::for_entry(entry);
+            let (display_label, is_enabled) = accounts
+                .profile_by_key(&key)
+                .map(|p| (p.label.clone(), p.enabled))
+                .unwrap_or_else(|| (entry.profile_id.to_string(), true));
 
             let quota_indicator = {
                 accounts

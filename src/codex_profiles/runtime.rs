@@ -4,7 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-use crate::codex_profiles::quota::{parse_legacy_status_output, QuotaSnapshot};
+use crate::codex_profiles::quota::parse_legacy_status_output;
+use crate::domain::accounts::QuotaSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePlan {

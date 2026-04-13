@@ -96,11 +96,12 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::app::effect::AccountProfile;
     use crate::claude_profiles::profile::ClaudeProfile;
     use crate::codex_profiles::profile::CodexProfile;
-    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
-    use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
+    use crate::domain::accounts::{
+        AccountEntry, Confidence, DomainProfile, LimitState, Provider, ProviderFilter,
+        QuotaSnapshot,
+    };
     use crate::domain::agents::model::SortMode;
 
     fn codex_profile(id: &str) -> CodexProfile {
@@ -261,17 +262,14 @@ mod tests {
             provider: Provider::Codex,
             profile_id: "codex-main".into(),
         });
-        let claude_key =
-            AccountKey::for_profile(&AccountProfile::Claude(claude_profile("claude-main")));
+        let claude_dp = DomainProfile::from(claude_profile("claude-main"));
+        let claude_key = AccountKey::for_profile(&claude_dp);
 
         state.profiles_by_key.insert(
             codex_key.clone(),
-            AccountProfile::Codex(codex_profile("codex-main")),
+            DomainProfile::from(codex_profile("codex-main")),
         );
-        state.profiles_by_key.insert(
-            claude_key.clone(),
-            AccountProfile::Claude(claude_profile("claude-main")),
-        );
+        state.profiles_by_key.insert(claude_key.clone(), claude_dp);
         state
             .quota_by_key
             .insert(codex_key.clone(), quota_snapshot("codex fresh"));
@@ -290,7 +288,7 @@ mod tests {
             provider: Provider::Codex,
             profile_id: "codex-main".into(),
         };
-        let profile = AccountProfile::Codex(codex_profile("codex-main"));
+        let profile = DomainProfile::from(codex_profile("codex-main"));
 
         assert_eq!(
             AccountKey::for_entry(&entry),

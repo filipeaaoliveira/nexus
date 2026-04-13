@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::claude_profiles::auth::ClaudeAuth;
-use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot, QuotaWindow};
+use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot, QuotaWindow};
 
 #[derive(Debug, Deserialize)]
 struct ClaudeUsageResponse {

@@ -6,21 +6,13 @@ use ratatui::Frame;
 
 use crate::app::state::AccountKey;
 use crate::app::AccountsMode;
-use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use crate::domain::accounts::Provider;
-use crate::services::accounts::storage as storage_service;
+use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 use crate::services::runtime::RuntimeSession;
 
 use super::provider_badge_color;
 use crate::ui::theme;
 
-struct ProfileDetails {
-    label: String,
-    email: Option<String>,
-    plan: Option<String>,
-    notes: Option<String>,
-    enabled: bool,
-}
 
 /// Build one quota row line. Uses a progress bar when `pct` is available,
 /// otherwise falls back to a text label. If `suffix` is provided it is
@@ -83,13 +75,8 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
         return;
     };
 
-    let profiles_dir = match provider {
-        Provider::Codex => &state.config().codex_profiles_dir,
-        Provider::Claude => &state.config().claude_profiles_dir,
-    };
-    let profile_dir = profiles_dir.join(profile_id);
-
-    let profile_details = load_profile_details(provider, &profile_dir, profile_id);
+    let key = AccountKey::new(provider, profile_id.to_string());
+    let profile_details = state.root().accounts().profile_by_key(&key);
     let block = Block::default()
         .borders(Borders::NONE)
         .title(Span::styled(
@@ -112,61 +99,67 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
         ),
     ]));
 
-    lines.push(Line::from(vec![
-        Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(
-            profile_details.label.clone(),
-            Style::default().fg(theme::FG_DEFAULT),
-        ),
-    ]));
-
-    if let Some(ref email) = profile_details.email {
+    if let Some(p) = profile_details {
         lines.push(Line::from(vec![
-            Span::styled("  email: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(email.clone(), Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(p.label.clone(), Style::default().fg(theme::FG_DEFAULT)),
         ]));
-    }
 
-    if let Some(ref plan) = profile_details.plan {
+        if let Some(ref email) = p.email {
+            lines.push(Line::from(vec![
+                Span::styled("  email: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(email.clone(), Style::default().fg(theme::FG_DEFAULT)),
+            ]));
+        }
+
+        if let Some(ref plan) = p.plan {
+            lines.push(Line::from(vec![
+                Span::styled("  plan: ", Style::default().fg(theme::FG_COMMENT)),
+                Span::styled(plan.clone(), Style::default().fg(theme::FG_DEFAULT)),
+            ]));
+        }
+
         lines.push(Line::from(vec![
-            Span::styled("  plan: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(plan.clone(), Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled("  enabled: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(
+                if p.enabled { "yes" } else { "no" },
+                if p.enabled {
+                    Style::default().fg(theme::STATUS_RUNNING)
+                } else {
+                    Style::default().fg(theme::STATUS_EXITED)
+                },
+            ),
         ]));
-    }
 
-    lines.push(Line::from(vec![
-        Span::styled("  enabled: ", Style::default().fg(theme::FG_COMMENT)),
-        Span::styled(
-            if profile_details.enabled { "yes" } else { "no" },
-            if profile_details.enabled {
-                Style::default().fg(theme::STATUS_RUNNING)
-            } else {
-                Style::default().fg(theme::STATUS_EXITED)
-            },
-        ),
-    ]));
-
-    if let Some(ref notes) = profile_details.notes {
-        if !notes.is_empty() {
-            lines.push(Line::from(Span::raw("")));
-            lines.push(Line::from(vec![Span::styled(
-                "  notes: ",
-                Style::default().fg(theme::FG_COMMENT),
-            )]));
-            for note_line in notes.lines() {
-                lines.push(Line::from(vec![
-                    Span::styled("    ", Style::default()),
-                    Span::styled(
-                        note_line.to_string(),
-                        Style::default().fg(theme::FG_DEFAULT),
-                    ),
-                ]));
+        if let Some(ref notes) = p.notes {
+            if !notes.is_empty() {
+                lines.push(Line::from(Span::raw("")));
+                lines.push(Line::from(vec![Span::styled(
+                    "  notes: ",
+                    Style::default().fg(theme::FG_COMMENT),
+                )]));
+                for note_line in notes.lines() {
+                    lines.push(Line::from(vec![
+                        Span::styled("    ", Style::default()),
+                        Span::styled(
+                            note_line.to_string(),
+                            Style::default().fg(theme::FG_DEFAULT),
+                        ),
+                    ]));
+                }
             }
         }
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
+            Span::styled(
+                profile_id.to_string(),
+                Style::default().fg(theme::FG_DEFAULT),
+            ),
+        ]));
     }
 
-    let quota_key = AccountKey::new(provider, profile_id.to_string());
-    if let Some(quota) = state.root().accounts().quota_by_key().get(&quota_key) {
+    if let Some(quota) = state.root().accounts().quota_by_key().get(&key) {
         append_quota_lines(&mut lines, quota);
     }
 
@@ -217,67 +210,6 @@ fn append_quota_lines(lines: &mut Vec<Line<'static>>, quota: &QuotaSnapshot) {
     ]));
 }
 
-fn load_profile_details(
-    provider: Provider,
-    profile_dir: &std::path::Path,
-    profile_id: &str,
-) -> ProfileDetails {
-    match provider {
-        Provider::Codex => {
-            if let Ok(profile) = storage_service::load_codex_profile(profile_dir) {
-                ProfileDetails {
-                    label: profile.label,
-                    email: profile.email,
-                    plan: profile.plan,
-                    notes: profile.notes,
-                    enabled: profile.enabled,
-                }
-            } else {
-                let metadata =
-                    crate::codex_profiles::profile::load_profile_metadata(profile_dir).ok();
-                ProfileDetails {
-                    label: metadata
-                        .as_ref()
-                        .and_then(|m| m.label.clone())
-                        .unwrap_or_else(|| profile_id.to_string()),
-                    email: metadata.as_ref().and_then(|m| m.email.clone()),
-                    plan: metadata.as_ref().and_then(|m| m.plan.clone()),
-                    notes: metadata.as_ref().and_then(|m| m.notes.clone()),
-                    enabled: metadata.as_ref().map(|m| m.enabled).unwrap_or(true),
-                }
-            }
-        }
-        Provider::Claude => {
-            if let Ok(profile) = storage_service::load_claude_profile(profile_dir) {
-                ProfileDetails {
-                    label: profile.label,
-                    email: profile.email,
-                    plan: profile.plan,
-                    notes: profile.notes,
-                    enabled: profile.enabled,
-                }
-            } else {
-                let metadata =
-                    crate::claude_profiles::profile::load_claude_profile_metadata(profile_dir).ok();
-                let auth_plan = crate::claude_profiles::auth::ClaudeAuth::load(
-                    &profile_dir.join(".credentials.json"),
-                )
-                .ok()
-                .and_then(|auth| auth.subscription_type().map(str::to_string));
-                ProfileDetails {
-                    label: metadata
-                        .as_ref()
-                        .and_then(|m| m.label.clone())
-                        .unwrap_or_else(|| profile_id.to_string()),
-                    email: metadata.as_ref().and_then(|m| m.email.clone()),
-                    plan: metadata.as_ref().and_then(|m| m.plan.clone()).or(auth_plan),
-                    notes: metadata.as_ref().and_then(|m| m.notes.clone()),
-                    enabled: metadata.as_ref().map(|m| m.enabled).unwrap_or(true),
-                }
-            }
-        }
-    }
-}
 
 fn render_placeholder(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let block = Block::default()
@@ -343,12 +275,9 @@ fn format_reset_duration(reset_at: chrono::DateTime<chrono::Utc>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
+    use crate::domain::accounts::LimitState;
 
-    use crate::codex_profiles::quota::LimitState;
-
-    use super::{load_profile_details, quota_bar_spans, quota_row};
-    use crate::domain::accounts::Provider;
+    use super::{quota_bar_spans, quota_row};
 
     fn make_bar(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
         quota_bar_spans(pct, bar_width)
@@ -420,35 +349,4 @@ mod tests {
         assert!(!text.contains("as of"), "5h line must not contain as of");
     }
 
-    #[test]
-    fn codex_profile_details_prefer_current_auth_metadata_over_stale_profile_metadata() {
-        let temp = tempdir().unwrap();
-        let profile_dir = temp.path().join("profile-01");
-        std::fs::create_dir_all(&profile_dir).unwrap();
-        std::fs::write(
-            profile_dir.join("auth.json"),
-            r#"{"email":"current@example.com","plan":"team"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            profile_dir.join("profile.json"),
-            r#"{
-                "id":"profile-01",
-                "label":"Saved Label",
-                "email":"stale@example.com",
-                "plan":"plus",
-                "notes":"saved notes",
-                "enabled":true
-            }"#,
-        )
-        .unwrap();
-
-        let details = load_profile_details(Provider::Codex, &profile_dir, "profile-01");
-
-        assert_eq!(details.label, "Saved Label");
-        assert_eq!(details.email.as_deref(), Some("current@example.com"));
-        assert_eq!(details.plan.as_deref(), Some("team"));
-        assert_eq!(details.notes.as_deref(), Some("saved notes"));
-        assert!(details.enabled);
-    }
 }

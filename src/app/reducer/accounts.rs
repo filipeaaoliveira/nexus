@@ -1,7 +1,7 @@
 use crate::app::action::AccountsAction;
-use crate::app::effect::{AccountProfile, Effect, EffectResult};
+use crate::app::effect::{Effect, EffectResult};
 use crate::app::state::{AccountKey, AccountsMode, AccountsState, Workflow};
-use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
+use crate::domain::accounts::{AccountEntry, DomainProfile, Provider, ProviderFilter};
 
 pub fn reduce(
     state: &mut AccountsState,
@@ -257,7 +257,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
     }
 }
 
-fn upsert_profile(state: &mut AccountsState, profile: AccountProfile) {
+fn upsert_profile(state: &mut AccountsState, profile: DomainProfile) {
     let key = AccountKey::for_profile(&profile);
     if !state
         .entries
@@ -314,11 +314,11 @@ fn is_accounts_effect(effect: &Effect) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::effect::{AccountProfile, AppError, ProfileId, RefreshOrigin};
+    use crate::app::effect::{AppError, ProfileId, RefreshOrigin};
     use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
     use crate::claude_profiles::profile::ClaudeProfile;
     use crate::codex_profiles::profile::CodexProfile;
-    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+    use crate::domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
     use chrono::Utc;
     use std::path::PathBuf;
 
@@ -389,18 +389,18 @@ mod tests {
         ]
     }
 
-    fn make_profiles() -> Vec<AccountProfile> {
+    fn make_profiles() -> Vec<DomainProfile> {
         vec![
-            AccountProfile::Codex(codex_profile("codex-01")),
-            AccountProfile::Codex(codex_profile("codex-02")),
-            AccountProfile::Claude(claude_profile("claude-01")),
+            DomainProfile::from(codex_profile("codex-01")),
+            DomainProfile::from(codex_profile("codex-02")),
+            DomainProfile::from(claude_profile("claude-01")),
         ]
     }
 
     /// Load profiles into state via the reducer, returning the state and workflow.
     fn load_profiles(
         entries: Vec<AccountEntry>,
-        profiles: Vec<AccountProfile>,
+        profiles: Vec<DomainProfile>,
     ) -> (AccountsState, Workflow) {
         let mut state = AccountsState::default();
         let mut workflow = Workflow::LoadingProfiles;
@@ -559,7 +559,7 @@ mod tests {
             &mut state,
             &mut wf,
             &EffectResult::ProfileImported {
-                profile: AccountProfile::Codex(codex_profile("codex-03")),
+                profile: DomainProfile::from(codex_profile("codex-03")),
             },
         );
         assert_invariants(&state);
@@ -691,7 +691,7 @@ mod tests {
             &mut state,
             &mut wf,
             &EffectResult::ProfileSaved {
-                profile: AccountProfile::Codex(codex_profile("codex-01")),
+                profile: DomainProfile::from(codex_profile("codex-01")),
             },
         );
         assert_invariants(&state);
@@ -710,7 +710,7 @@ mod tests {
             &mut state,
             &mut wf,
             &EffectResult::ProfileImported {
-                profile: AccountProfile::Claude(claude_profile("claude-02")),
+                profile: DomainProfile::from(claude_profile("claude-02")),
             },
         );
         assert_invariants(&state);
@@ -737,11 +737,7 @@ mod tests {
         assert_invariants(&state);
 
         for entry in make_entries() {
-            reduce_result(
-                &mut state,
-                &mut wf,
-                &EffectResult::ProfileDeleted { entry },
-            );
+            reduce_result(&mut state, &mut wf, &EffectResult::ProfileDeleted { entry });
             assert_invariants(&state);
         }
 
@@ -804,7 +800,7 @@ mod tests {
             &mut state,
             &mut wf,
             &EffectResult::ProfileSaved {
-                profile: AccountProfile::Codex(codex_profile("codex-01")),
+                profile: DomainProfile::from(codex_profile("codex-01")),
             },
         );
         assert_eq!(wf, Workflow::Idle);

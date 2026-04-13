@@ -338,8 +338,7 @@ mod tests {
     /// Checks overview invariants: visible_agents is a subset of agents, selected index in bounds.
     fn assert_overview_invariants(state: &AppState) {
         let visible = state.visible_agents();
-        let all_ids: std::collections::HashSet<_> =
-            state.agents.iter().map(|a| &a.id).collect();
+        let all_ids: std::collections::HashSet<_> = state.agents.iter().map(|a| &a.id).collect();
 
         // Every visible agent must exist in the authoritative agent list
         for agent in &visible {

@@ -58,6 +58,22 @@ impl Default for ProfileMetadata {
     }
 }
 
+impl From<CodexProfile> for crate::domain::accounts::DomainProfile {
+    fn from(p: CodexProfile) -> Self {
+        Self {
+            id: crate::domain::accounts::ProfileId::new(p.id),
+            provider: crate::domain::accounts::Provider::Codex,
+            label: p.label,
+            email: p.email,
+            plan: p.plan,
+            notes: p.notes,
+            enabled: p.enabled,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+        }
+    }
+}
+
 impl CodexProfile {
     pub fn import_from_auth(
         id: &str,

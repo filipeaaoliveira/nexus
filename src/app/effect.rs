@@ -1,109 +1,14 @@
-use crate::claude_profiles::profile::ClaudeProfile;
-use crate::codex_profiles::profile::CodexProfile;
-use crate::domain::accounts::{AccountEntry, Provider, QuotaSnapshot};
+use crate::domain::accounts::{AccountEntry, DomainProfile, Provider, QuotaSnapshot};
 
 use super::state::EditableProfile;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProfileId(String);
-
-impl ProfileId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for ProfileId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<String> for ProfileId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for ProfileId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-impl AsRef<str> for ProfileId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for ProfileId {
-    type Target = str;
-    fn deref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl PartialEq<str> for ProfileId {
-    fn eq(&self, other: &str) -> bool {
-        self.0 == other
-    }
-}
-
-impl PartialEq<&str> for ProfileId {
-    fn eq(&self, other: &&str) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<String> for ProfileId {
-    fn eq(&self, other: &String) -> bool {
-        self.0 == *other
-    }
-}
+// ProfileId is defined in the domain layer; re-exported here for backward compatibility.
+pub use crate::domain::accounts::ProfileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshOrigin {
     Manual,
     Background,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AccountProfile {
-    Codex(CodexProfile),
-    Claude(ClaudeProfile),
-}
-
-impl AccountProfile {
-    pub fn provider(&self) -> Provider {
-        match self {
-            Self::Codex(_) => Provider::Codex,
-            Self::Claude(_) => Provider::Claude,
-        }
-    }
-
-    pub fn profile_id(&self) -> &str {
-        match self {
-            Self::Codex(profile) => &profile.id,
-            Self::Claude(profile) => &profile.id,
-        }
-    }
-}
-
-impl From<CodexProfile> for AccountProfile {
-    fn from(profile: CodexProfile) -> Self {
-        Self::Codex(profile)
-    }
-}
-
-impl From<ClaudeProfile> for AccountProfile {
-    fn from(profile: ClaudeProfile) -> Self {
-        Self::Claude(profile)
-    }
 }
 
 /// Categorized error for effect failures.
@@ -173,7 +78,7 @@ pub enum Effect {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectResult {
     ProfilesLoaded {
-        profiles: Vec<AccountProfile>,
+        profiles: Vec<DomainProfile>,
         entries: Vec<AccountEntry>,
     },
     EditableProfileLoaded {
@@ -192,10 +97,10 @@ pub enum EffectResult {
         origin: RefreshOrigin,
     },
     ProfileImported {
-        profile: AccountProfile,
+        profile: DomainProfile,
     },
     ProfileSaved {
-        profile: AccountProfile,
+        profile: DomainProfile,
     },
     ProfileWrittenToHome {
         entry: AccountEntry,
@@ -212,12 +117,13 @@ pub enum EffectResult {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use std::path::PathBuf;
 
     use crate::claude_profiles::profile::ClaudeProfile;
     use crate::codex_profiles::profile::CodexProfile;
-    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
-    use crate::domain::accounts::{AccountEntry, Provider};
+    use crate::domain::accounts::{
+        AccountEntry, Confidence, DomainProfile, LimitState, Provider, QuotaSnapshot,
+    };
+    use std::path::PathBuf;
 
     use super::*;
 
@@ -273,8 +179,8 @@ mod tests {
     fn profiles_loaded_carries_profile_models_and_entries() {
         let result = EffectResult::ProfilesLoaded {
             profiles: vec![
-                AccountProfile::Codex(codex_profile("codex-main")),
-                AccountProfile::Claude(claude_profile("claude-main")),
+                DomainProfile::from(codex_profile("codex-main")),
+                DomainProfile::from(claude_profile("claude-main")),
             ],
             entries: vec![
                 AccountEntry {
@@ -320,26 +226,26 @@ mod tests {
     }
 
     #[test]
-    fn account_profile_exposes_provider_and_profile_id_for_state_keying() {
-        let profile = AccountProfile::Claude(claude_profile("claude-main"));
+    fn domain_profile_exposes_provider_and_profile_id_for_state_keying() {
+        let profile = DomainProfile::from(claude_profile("claude-main"));
 
-        assert_eq!(profile.provider(), Provider::Claude);
+        assert_eq!(profile.provider, Provider::Claude);
         assert_eq!(profile.profile_id(), "claude-main");
     }
 
     #[test]
-    fn account_profile_from_profile_models_preserves_variant() {
-        let codex = AccountProfile::from(codex_profile("codex-main"));
-        let claude = AccountProfile::from(claude_profile("claude-main"));
+    fn domain_profile_from_provider_profiles_preserves_provider() {
+        let codex = DomainProfile::from(codex_profile("codex-main"));
+        let claude = DomainProfile::from(claude_profile("claude-main"));
 
-        assert!(matches!(codex, AccountProfile::Codex(_)));
-        assert!(matches!(claude, AccountProfile::Claude(_)));
+        assert_eq!(codex.provider, Provider::Codex);
+        assert_eq!(claude.provider, Provider::Claude);
     }
 
     #[test]
     fn import_and_delete_results_carry_reducer_usable_data() {
         let imported = EffectResult::ProfileImported {
-            profile: AccountProfile::Claude(claude_profile("claude-main")),
+            profile: DomainProfile::from(claude_profile("claude-main")),
         };
         let deleted = EffectResult::ProfileDeleted {
             entry: AccountEntry {
@@ -349,9 +255,10 @@ mod tests {
         };
 
         match imported {
-            EffectResult::ProfileImported {
-                profile: AccountProfile::Claude(profile),
-            } => assert_eq!(profile.id, "claude-main"),
+            EffectResult::ProfileImported { profile } => {
+                assert_eq!(profile.profile_id(), "claude-main");
+                assert_eq!(profile.provider, Provider::Claude);
+            }
             other => panic!("unexpected import result: {other:?}"),
         }
 

@@ -10,8 +10,8 @@ use ratatui::widgets::Block;
 use ratatui::Frame;
 
 use crate::app::{AccountsConfirmAction, AccountsMode, ConfirmKind};
-use crate::codex_profiles::quota::{Confidence, CreditsState, LimitState};
 use crate::domain::accounts::Provider;
+use crate::domain::accounts::{Confidence, CreditsState, LimitState};
 use crate::services::runtime::RuntimeSession;
 use crate::ui::{header, theme, RenderData};
 

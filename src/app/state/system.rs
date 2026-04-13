@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::app::effect::ProfileId;
-use crate::domain::accounts::Provider;
+use crate::domain::accounts::{ProfileId, Provider};
 use crate::domain::system::DetectorKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

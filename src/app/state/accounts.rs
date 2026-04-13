@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use crate::app::effect::{AccountProfile, ProfileId};
-use crate::domain::accounts::QuotaSnapshot;
-use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
+use crate::domain::accounts::{
+    AccountEntry, DomainProfile, ProfileId, Provider, ProviderFilter, QuotaSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EditableProfile {
@@ -60,8 +60,8 @@ impl AccountKey {
         Self::new(entry.provider, ProfileId::from(entry.profile_id.as_str()))
     }
 
-    pub fn for_profile(profile: &AccountProfile) -> Self {
-        Self::new(profile.provider(), ProfileId::from(profile.profile_id()))
+    pub fn for_profile(profile: &DomainProfile) -> Self {
+        Self::new(profile.provider, ProfileId::from(profile.profile_id()))
     }
 }
 
@@ -91,7 +91,7 @@ pub struct AccountsState {
     pub(in crate::app) mode: AccountsMode,
     pub(in crate::app) selected_index: Option<usize>,
     pub(in crate::app) entries: Vec<AccountEntry>,
-    pub(in crate::app) profiles_by_key: BTreeMap<AccountKey, AccountProfile>,
+    pub(in crate::app) profiles_by_key: BTreeMap<AccountKey, DomainProfile>,
     pub(in crate::app) quota_by_key: BTreeMap<AccountKey, QuotaSnapshot>,
     pub(in crate::app) quota_loading: bool,
     pub(in crate::app) provider_filter: ProviderFilter,
@@ -134,7 +134,7 @@ impl AccountsState {
         self.status_message.as_deref()
     }
 
-    pub fn profile_by_key(&self, key: &AccountKey) -> Option<&AccountProfile> {
+    pub fn profile_by_key(&self, key: &AccountKey) -> Option<&DomainProfile> {
         self.profiles_by_key.get(key)
     }
 

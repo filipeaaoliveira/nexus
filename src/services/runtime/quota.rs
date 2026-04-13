@@ -1,5 +1,5 @@
 use crate::app::dispatch::effects::dispatch_effect;
-use crate::app::effect::ProfileId;
+use crate::domain::accounts::ProfileId;
 use crate::app::{Effect, EffectResult, RefreshOrigin};
 use crate::config::Config;
 
@@ -109,7 +109,7 @@ mod tests {
 
     use super::poll_quota_loop;
     use crate::app::{Effect, EffectResult, RefreshOrigin};
-    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+    use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 
     fn test_snapshot() -> QuotaSnapshot {
         QuotaSnapshot::legacy_fallback(

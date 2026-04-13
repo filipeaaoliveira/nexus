@@ -4,7 +4,7 @@ pub(crate) mod heuristics;
 pub mod opencode;
 pub mod process;
 pub mod registry;
-pub(crate) mod worktree;
+pub mod worktree;
 
 use crate::config::Config;
 use crate::event::AgentEvent;

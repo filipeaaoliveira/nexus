@@ -30,6 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"  # used in production code (import_claude_auth writes Keychain output to a NamedTempFile)
 
 [dev-dependencies]
+proptest = "1"
 
 [profile.release]
 lto = true

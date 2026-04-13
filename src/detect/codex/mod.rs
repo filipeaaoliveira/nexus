@@ -17,9 +17,11 @@ mod types;
 pub use rollout::*;
 #[cfg(test)]
 pub use snapshot::*;
+#[allow(hidden_glob_reexports)]
 use snapshot::{detect_codex_backend_with_history, reconcile_codex_snapshots};
 #[cfg(test)]
 pub use sqlite::*;
+#[allow(hidden_glob_reexports)]
 use types::CodexEventSnapshot;
 #[cfg(test)]
 pub use types::*;

@@ -241,7 +241,7 @@ mod tests {
         let mut state = AccountsState::default();
         state.entries.push(AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".to_string(),
+            profile_id: "codex-main".into(),
         });
         state.selected_index = Some(0);
 
@@ -249,7 +249,7 @@ mod tests {
             state.entries.get(state.selected_index.unwrap()),
             Some(&AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-main".to_string(),
+                profile_id: "codex-main".into(),
             })
         );
     }
@@ -259,7 +259,7 @@ mod tests {
         let mut state = AccountsState::default();
         let codex_key = AccountKey::for_entry(&AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".to_string(),
+            profile_id: "codex-main".into(),
         });
         let claude_key =
             AccountKey::for_profile(&AccountProfile::Claude(claude_profile("claude-main")));
@@ -288,7 +288,7 @@ mod tests {
     fn account_keys_align_entries_profiles_and_quota_payloads() {
         let entry = AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".to_string(),
+            profile_id: "codex-main".into(),
         };
         let profile = AccountProfile::Codex(codex_profile("codex-main"));
 

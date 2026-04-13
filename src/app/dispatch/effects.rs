@@ -1,4 +1,4 @@
-use crate::app::effect::{AccountProfile, Effect, EffectResult, RefreshOrigin};
+use crate::app::effect::{AccountProfile, AppError, Effect, EffectResult, RefreshOrigin};
 use crate::app::state::EditableProfile;
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed};
@@ -13,34 +13,11 @@ use crate::services::accounts::{
 pub async fn dispatch_effect(config: &Config, effect: Effect) -> EffectResult {
     match dispatch_effect_inner(config, &effect).await {
         Ok(result) => result,
-        Err(error) => {
-            let app_error = categorize_error(&effect, error);
-            EffectResult::Failed {
-                effect,
-                error: app_error,
-            }
-        }
+        Err(error) => EffectResult::Failed { effect, error },
     }
 }
 
-fn categorize_error(effect: &Effect, error: anyhow::Error) -> crate::app::effect::AppError {
-    use crate::app::effect::AppError;
-    let message = error.to_string();
-    match effect {
-        Effect::RefreshCodexQuota { .. } | Effect::RefreshClaudeQuota { .. } => {
-            AppError::QuotaRefresh { message }
-        }
-        Effect::LoadProfiles
-        | Effect::LoadEditableProfile { .. }
-        | Effect::ImportCodexProfile
-        | Effect::ImportClaudeProfile
-        | Effect::SaveProfileEdits { .. }
-        | Effect::WriteProfileToHome { .. }
-        | Effect::DeleteProfile { .. } => AppError::Storage { message },
-    }
-}
-
-async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> anyhow::Result<EffectResult> {
+async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> Result<EffectResult, AppError> {
     match effect {
         Effect::LoadProfiles => load_profiles(config).await,
         Effect::LoadEditableProfile {
@@ -71,7 +48,19 @@ async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> anyhow::Resu
     }
 }
 
-async fn load_profiles(config: &Config) -> anyhow::Result<EffectResult> {
+fn storage_err(error: impl std::fmt::Display) -> AppError {
+    AppError::Storage {
+        message: error.to_string(),
+    }
+}
+
+fn quota_err(error: impl std::fmt::Display) -> AppError {
+    AppError::QuotaRefresh {
+        message: error.to_string(),
+    }
+}
+
+async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
     let codex_profiles_dir = config.codex_profiles_dir.clone();
     let claude_profiles_dir = config.claude_profiles_dir.clone();
     let (profiles, entries) = tokio::task::spawn_blocking(move || {
@@ -84,7 +73,7 @@ async fn load_profiles(config: &Config) -> anyhow::Result<EffectResult> {
                 Ok(profile) => {
                     entries.push(AccountEntry {
                         provider: Provider::Codex,
-                        profile_id: profile_id.clone(),
+                        profile_id: profile_id.clone().into(),
                     });
                     profiles.push(AccountProfile::Codex(profile));
                 }
@@ -105,7 +94,7 @@ async fn load_profiles(config: &Config) -> anyhow::Result<EffectResult> {
                 Ok(profile) => {
                     entries.push(AccountEntry {
                         provider: Provider::Claude,
-                        profile_id: profile_id.clone(),
+                        profile_id: profile_id.clone().into(),
                     });
                     profiles.push(AccountProfile::Claude(profile));
                 }
@@ -120,9 +109,11 @@ async fn load_profiles(config: &Config) -> anyhow::Result<EffectResult> {
             }
         }
 
-        anyhow::Ok((profiles, entries))
+        Ok::<_, anyhow::Error>((profiles, entries))
     })
-    .await??;
+    .await
+    .map_err(storage_err)?
+    .map_err(storage_err)?;
 
     Ok(EffectResult::ProfilesLoaded { profiles, entries })
 }
@@ -131,7 +122,7 @@ async fn load_profile_draft(
     config: &Config,
     provider: Provider,
     profile_id: &str,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
     let draft = match provider {
         Provider::Codex => {
@@ -143,7 +134,9 @@ async fn load_profile_draft(
                     enabled: profile.enabled,
                 })
             })
-            .await??
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?
         }
         Provider::Claude => {
             let profile_dir = config.claude_profiles_dir.join(&profile_id);
@@ -154,7 +147,9 @@ async fn load_profile_draft(
                     enabled: profile.enabled,
                 })
             })
-            .await??
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?
         }
     };
 
@@ -169,12 +164,15 @@ async fn refresh_codex_quota(
     config: &Config,
     profile_id: &str,
     origin: RefreshOrigin,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let auth_path = config.codex_profiles_dir.join(profile_id).join("auth.json");
-    let auth = tokio::task::spawn_blocking(move || ProfileAuth::load(&auth_path)).await??;
+    let auth = tokio::task::spawn_blocking(move || ProfileAuth::load(&auth_path))
+        .await
+        .map_err(quota_err)?
+        .map_err(quota_err)?;
     let quota = fetch_quota_from_api(&auth)
         .await
-        .ok_or_else(|| anyhow::anyhow!("failed to refresh Codex quota"))?;
+        .ok_or_else(|| quota_err("failed to refresh Codex quota"))?;
     Ok(EffectResult::CodexQuotaRefreshed {
         profile_id: profile_id.into(),
         quota,
@@ -186,12 +184,15 @@ async fn refresh_claude_quota(
     config: &Config,
     profile_id: &str,
     origin: RefreshOrigin,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let creds_path = config
         .claude_profiles_dir
         .join(profile_id)
         .join(".credentials.json");
-    let auth = tokio::task::spawn_blocking(move || ClaudeAuth::load(&creds_path)).await??;
+    let auth = tokio::task::spawn_blocking(move || ClaudeAuth::load(&creds_path))
+        .await
+        .map_err(quota_err)?
+        .map_err(quota_err)?;
     let refreshed = refresh_token_if_needed(auth).await;
     let save_path = config
         .claude_profiles_dir
@@ -200,7 +201,7 @@ async fn refresh_claude_quota(
     let refreshed = persist_refreshed_claude_auth_best_effort(save_path, refreshed).await;
     let quota = fetch_claude_quota(&refreshed)
         .await
-        .ok_or_else(|| anyhow::anyhow!("failed to refresh Claude quota"))?;
+        .ok_or_else(|| quota_err("failed to refresh Claude quota"))?;
     Ok(EffectResult::ClaudeQuotaRefreshed {
         profile_id: profile_id.into(),
         quota,
@@ -208,25 +209,29 @@ async fn refresh_claude_quota(
     })
 }
 
-async fn import_codex_profile(config: &Config) -> anyhow::Result<EffectResult> {
+async fn import_codex_profile(config: &Config) -> Result<EffectResult, AppError> {
     let profiles_dir = config.codex_profiles_dir.clone();
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
     let profile = tokio::task::spawn_blocking(move || {
         codex_service::import_profile_from_home(&profiles_dir, &home)
     })
-    .await??;
+    .await
+    .map_err(storage_err)?
+    .map_err(storage_err)?;
     Ok(EffectResult::ProfileImported {
         profile: AccountProfile::Codex(profile),
     })
 }
 
-async fn import_claude_profile(config: &Config) -> anyhow::Result<EffectResult> {
+async fn import_claude_profile(config: &Config) -> Result<EffectResult, AppError> {
     let profiles_dir = config.claude_profiles_dir.clone();
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
     let profile = tokio::task::spawn_blocking(move || {
         claude_service::import_profile_from_home(&profiles_dir, &home)
     })
-    .await??;
+    .await
+    .map_err(storage_err)?
+    .map_err(storage_err)?;
     Ok(EffectResult::ProfileImported {
         profile: AccountProfile::Claude(profile),
     })
@@ -237,7 +242,7 @@ async fn save_profile_edits(
     provider: Provider,
     profile_id: &str,
     draft: &EditableProfile,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
     let draft = draft.clone();
     let profile = match provider {
@@ -253,7 +258,9 @@ async fn save_profile_edits(
                 )?;
                 storage_service::load_codex_profile(&profile_dir).map(AccountProfile::Codex)
             })
-            .await??
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?
         }
         Provider::Claude => {
             let profile_dir = config.claude_profiles_dir.join(&profile_id);
@@ -267,7 +274,9 @@ async fn save_profile_edits(
                 )?;
                 storage_service::load_claude_profile(&profile_dir).map(AccountProfile::Claude)
             })
-            .await??
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?
         }
     };
 
@@ -278,30 +287,34 @@ async fn write_profile_to_home(
     config: &Config,
     provider: Provider,
     profile_id: &str,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("home directory not found"))?;
+    let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
     match provider {
         Provider::Codex => {
             let profile_dir = config.codex_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
                 codex_service::write_profile_to_home(&profile_dir, &home)
             })
-            .await??;
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?;
         }
         Provider::Claude => {
             let profile_dir = config.claude_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
                 claude_service::write_profile_to_home(&profile_dir, &home)
             })
-            .await??;
+            .await
+            .map_err(storage_err)?
+            .map_err(storage_err)?;
         }
     }
 
     Ok(EffectResult::ProfileWrittenToHome {
         entry: AccountEntry {
             provider,
-            profile_id,
+            profile_id: profile_id.into(),
         },
     })
 }
@@ -310,18 +323,20 @@ async fn delete_profile(
     config: &Config,
     provider: Provider,
     profile_id: &str,
-) -> anyhow::Result<EffectResult> {
+) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
     let profile_dir = match provider {
         Provider::Codex => config.codex_profiles_dir.join(&profile_id),
         Provider::Claude => config.claude_profiles_dir.join(&profile_id),
     };
     tokio::task::spawn_blocking(move || storage_service::delete_profile_dir(&profile_dir))
-        .await??;
+        .await
+        .map_err(storage_err)?
+        .map_err(storage_err)?;
     Ok(EffectResult::ProfileDeleted {
         entry: AccountEntry {
             provider,
-            profile_id,
+            profile_id: profile_id.into(),
         },
     })
 }

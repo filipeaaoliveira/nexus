@@ -400,15 +400,15 @@ mod tests {
             entries: vec![
                 AccountEntry {
                     provider: Provider::Codex,
-                    profile_id: "c1".to_string(),
+                    profile_id: "c1".into(),
                 },
                 AccountEntry {
                     provider: Provider::Codex,
-                    profile_id: "c2".to_string(),
+                    profile_id: "c2".into(),
                 },
                 AccountEntry {
                     provider: Provider::Claude,
-                    profile_id: "cl1".to_string(),
+                    profile_id: "cl1".into(),
                 },
             ],
             ..AccountsState::default()

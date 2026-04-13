@@ -57,15 +57,15 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
                 Provider::Codex => &state.config().codex_profiles_dir,
                 Provider::Claude => &state.config().claude_profiles_dir,
             };
-            let profile_dir = profiles_dir.join(&entry.profile_id);
+            let profile_dir = profiles_dir.join(entry.profile_id.as_str());
 
             let (display_label, is_enabled) = match entry.provider {
                 Provider::Codex => storage_service::load_codex_profile(&profile_dir)
                     .map(|profile| (profile.label, profile.enabled))
-                    .unwrap_or_else(|_| (entry.profile_id.clone(), true)),
+                    .unwrap_or_else(|_| (entry.profile_id.to_string(), true)),
                 Provider::Claude => storage_service::load_claude_profile(&profile_dir)
                     .map(|profile| (profile.label, profile.enabled))
-                    .unwrap_or_else(|_| (entry.profile_id.clone(), true)),
+                    .unwrap_or_else(|_| (entry.profile_id.to_string(), true)),
             };
 
             let quota_indicator = {

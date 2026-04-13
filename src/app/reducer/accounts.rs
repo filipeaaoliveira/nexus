@@ -221,7 +221,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
             };
             vec![Effect::SaveProfileEdits {
                 provider: entry.provider,
-                profile_id: entry.profile_id.into(),
+                profile_id: entry.profile_id,
                 draft,
             }]
         }
@@ -238,7 +238,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
                     };
                     vec![Effect::DeleteProfile {
                         provider: entry.provider,
-                        profile_id: entry.profile_id.into(),
+                        profile_id: entry.profile_id,
                     }]
                 }
                 crate::app::state::AccountsConfirmAction::WriteProfileToHome => {
@@ -248,7 +248,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
                     };
                     vec![Effect::WriteProfileToHome {
                         provider: entry.provider,
-                        profile_id: entry.profile_id.into(),
+                        profile_id: entry.profile_id,
                     }]
                 }
             }
@@ -266,7 +266,7 @@ fn upsert_profile(state: &mut AccountsState, profile: AccountProfile) {
     {
         state.entries.push(AccountEntry {
             provider: key.provider,
-            profile_id: key.profile_id.to_string(),
+            profile_id: key.profile_id.clone(),
         });
     }
     state.profiles_by_key.insert(key, profile);

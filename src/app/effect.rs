@@ -279,11 +279,11 @@ mod tests {
             entries: vec![
                 AccountEntry {
                     provider: Provider::Codex,
-                    profile_id: "codex-main".to_string(),
+                    profile_id: "codex-main".into(),
                 },
                 AccountEntry {
                     provider: Provider::Claude,
-                    profile_id: "claude-main".to_string(),
+                    profile_id: "claude-main".into(),
                 },
             ],
         };
@@ -344,7 +344,7 @@ mod tests {
         let deleted = EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Claude,
-                profile_id: "claude-main".to_string(),
+                profile_id: "claude-main".into(),
             },
         };
 

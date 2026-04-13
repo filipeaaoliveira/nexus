@@ -47,7 +47,17 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<CodexProfile> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join("auth.json");
     let auth_metadata = load_codex_auth_metadata(&auth_path);
-    let metadata = load_profile_metadata(profile_dir).unwrap_or_default();
+    let metadata = match load_profile_metadata(profile_dir) {
+        Ok(m) => m,
+        Err(error) => {
+            tracing::warn!(
+                profile_dir = %profile_dir.display(),
+                error = %error,
+                "corrupted profile.json, falling back to defaults"
+            );
+            ProfileMetadata::default()
+        }
+    };
     let now = Utc::now();
 
     Ok(CodexProfile {
@@ -69,16 +79,33 @@ fn load_codex_auth_metadata(auth_path: &Path) -> AuthMetadata {
     let Ok(auth_content) = fs::read_to_string(auth_path) else {
         return AuthMetadata::default();
     };
-    let Ok(auth_json) = serde_json::from_str::<Value>(&auth_content) else {
-        return AuthMetadata::default();
-    };
-    extract_auth_metadata(&auth_json)
+    match serde_json::from_str::<Value>(&auth_content) {
+        Ok(auth_json) => extract_auth_metadata(&auth_json),
+        Err(error) => {
+            tracing::warn!(
+                auth_path = %auth_path.display(),
+                error = %error,
+                "corrupted auth.json, falling back to empty metadata"
+            );
+            AuthMetadata::default()
+        }
+    }
 }
 
 pub fn load_claude_profile(profile_dir: &Path) -> Result<ClaudeProfile> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join(".credentials.json");
-    let auth = ClaudeAuth::load(&auth_path).unwrap_or_default();
+    let auth = match ClaudeAuth::load(&auth_path) {
+        Ok(a) => a,
+        Err(error) => {
+            tracing::warn!(
+                auth_path = %auth_path.display(),
+                error = %error,
+                "corrupted .credentials.json, falling back to empty auth"
+            );
+            ClaudeAuth::default()
+        }
+    };
     let metadata = load_claude_profile_metadata(profile_dir)?;
     let now = Utc::now();
 
@@ -126,7 +153,17 @@ pub fn save_claude_profile_edits(
     notes: Option<String>,
     enabled: bool,
 ) -> Result<()> {
-    let existing = load_claude_profile_metadata(profile_dir).unwrap_or_default();
+    let existing = match load_claude_profile_metadata(profile_dir) {
+        Ok(m) => m,
+        Err(error) => {
+            tracing::warn!(
+                profile_dir = %profile_dir.display(),
+                error = %error,
+                "corrupted profile.json during save, starting from defaults"
+            );
+            ClaudeProfileMetadata::default()
+        }
+    };
     let metadata = ClaudeProfileMetadata {
         id: profile_id.to_string(),
         label: Some(label.to_string()),

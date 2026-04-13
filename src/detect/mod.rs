@@ -290,4 +290,45 @@ mod tests {
             "expected detector-side session enrichment"
         );
     }
+
+    #[tokio::test]
+    async fn detector_tasks_drop_aborts_all_child_tasks() {
+        use super::DetectorTasks;
+
+        let make_task = || {
+            tokio::spawn(async {
+                // Simulate a long-running detector
+                tokio::time::sleep(Duration::from_secs(600)).await;
+            })
+        };
+
+        let forward = make_task();
+        let process = make_task();
+        let claude = make_task();
+        let opencode = make_task();
+        let codex = make_task();
+
+        // Clone abort handles before moving into DetectorTasks
+        let handles: Vec<_> = [&forward, &process, &claude, &opencode, &codex]
+            .iter()
+            .map(|h| h.abort_handle())
+            .collect();
+
+        let tasks = DetectorTasks {
+            forward,
+            process,
+            claude,
+            opencode,
+            codex,
+        };
+
+        drop(tasks);
+
+        // Yield to let the runtime process abort signals
+        tokio::task::yield_now().await;
+
+        for (i, handle) in handles.iter().enumerate() {
+            assert!(handle.is_finished(), "task {i} was not aborted by Drop");
+        }
+    }
 }

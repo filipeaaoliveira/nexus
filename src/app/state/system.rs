@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::app::effect::ProfileId;
 use crate::domain::accounts::Provider;
 use crate::domain::system::DetectorKind;
 
@@ -26,15 +27,15 @@ pub enum Workflow {
     LoadingProfiles,
     SavingProfile {
         provider: Provider,
-        profile_id: String,
+        profile_id: ProfileId,
     },
     WritingProfileToHome {
         provider: Provider,
-        profile_id: String,
+        profile_id: ProfileId,
     },
     DeletingProfile {
         provider: Provider,
-        profile_id: String,
+        profile_id: ProfileId,
     },
     Quitting,
 }

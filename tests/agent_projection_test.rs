@@ -1,79 +1,44 @@
 use std::path::PathBuf;
 
-use nexus::domain::agents::{AgentId, AgentTool};
-use nexus::{AgentEvent, AppState, RootState};
+use nexus::domain::agents::{
+    Activity, Agent, AgentId, AgentTool, NormalizedState, NormalizedStatus, PrimaryStatus,
+};
 
-fn discovered(tool: AgentTool, pid: u32, cwd: &str) -> AgentEvent {
-    AgentEvent::Discovered {
-        id: AgentId::new(tool, pid),
-        pid: Some(pid),
-        cwd: PathBuf::from(cwd),
-        started_at: None,
-    }
+#[test]
+fn agent_id_projection_tracks_process_and_session_identity() {
+    let process = AgentId::new(AgentTool::Claude, 100);
+    let session = AgentId::session(AgentTool::Codex, "thread-1");
+
+    assert!(process.is_process());
+    assert!(!process.is_session());
+    assert_eq!(process.pid(), Some(100));
+    assert_eq!(process.tool(), AgentTool::Claude);
+
+    assert!(session.is_session());
+    assert!(!session.is_process());
+    assert_eq!(session.session_id(), Some("thread-1"));
+    assert_eq!(session.tool(), AgentTool::Codex);
 }
 
 #[test]
-fn overview_projection_tracks_visible_agents_without_join_drift() {
-    let mut app = AppState::from_root(RootState::default());
-    app.handle_event(discovered(AgentTool::Claude, 100, "/tmp/one"));
-    app.handle_event(discovered(AgentTool::OpenCode, 200, "/tmp/two"));
-
-    let overview_ids: Vec<_> = app
-        .root()
-        .overview()
-        .visible_agents()
-        .into_iter()
-        .map(|agent| agent.id.clone())
-        .collect();
-    let visible_agents = app.visible_agents();
-    let visible_ids: Vec<_> = visible_agents
-        .iter()
-        .map(|agent| agent.id.clone())
-        .collect();
-
-    assert_eq!(overview_ids, visible_ids);
-    assert_eq!(visible_agents.len(), 2);
-    assert_eq!(visible_agents[0].id.tool(), AgentTool::Claude);
-    assert_eq!(visible_agents[1].id.tool(), AgentTool::OpenCode);
-    assert_eq!(
-        app.root().overview().selected_agent_id(),
-        Some(visible_agents[0].id.clone())
-    );
-}
-
-#[test]
-fn codex_session_without_pid_stays_hidden_until_process_binding_exists() {
-    let mut app = AppState::from_root(RootState::default());
-
-    app.handle_event(AgentEvent::SessionInfo {
-        id: AgentId::session(AgentTool::Codex, "thread-1"),
-        pid: None,
-        session_id: "thread-1".into(),
+fn agent_display_projection_prefers_alias_over_tool_name() {
+    let agent = Agent {
+        id: AgentId::new(AgentTool::OpenCode, 7),
+        pid: Some(7),
+        status: PrimaryStatus::Running,
+        normalized: NormalizedState::new(NormalizedStatus::Working, None),
+        activity: Some(Activity::Generating),
+        cwd: PathBuf::from("/tmp/repo"),
         branch: Some("main".into()),
         is_worktree: false,
-        started_at: None,
-    });
+        started_at: chrono::Local::now(),
+        last_activity: chrono::Local::now(),
+        subagents: Vec::new(),
+        recent_events: std::collections::VecDeque::new(),
+        session_id: Some("thread-7".into()),
+        alias: Some("focused-runner".into()),
+        todos: Vec::new(),
+    };
 
-    assert!(app.visible_agents().is_empty());
-    assert_eq!(app.root().overview().selected_agent_id(), None);
-
-    app.handle_event(AgentEvent::SessionInfo {
-        id: AgentId::session(AgentTool::Codex, "thread-1"),
-        pid: Some(44),
-        session_id: "thread-1".into(),
-        branch: Some("main".into()),
-        is_worktree: false,
-        started_at: None,
-    });
-
-    let visible = app.visible_agents();
-    assert_eq!(visible.len(), 1);
-    assert_eq!(
-        visible[0].id,
-        AgentId::session(AgentTool::Codex, "thread-1")
-    );
-    assert_eq!(
-        app.root().overview().selected_agent_id(),
-        Some(visible[0].id.clone())
-    );
+    assert_eq!(agent.display_name(), "focused-runner");
 }

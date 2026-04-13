@@ -11,9 +11,7 @@ pub mod runtime_support;
 mod services;
 mod ui;
 
-pub use app::{AppState, RootState};
 pub use config::{Cli, Config};
-pub use event::AgentEvent;
 pub use infra::config::migrate_legacy_dirs;
 pub use runtime_support::run_blocking_compatible;
 pub use services::runtime::run;

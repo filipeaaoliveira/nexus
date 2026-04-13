@@ -4,7 +4,7 @@ mod system;
 mod workspace;
 
 pub use accounts::{
-    AccountKey, AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, ProfileDraft,
+    AccountKey, AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, EditableProfile,
 };
 pub use overview::{OverviewMode, OverviewState};
 #[cfg(test)]
@@ -222,14 +222,14 @@ mod tests {
     #[test]
     fn accounts_edit_mode_uses_semantic_edit_field() {
         let mode = AccountsMode::Editing {
-            draft: ProfileDraft::default(),
+            draft: EditableProfile::default(),
             field: AccountsEditField::Notes,
         };
 
         assert_eq!(
             mode,
             AccountsMode::Editing {
-                draft: ProfileDraft::default(),
+                draft: EditableProfile::default(),
                 field: AccountsEditField::Notes,
             }
         );

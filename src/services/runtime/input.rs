@@ -108,7 +108,7 @@ pub(super) async fn handle_runtime_input_action(
             if session.active_tab() == ActiveTab::Accounts {
                 if let Some((provider, profile_id)) = session.selected_account() {
                     session
-                        .run_accounts_effect(Effect::LoadProfileDraft {
+                        .run_accounts_effect(Effect::LoadEditableProfile {
                             provider,
                             profile_id: profile_id.into(),
                         })

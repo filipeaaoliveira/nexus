@@ -3,7 +3,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event};
 
 use crate::app::{
-    AccountsEditField, AccountsMode, Action as SemanticAction, ProfileDraft, Workspace,
+    AccountsEditField, AccountsMode, Action as SemanticAction, EditableProfile, Workspace,
 };
 use crate::domain::accounts::ProviderFilter;
 
@@ -50,7 +50,7 @@ pub enum Mode {
         input: String,
     },
     AccountsEdit {
-        draft: ProfileDraft,
+        draft: EditableProfile,
         field: AccountsEditField,
     },
     AccountsConfirm,
@@ -110,7 +110,7 @@ fn next_edit_field(field: AccountsEditField, reverse: bool) -> AccountsEditField
     }
 }
 
-fn edit_buffer(draft: &ProfileDraft, field: AccountsEditField) -> &str {
+fn edit_buffer(draft: &EditableProfile, field: AccountsEditField) -> &str {
     match field {
         AccountsEditField::Label => &draft.label,
         AccountsEditField::Notes => &draft.notes,
@@ -118,7 +118,7 @@ fn edit_buffer(draft: &ProfileDraft, field: AccountsEditField) -> &str {
     }
 }
 
-fn set_edit_field(draft: &ProfileDraft, field: AccountsEditField) -> SemanticAction {
+fn set_edit_field(draft: &EditableProfile, field: AccountsEditField) -> SemanticAction {
     SemanticAction::Accounts(crate::app::AccountsAction::SetMode(AccountsMode::Editing {
         draft: draft.clone(),
         field,
@@ -138,7 +138,7 @@ mod tests {
     use super::{Action, Context, Mode, RuntimeAction};
     use crate::app::{
         AccountsAction, AccountsConfirmAction, AccountsEditField, Action as SemanticAction,
-        OverviewAction, ProfileDraft, SystemAction, WorkspaceAction,
+        OverviewAction, EditableProfile, SystemAction, WorkspaceAction,
     };
     use crate::domain::accounts::ProviderFilter;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -332,10 +332,9 @@ mod tests {
         let edit = Context {
             workspace: crate::app::Workspace::Accounts,
             mode: Mode::AccountsEdit {
-                draft: ProfileDraft {
+                draft: EditableProfile {
                     label: "Lab".to_string(),
-                    email: None,
-                    plan: None,
+
                     notes: "notes".to_string(),
                     enabled: true,
                 },
@@ -353,10 +352,8 @@ mod tests {
             map(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE), &edit),
             Some(app(SemanticAction::Accounts(AccountsAction::SetMode(
                 crate::app::AccountsMode::Editing {
-                    draft: ProfileDraft {
+                    draft: EditableProfile {
                         label: "Lab".to_string(),
-                        email: None,
-                        plan: None,
                         notes: "notes".to_string(),
                         enabled: true,
                     },
@@ -510,10 +507,9 @@ mod tests {
         let context = Context {
             workspace: crate::app::Workspace::Accounts,
             mode: Mode::AccountsEdit {
-                draft: ProfileDraft {
+                draft: EditableProfile {
                     label: "Label".to_string(),
-                    email: None,
-                    plan: None,
+
                     notes: "notes".to_string(),
                     enabled: true,
                 },
@@ -535,10 +531,8 @@ mod tests {
             map(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE), &context),
             Some(app(SemanticAction::Accounts(AccountsAction::SetMode(
                 crate::app::AccountsMode::Editing {
-                    draft: ProfileDraft {
+                    draft: EditableProfile {
                         label: "Label".to_string(),
-                        email: None,
-                        plan: None,
                         notes: "notes".to_string(),
                         enabled: true,
                     },

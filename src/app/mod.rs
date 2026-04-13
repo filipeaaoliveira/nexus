@@ -29,7 +29,7 @@ pub use core::AppState;
 pub use effect::{Effect, EffectResult, RefreshOrigin};
 pub use state::Workspace as ActiveTab;
 pub use state::{
-    AccountsConfirmAction, AccountsEditField, AccountsMode, Overlay, OverviewMode, ProfileDraft,
+    AccountsConfirmAction, AccountsEditField, AccountsMode, Overlay, OverviewMode, EditableProfile,
     RootState, Workspace,
 };
 

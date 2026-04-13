@@ -4,7 +4,7 @@ use crate::domain::agents::ids::AgentId;
 use super::effect::EffectResult;
 use super::state::{AccountsConfirmAction, AccountsMode};
 #[cfg(test)]
-use super::state::{ProfileDraft, Workflow};
+use super::state::{EditableProfile, Workflow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -49,7 +49,7 @@ pub enum AccountsAction {
     StartFiltering,
     UpdateFilter(String),
     #[cfg(test)]
-    StartEditing(ProfileDraft),
+    StartEditing(EditableProfile),
     UpdateEditBuffer(String),
     ToggleEnabled,
     RequestConfirmation(AccountsConfirmAction),

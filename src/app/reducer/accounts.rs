@@ -64,7 +64,7 @@ pub fn reduce_result(
             *workflow = Workflow::Idle;
             true
         }
-        EffectResult::ProfileDraftLoaded {
+        EffectResult::EditableProfileLoaded {
             provider,
             profile_id,
             draft,
@@ -300,7 +300,7 @@ fn is_accounts_effect(effect: &Effect) -> bool {
     matches!(
         effect,
         Effect::LoadProfiles
-            | Effect::LoadProfileDraft { .. }
+            | Effect::LoadEditableProfile { .. }
             | Effect::RefreshCodexQuota { .. }
             | Effect::RefreshClaudeQuota { .. }
             | Effect::ImportCodexProfile

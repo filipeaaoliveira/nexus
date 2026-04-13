@@ -4,6 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
+use crate::app::state::AccountKey;
 use crate::app::{AccountsEditField, AccountsMode, AppState};
 use crate::ui::theme;
 
@@ -34,20 +35,29 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         Some(theme::STATUS_WAITING),
     ));
 
-    if let Some(ref email) = draft.email {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("email: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(email, Style::default().fg(theme::FG_DEFAULT)),
-        ]));
-    }
-
-    if let Some(ref plan) = draft.plan {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("plan: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(plan, Style::default().fg(theme::FG_DEFAULT)),
-        ]));
+    // Show read-only profile context (email/plan) from the authoritative profile store
+    if let Some(entry) = state.root().accounts().selected_entry() {
+        let key = AccountKey::for_entry(entry);
+        if let Some(profile) = state.root().accounts().profile_by_key(&key) {
+            let (email, plan) = match profile {
+                crate::app::effect::AccountProfile::Codex(p) => (&p.email, &p.plan),
+                crate::app::effect::AccountProfile::Claude(p) => (&p.email, &p.plan),
+            };
+            if let Some(ref email) = email {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled("email: ", Style::default().fg(theme::FG_COMMENT)),
+                    Span::styled(email.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                ]));
+            }
+            if let Some(ref plan) = plan {
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled("plan: ", Style::default().fg(theme::FG_COMMENT)),
+                    Span::styled(plan.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                ]));
+            }
+        }
     }
 
     lines.push(edit_mode_row(
@@ -138,7 +148,7 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::Terminal;
 
-    use crate::app::{AppState, ProfileDraft};
+    use crate::app::{AppState, EditableProfile};
     use crate::services::runtime::RuntimeSession;
 
     use super::render;
@@ -167,10 +177,8 @@ mod tests {
     async fn edit_popup_shows_cursor_for_active_field() {
         let mut session = RuntimeSession::new(crate::config::Config::default(), AppState::new());
         session
-            .run_accounts_reducer_action(crate::app::AccountsAction::StartEditing(ProfileDraft {
+            .run_accounts_reducer_action(crate::app::AccountsAction::StartEditing(EditableProfile {
                 label: "Personal".to_string(),
-                email: None,
-                plan: None,
                 notes: "Primary".to_string(),
                 enabled: true,
             }))

@@ -100,7 +100,7 @@ fn map_accounts_filter_key(key: KeyEvent, input: &str) -> Option<Action> {
 
 fn map_accounts_edit_key(
     key: KeyEvent,
-    draft: &crate::app::ProfileDraft,
+    draft: &crate::app::EditableProfile,
     field: crate::app::AccountsEditField,
 ) -> Option<Action> {
     match key.code {

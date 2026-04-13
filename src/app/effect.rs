@@ -2,7 +2,7 @@ use crate::claude_profiles::profile::ClaudeProfile;
 use crate::codex_profiles::profile::CodexProfile;
 use crate::domain::accounts::{AccountEntry, Provider, QuotaSnapshot};
 
-use super::state::ProfileDraft;
+use super::state::EditableProfile;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProfileId(String);
@@ -141,7 +141,7 @@ impl std::fmt::Display for AppError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     LoadProfiles,
-    LoadProfileDraft {
+    LoadEditableProfile {
         provider: Provider,
         profile_id: ProfileId,
     },
@@ -158,7 +158,7 @@ pub enum Effect {
     SaveProfileEdits {
         provider: Provider,
         profile_id: ProfileId,
-        draft: ProfileDraft,
+        draft: EditableProfile,
     },
     WriteProfileToHome {
         provider: Provider,
@@ -176,10 +176,10 @@ pub enum EffectResult {
         profiles: Vec<AccountProfile>,
         entries: Vec<AccountEntry>,
     },
-    ProfileDraftLoaded {
+    EditableProfileLoaded {
         provider: Provider,
         profile_id: ProfileId,
-        draft: ProfileDraft,
+        draft: EditableProfile,
     },
     CodexQuotaRefreshed {
         profile_id: ProfileId,
@@ -366,20 +366,18 @@ mod tests {
 
     #[test]
     fn profile_draft_loaded_carries_selected_profile_identity_and_draft() {
-        let result = EffectResult::ProfileDraftLoaded {
+        let result = EffectResult::EditableProfileLoaded {
             provider: Provider::Codex,
             profile_id: "codex-main".into(),
-            draft: ProfileDraft {
+            draft: EditableProfile {
                 label: "Main".to_string(),
-                email: Some("main@example.com".to_string()),
-                plan: Some("pro".to_string()),
                 notes: "notes".to_string(),
                 enabled: true,
             },
         };
 
         match result {
-            EffectResult::ProfileDraftLoaded {
+            EffectResult::EditableProfileLoaded {
                 provider,
                 profile_id,
                 draft,

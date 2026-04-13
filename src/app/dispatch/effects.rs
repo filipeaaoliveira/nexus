@@ -1,5 +1,5 @@
 use crate::app::effect::{AccountProfile, Effect, EffectResult, RefreshOrigin};
-use crate::app::state::ProfileDraft;
+use crate::app::state::EditableProfile;
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed};
 use crate::codex_profiles::quota::fetch_quota_from_api;
@@ -31,7 +31,7 @@ fn categorize_error(effect: &Effect, error: anyhow::Error) -> crate::app::effect
             AppError::QuotaRefresh { message }
         }
         Effect::LoadProfiles
-        | Effect::LoadProfileDraft { .. }
+        | Effect::LoadEditableProfile { .. }
         | Effect::ImportCodexProfile
         | Effect::ImportClaudeProfile
         | Effect::SaveProfileEdits { .. }
@@ -43,7 +43,7 @@ fn categorize_error(effect: &Effect, error: anyhow::Error) -> crate::app::effect
 async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> anyhow::Result<EffectResult> {
     match effect {
         Effect::LoadProfiles => load_profiles(config).await,
-        Effect::LoadProfileDraft {
+        Effect::LoadEditableProfile {
             provider,
             profile_id,
         } => load_profile_draft(config, *provider, profile_id).await,
@@ -137,10 +137,8 @@ async fn load_profile_draft(
         Provider::Codex => {
             let profile_dir = config.codex_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
-                storage_service::load_codex_profile(&profile_dir).map(|profile| ProfileDraft {
+                storage_service::load_codex_profile(&profile_dir).map(|profile| EditableProfile {
                     label: profile.label,
-                    email: profile.email,
-                    plan: profile.plan,
                     notes: profile.notes.unwrap_or_default(),
                     enabled: profile.enabled,
                 })
@@ -150,10 +148,8 @@ async fn load_profile_draft(
         Provider::Claude => {
             let profile_dir = config.claude_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
-                storage_service::load_claude_profile(&profile_dir).map(|profile| ProfileDraft {
+                storage_service::load_claude_profile(&profile_dir).map(|profile| EditableProfile {
                     label: profile.label,
-                    email: profile.email,
-                    plan: profile.plan,
                     notes: profile.notes.unwrap_or_default(),
                     enabled: profile.enabled,
                 })
@@ -162,7 +158,7 @@ async fn load_profile_draft(
         }
     };
 
-    Ok(EffectResult::ProfileDraftLoaded {
+    Ok(EffectResult::EditableProfileLoaded {
         provider,
         profile_id: profile_id.into(),
         draft,
@@ -240,7 +236,7 @@ async fn save_profile_edits(
     config: &Config,
     provider: Provider,
     profile_id: &str,
-    draft: &ProfileDraft,
+    draft: &EditableProfile,
 ) -> anyhow::Result<EffectResult> {
     let profile_id = profile_id.to_string();
     let draft = draft.clone();
@@ -400,10 +396,8 @@ mod tests {
             Effect::SaveProfileEdits {
                 provider: Provider::Codex,
                 profile_id: "profile-01".into(),
-                draft: ProfileDraft {
+                draft: EditableProfile {
                     label: "Renamed".to_string(),
-                    email: Some("dev@example.com".to_string()),
-                    plan: Some("pro".to_string()),
                     notes: "saved".to_string(),
                     enabled: false,
                 },
@@ -445,7 +439,7 @@ mod tests {
 
         let result = dispatch_effect(
             &config,
-            Effect::LoadProfileDraft {
+            Effect::LoadEditableProfile {
                 provider: Provider::Codex,
                 profile_id: "profile-03".into(),
             },
@@ -453,7 +447,7 @@ mod tests {
         .await;
 
         match result {
-            EffectResult::ProfileDraftLoaded {
+            EffectResult::EditableProfileLoaded {
                 provider,
                 profile_id,
                 draft,
@@ -461,8 +455,6 @@ mod tests {
                 assert_eq!(provider, Provider::Codex);
                 assert_eq!(profile_id, "profile-03");
                 assert_eq!(draft.label, "Draft Label");
-                assert_eq!(draft.email.as_deref(), Some("draft@example.com"));
-                assert_eq!(draft.plan.as_deref(), Some("team"));
                 assert_eq!(draft.notes, "editable");
                 assert!(!draft.enabled);
             }

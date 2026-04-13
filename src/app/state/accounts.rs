@@ -6,10 +6,8 @@ use crate::domain::accounts::QuotaSnapshot;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ProfileDraft {
+pub struct EditableProfile {
     pub label: String,
-    pub email: Option<String>,
-    pub plan: Option<String>,
     pub notes: String,
     pub enabled: bool,
 }
@@ -36,7 +34,7 @@ pub enum AccountsMode {
         input: String,
     },
     Editing {
-        draft: ProfileDraft,
+        draft: EditableProfile,
         field: AccountsEditField,
     },
     Confirming {
@@ -134,6 +132,10 @@ impl AccountsState {
 
     pub fn status_message(&self) -> Option<&str> {
         self.status_message.as_deref()
+    }
+
+    pub fn profile_by_key(&self, key: &AccountKey) -> Option<&AccountProfile> {
+        self.profiles_by_key.get(key)
     }
 
     pub fn quota_by_key(&self) -> &BTreeMap<AccountKey, QuotaSnapshot> {

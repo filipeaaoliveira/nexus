@@ -89,11 +89,7 @@ impl AppState {
                 self.root.overview.mode = OverviewMode::Filtering {
                     input: input.clone(),
                 };
-                self.root.overview.filter = if input.is_empty() {
-                    None
-                } else {
-                    Some(input)
-                };
+                self.root.overview.filter = if input.is_empty() { None } else { Some(input) };
                 self.clamp_selection();
             }
             OverviewAction::ConfirmFilter => {
@@ -127,7 +123,8 @@ impl AppState {
                 }
             }
             OverviewAction::DismissExited => {
-                self.agents.retain(|agent| agent.status != PrimaryStatus::Exited);
+                self.agents
+                    .retain(|agent| agent.status != PrimaryStatus::Exited);
                 self.clamp_selection();
             }
             OverviewAction::DismissSelected => {
@@ -139,7 +136,8 @@ impl AppState {
             OverviewAction::ConfirmRename => {
                 if let OverviewMode::Renaming { agent_id, input } = &self.root.overview.mode {
                     if !input.is_empty() {
-                        if let Some(agent) = self.agents.iter_mut().find(|agent| agent.id == *agent_id)
+                        if let Some(agent) =
+                            self.agents.iter_mut().find(|agent| agent.id == *agent_id)
                         {
                             agent.alias = Some(input.clone());
                         }

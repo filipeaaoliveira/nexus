@@ -3,9 +3,9 @@ use std::borrow::Cow;
 use crate::app::state::OverviewState;
 use crate::domain::agents::activity::Activity;
 use crate::domain::agents::model::{Agent, SortMode};
+use crate::domain::agents::status::NormalizedStatus;
 #[cfg(test)]
 use crate::domain::agents::status::PrimaryStatus;
-use crate::domain::agents::status::NormalizedStatus;
 
 /// A projected view of an `Agent` for UI rendering.
 ///
@@ -46,7 +46,10 @@ fn format_status_label(agent: &Agent) -> String {
     }
 }
 
-pub fn project_visible_agents<'a>(agents: &'a [Agent], overview: &OverviewState) -> Vec<AgentView<'a>> {
+pub fn project_visible_agents<'a>(
+    agents: &'a [Agent],
+    overview: &OverviewState,
+) -> Vec<AgentView<'a>> {
     visible_agents(agents, overview)
         .into_iter()
         .map(AgentView::from_agent)
@@ -102,7 +105,10 @@ pub fn visible_agents<'a>(agents: &'a [Agent], overview: &OverviewState) -> Vec<
         .collect()
 }
 
-pub fn selected_agent_id(agents: &[Agent], overview: &OverviewState) -> Option<crate::domain::agents::ids::AgentId> {
+pub fn selected_agent_id(
+    agents: &[Agent],
+    overview: &OverviewState,
+) -> Option<crate::domain::agents::ids::AgentId> {
     let visible_idx = overview.selected_index()?;
     let real_idx = *visible_agent_indices(agents, overview).get(visible_idx)?;
     Some(agents[real_idx].id.clone())
@@ -171,7 +177,10 @@ mod tests {
 
         assert_eq!(agents_before, agents_after);
         assert_eq!(views.len(), 2);
-        assert_eq!(views[0].display_name.as_ref(), views[0].agent.display_name());
+        assert_eq!(
+            views[0].display_name.as_ref(),
+            views[0].agent.display_name()
+        );
     }
 
     #[test]

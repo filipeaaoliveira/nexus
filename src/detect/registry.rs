@@ -74,7 +74,9 @@ impl AgentRegistry {
     /// Register Codex launch metadata discovered from the process command line.
     pub fn register_codex_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
         let mut state = self.state.lock().expect("registry lock");
-        state.codex_launches.insert(pid, CodexLaunchInfo { started_at });
+        state
+            .codex_launches
+            .insert(pid, CodexLaunchInfo { started_at });
     }
 
     /// Register Claude launch metadata discovered from the process command line.
@@ -97,7 +99,9 @@ impl AgentRegistry {
     /// Register OpenCode launch metadata discovered from the process command line.
     pub fn register_opencode_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
         let mut state = self.state.lock().expect("registry lock");
-        state.opencode_launches.insert(pid, OpenCodeLaunchInfo { started_at });
+        state
+            .opencode_launches
+            .insert(pid, OpenCodeLaunchInfo { started_at });
     }
 
     /// Find launch metadata for an OpenCode process by pid.
@@ -113,7 +117,9 @@ impl AgentRegistry {
             pids.retain(|current_pid| *current_pid != pid);
             !pids.is_empty()
         });
-        state.codex_thread_pids.retain(|_, current_pid| *current_pid != pid);
+        state
+            .codex_thread_pids
+            .retain(|_, current_pid| *current_pid != pid);
         state.codex_launches.remove(&pid);
         state.claude_launches.remove(&pid);
         state.opencode_launches.remove(&pid);
@@ -176,7 +182,9 @@ impl AgentRegistry {
     /// Find all PIDs by tool and CWD.
     pub fn find_pids(&self, tool: AgentTool, cwd: &Path) -> Vec<u32> {
         let state = self.state.lock().expect("registry lock");
-        state.agents.get(&(tool, cwd.to_path_buf()))
+        state
+            .agents
+            .get(&(tool, cwd.to_path_buf()))
             .cloned()
             .unwrap_or_default()
     }

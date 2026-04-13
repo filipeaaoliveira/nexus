@@ -4,7 +4,8 @@ mod system;
 mod workspace;
 
 pub use accounts::{
-    AccountKey, AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState, EditableProfile,
+    AccountKey, AccountsConfirmAction, AccountsEditField, AccountsMode, AccountsState,
+    EditableProfile,
 };
 pub use overview::{OverviewMode, OverviewState};
 #[cfg(test)]

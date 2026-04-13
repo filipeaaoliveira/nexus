@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::state::AccountKey;
 use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider};
-use crate::config::Config;
 use crate::codex_profiles::quota::QuotaCache;
+use crate::config::Config;
 use crate::domain::accounts::QuotaSnapshot;
 use crate::services::accounts::quota as quota_service;
 

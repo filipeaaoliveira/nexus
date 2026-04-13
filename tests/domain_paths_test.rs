@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use nexus::claude_profiles::profile::{ClaudeProfile, ClaudeProfileMetadata};
 use nexus::codex_profiles::profile::{AuthMetadata, CodexProfile, ProfileMetadata};
-use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow};
+use nexus::codex_profiles::quota::{
+    Confidence, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
+};
 use nexus::domain::accounts::model::AccountEntry;
 use nexus::domain::accounts::provider::{Provider, ProviderFilter};
 use nexus::domain::accounts::{AccountEntry as DomainAccountEntry, Provider as DomainProvider};

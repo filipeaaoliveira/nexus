@@ -34,10 +34,8 @@ pub struct RenderData<'a> {
 
 impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
-        let visible_agents = crate::app::projection::project_visible_agents(
-            state.agents(),
-            state.root().overview(),
-        );
+        let visible_agents =
+            crate::app::projection::project_visible_agents(state.agents(), state.root().overview());
         let selected_agent = state
             .root()
             .overview()

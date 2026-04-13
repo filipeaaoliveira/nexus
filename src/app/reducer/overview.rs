@@ -60,7 +60,10 @@ pub fn reduce(state: &mut OverviewState, action: &OverviewAction) -> Vec<Effect>
         | OverviewAction::ConfirmRename
         | OverviewAction::CancelMode => {
             let was_filtering = matches!(state.mode, OverviewMode::Filtering { .. });
-            if matches!(action, OverviewAction::ConfirmRename | OverviewAction::CancelMode) {
+            if matches!(
+                action,
+                OverviewAction::ConfirmRename | OverviewAction::CancelMode
+            ) {
                 state.mode = OverviewMode::Normal;
             }
             if matches!(action, OverviewAction::CancelMode) && was_filtering {

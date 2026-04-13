@@ -138,7 +138,7 @@ mod tests {
     use super::{Action, Context, Mode, RuntimeAction};
     use crate::app::{
         AccountsAction, AccountsConfirmAction, AccountsEditField, Action as SemanticAction,
-        OverviewAction, EditableProfile, SystemAction, WorkspaceAction,
+        EditableProfile, OverviewAction, SystemAction, WorkspaceAction,
     };
     use crate::domain::accounts::ProviderFilter;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};

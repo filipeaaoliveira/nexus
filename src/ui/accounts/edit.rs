@@ -177,11 +177,13 @@ mod tests {
     async fn edit_popup_shows_cursor_for_active_field() {
         let mut session = RuntimeSession::new(crate::config::Config::default(), AppState::new());
         session
-            .run_accounts_reducer_action(crate::app::AccountsAction::StartEditing(EditableProfile {
-                label: "Personal".to_string(),
-                notes: "Primary".to_string(),
-                enabled: true,
-            }))
+            .run_accounts_reducer_action(crate::app::AccountsAction::StartEditing(
+                EditableProfile {
+                    label: "Personal".to_string(),
+                    notes: "Primary".to_string(),
+                    enabled: true,
+                },
+            ))
             .await;
 
         let buffer = render_edit_popup(session.app(), Rect::new(0, 0, 48, 10));

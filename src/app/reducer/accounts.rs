@@ -27,6 +27,7 @@ pub fn reduce(
                 };
             }
         }
+        #[cfg(test)]
         AccountsAction::StartEditing(draft) => {
             state.mode = AccountsMode::Editing {
                 draft: draft.clone(),
@@ -127,13 +128,15 @@ pub fn reduce_result(
         EffectResult::ProfileDeleted { entry } => {
             remove_entry(state, entry);
             match entry.provider {
-                Provider::Codex if state.active_codex_profile_id.as_deref()
-                    == Some(entry.profile_id.as_str()) =>
+                Provider::Codex
+                    if state.active_codex_profile_id.as_deref()
+                        == Some(entry.profile_id.as_str()) =>
                 {
                     state.active_codex_profile_id = None;
                 }
-                Provider::Claude if state.active_claude_profile_id.as_deref()
-                    == Some(entry.profile_id.as_str()) =>
+                Provider::Claude
+                    if state.active_claude_profile_id.as_deref()
+                        == Some(entry.profile_id.as_str()) =>
                 {
                     state.active_claude_profile_id = None;
                 }

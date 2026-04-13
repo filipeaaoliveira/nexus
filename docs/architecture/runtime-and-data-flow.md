@@ -4,7 +4,7 @@ This document explains what happens from process start to shutdown and how data 
 
 ## Startup Sequence
 
-The top-level binary entry point is `src/main.rs`, but the runtime orchestration now lives in `src/services/runtime/mod.rs`.
+The top-level binary entry point is `src/main.rs`, but the runtime orchestration now lives in `src/services/runtime/`, with `mod.rs` owning startup and the main loop while helper modules carry input and quota polling details.
 
 The startup order is deliberate:
 
@@ -14,7 +14,7 @@ The startup order is deliberate:
 4. initialize tracing to a log file
 5. reject non-interactive terminal startup
 6. install a panic hook that restores the terminal
-7. spawn detectors and create `AppState`
+7. spawn detectors, hydrate `RootState`, and create `RuntimeSession`
 8. initialize `ratatui`
 9. enter the main event/render loop
 
@@ -85,7 +85,12 @@ The runtime does not directly poll external provider state from the UI loop. It 
 
 ## Main Loop
 
-The main loop in `src/services/runtime/mod.rs` is the operational center of the binary.
+The main loop in `src/services/runtime/mod.rs` is the operational center of the binary, while `src/services/runtime/input.rs` and `src/services/runtime/quota.rs` keep the input-handling and quota-polling helpers out of the top-level loop file.
+
+`RuntimeSession` owns the runtime-only layer around the pure app model:
+
+- `AppState` remains the behavioral model and reducer/event entrypoint
+- `RuntimeSession` owns `Config`, startup timing, transient quota-refresh bookkeeping, and async effect application
 
 Each iteration does four things:
 
@@ -127,9 +132,10 @@ The high-level flow is:
 
 1. detectors observe external state
 2. detectors emit `AgentEvent`
-3. `AppState::handle_event` interprets the event
+3. `AppState::handle_event` routes detector events onto reducer-owned root state and updates rich runtime detail where needed
 4. render code reads the new state
-5. input produces actions that mutate state again
+5. input produces semantic actions and runtime-only commands
+6. semantic app actions are handed back to `RuntimeSession::dispatch_action`, while runtime-only commands stay in the runtime layer when they must coordinate async work directly
 
 The event layer is the main normalization boundary between provider-specific observation logic and provider-agnostic presentation.
 

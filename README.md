@@ -57,6 +57,7 @@ nexus
 
 There are no pre-built binaries. There are no tagged releases; the `main` branch is the current stable version. Install from source or via `cargo install --git`.
 CI validates locked build, lint, test, and release-build workflows. `cargo install --git` is supported, but it is not currently a dedicated CI smoke-test path.
+The repository is kept `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --locked`, and `cargo build --release --locked` clean on the main tree.
 
 ## Requirements
 

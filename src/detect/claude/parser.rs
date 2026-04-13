@@ -404,39 +404,6 @@ pub fn parse_project_session(content: &str) -> ProjectSessionInfo {
     info
 }
 
-/// Find the most recently modified transcript file matching a session prefix.
-///
-/// Searches `transcripts_dir` for `.jsonl` files whose name starts with
-/// `session_prefix` and returns the one with the latest modification time.
-pub fn find_transcript_for_pid(transcripts_dir: &Path, session_prefix: &str) -> Option<PathBuf> {
-    let read_dir = std::fs::read_dir(transcripts_dir).ok()?;
-
-    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
-
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-
-        if !name.starts_with(session_prefix) || !name.ends_with(".jsonl") {
-            continue;
-        }
-
-        let modified = match entry.metadata().and_then(|m| m.modified()) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-
-        if best.as_ref().is_none_or(|(_, prev)| modified > *prev) {
-            best = Some((path, modified));
-        }
-    }
-
-    best.map(|(p, _)| p)
-}
-
 /// Scan `~/.claude/sessions/` and return all live session entries keyed by
 /// session_id.  Files that cannot be parsed are silently skipped.
 pub fn scan_session_registry(sessions_dir: &Path) -> HashMap<String, SessionRegistryEntry> {

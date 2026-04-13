@@ -4,15 +4,15 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::AppState;
 use crate::domain::agents::activity::Activity;
 use crate::domain::agents::model::Agent;
 use crate::domain::agents::status::NormalizedStatus;
 use crate::domain::shared::time::format_duration;
+use crate::services::runtime::RuntimeSession;
 
 use super::{theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>, area: Rect) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderData<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::RIGHT)
         .border_style(theme::border_style())
@@ -36,7 +36,9 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .visible_agents
         .iter()
         .enumerate()
-        .map(|(i, agent)| render_agent_item(agent, state.root.overview.selected_index == Some(i)))
+        .map(|(i, agent)| {
+            render_agent_item(agent, state.root().overview().selected_index() == Some(i))
+        })
         .collect();
 
     let list = List::new(items)
@@ -44,18 +46,18 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
         .highlight_style(theme::selected_style());
 
     let mut list_state = ListState::default();
-    list_state.select(state.root.overview.selected_index);
+    list_state.select(state.root().overview().selected_index());
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-pub fn empty_state_message(state: &AppState) -> String {
+pub fn empty_state_message(state: &RuntimeSession) -> String {
     if let Some(issue) = state.primary_detector_issue() {
         return issue.to_string();
     }
 
-    let elapsed = state.started_at.elapsed();
-    if elapsed >= std::time::Duration::from_secs(state.config.poll_interval_secs) {
+    let elapsed = state.started_at().elapsed();
+    if elapsed >= std::time::Duration::from_secs(state.config().poll_interval_secs) {
         "No agents detected. Start Claude, Codex, or OpenCode to see them here.".to_string()
     } else {
         "Scanning for agents...".to_string()

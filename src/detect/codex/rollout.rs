@@ -3,9 +3,9 @@ use tracing::debug;
 
 use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
-use super::types::{
-    CodexInferredStatus, RolloutEvent, SessionIndexEntry, SessionMeta, SubagentSpawn, ToolCallInfo,
-};
+use super::types::{CodexInferredStatus, RolloutEvent, SubagentSpawn, ToolCallInfo};
+#[cfg(test)]
+use super::types::{SessionIndexEntry, SessionMeta};
 
 // ── JSONL Parsing ─────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ pub fn parse_rollout(content: &str) -> Vec<RolloutEvent> {
 /// Parse a Codex session index JSONL string into a list of entries.
 ///
 /// Each line is a JSON object with `id`, `thread_name`, and `updated_at`.
+#[cfg(test)]
 pub fn parse_session_index(content: &str) -> Vec<SessionIndexEntry> {
     let mut entries = Vec::new();
 
@@ -103,6 +104,7 @@ pub fn parse_session_index(content: &str) -> Vec<SessionIndexEntry> {
 // ── Extraction Functions ──────────────────────────────────────────
 
 /// Extract session metadata from the first `session_meta` event in a rollout.
+#[cfg(test)]
 pub fn extract_session_meta(events: &[RolloutEvent]) -> Option<SessionMeta> {
     let event = events.iter().find(|e| e.event_type == "session_meta")?;
 

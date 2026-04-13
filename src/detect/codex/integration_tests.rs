@@ -1,12 +1,12 @@
-use nexus::detect::codex::*;
-use nexus::detect::registry::AgentRegistry;
-use nexus::domain::agents::{
+use crate::detect::codex::*;
+use crate::detect::registry::AgentRegistry;
+use crate::domain::agents::{
     Activity, AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoItem,
     TodoPriority, TodoStatus,
 };
-use nexus::domain::shared::from_epoch_secs;
-use nexus::domain::system::CodexBackendHealth;
-use nexus::event::AgentEvent;
+use crate::domain::shared::from_epoch_secs;
+use crate::domain::system::CodexBackendHealth;
+use crate::event::AgentEvent;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,14 +33,14 @@ fn observed_session(
 
 #[test]
 fn test_parse_rollout_events() {
-    let content = include_str!("fixtures/codex_rollout.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_rollout.jsonl");
     let events = parse_rollout(content);
     assert_eq!(events.len(), 8);
 }
 
 #[test]
 fn test_extract_session_meta() {
-    let content = include_str!("fixtures/codex_rollout.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_rollout.jsonl");
     let events = parse_rollout(content);
     let meta = extract_session_meta(&events);
     assert!(meta.is_some());
@@ -53,7 +53,7 @@ fn test_extract_session_meta() {
 
 #[test]
 fn test_extract_subagent_spawns() {
-    let content = include_str!("fixtures/codex_rollout.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_rollout.jsonl");
     let events = parse_rollout(content);
     let subs = extract_subagent_spawns(&events);
     assert_eq!(subs.len(), 1);
@@ -64,7 +64,7 @@ fn test_extract_subagent_spawns() {
 
 #[test]
 fn test_extract_tool_calls() {
-    let content = include_str!("fixtures/codex_rollout.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_rollout.jsonl");
     let events = parse_rollout(content);
     let tools = extract_tool_calls(&events);
     assert_eq!(tools.len(), 1);
@@ -102,7 +102,7 @@ fn test_extract_plan_todos_handles_unknown_status_as_pending() {
 
 #[test]
 fn test_infer_rollout_status_complete() {
-    let content = include_str!("fixtures/codex_rollout.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_rollout.jsonl");
     let events = parse_rollout(content);
     let status = infer_rollout_status(&events);
     assert_eq!(status, CodexInferredStatus::Done);
@@ -129,7 +129,7 @@ fn test_infer_rollout_status_aborted_beats_older_tool_call() {
 
 #[test]
 fn test_parse_session_index() {
-    let content = include_str!("fixtures/codex_session_index.jsonl");
+    let content = include_str!("../../../tests/fixtures/codex_session_index.jsonl");
     let entries = parse_session_index(content);
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].id, "019d4422-test-uuid");

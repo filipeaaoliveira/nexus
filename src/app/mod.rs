@@ -24,9 +24,7 @@ mod overview;
 mod projection;
 mod system;
 
-pub use action::{
-    AccountsAction, Action, DetectorAction, OverviewAction, SystemAction, WorkspaceAction,
-};
+pub use action::{AccountsAction, Action, OverviewAction, SystemAction, WorkspaceAction};
 pub use core::AppState;
 pub use effect::{Effect, EffectResult, RefreshOrigin};
 pub use state::Workspace as ActiveTab;

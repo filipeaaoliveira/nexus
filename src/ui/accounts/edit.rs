@@ -8,7 +8,7 @@ use crate::app::{AccountsEditField, AccountsMode, AppState};
 use crate::ui::theme;
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
-    let AccountsMode::Editing { draft, field } = &state.root.accounts.mode else {
+    let AccountsMode::Editing { draft, field } = state.root().accounts().mode() else {
         return;
     };
 
@@ -57,11 +57,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         Some(theme::STATUS_WAITING),
     ));
 
-    let enabled_status = if draft.enabled {
-        "enabled"
-    } else {
-        "disabled"
-    };
+    let enabled_status = if draft.enabled { "enabled" } else { "disabled" };
     lines.push(edit_mode_row(
         "enabled",
         enabled_status,
@@ -142,8 +138,8 @@ mod tests {
     use ratatui::layout::Rect;
     use ratatui::Terminal;
 
-    use crate::app::{AccountsEditField, AccountsMode, AppState, ProfileDraft};
-    use crate::config::Config;
+    use crate::app::{AppState, ProfileDraft};
+    use crate::services::runtime::RuntimeSession;
 
     use super::render;
 
@@ -167,21 +163,20 @@ mod tests {
             .join("")
     }
 
-    #[test]
-    fn edit_popup_shows_cursor_for_active_field() {
-        let mut state = AppState::new(Config::default());
-        state.root.accounts.mode = AccountsMode::Editing {
-            draft: ProfileDraft {
+    #[tokio::test]
+    async fn edit_popup_shows_cursor_for_active_field() {
+        let mut session = RuntimeSession::new(crate::config::Config::default(), AppState::new());
+        session
+            .run_accounts_reducer_action(crate::app::AccountsAction::StartEditing(ProfileDraft {
                 label: "Personal".to_string(),
                 email: None,
                 plan: None,
                 notes: "Primary".to_string(),
                 enabled: true,
-            },
-            field: AccountsEditField::Label,
-        };
+            }))
+            .await;
 
-        let buffer = render_edit_popup(&state, Rect::new(0, 0, 48, 10));
+        let buffer = render_edit_popup(session.app(), Rect::new(0, 0, 48, 10));
         let text = buffer_text(&buffer);
 
         assert!(

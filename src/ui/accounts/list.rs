@@ -4,26 +4,27 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::app::AppState;
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::detect_live_profile_id;
 use crate::domain::accounts::{Provider, ProviderFilter};
 use crate::services::accounts::storage as storage_service;
+use crate::services::runtime::RuntimeSession;
 
 use super::{provider_badge, provider_badge_color};
 use crate::ui::theme;
 
-pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let codex_live = detect_live_profile_id(
-        &state.config.codex_profiles_dir,
-        &state.config.codex_data_dir.join("auth.json"),
+        &state.config().codex_profiles_dir,
+        &state.config().codex_data_dir.join("auth.json"),
     );
     let claude_live = detect_live_claude_profile_id(
-        &state.config.claude_profiles_dir,
-        &state.config.claude_data_dir.join(".credentials.json"),
+        &state.config().claude_profiles_dir,
+        &state.config().claude_data_dir.join(".credentials.json"),
     );
 
-    let filter_label = state.root.accounts.provider_filter.label();
+    let accounts = state.root().accounts();
+    let filter_label = accounts.provider_filter().label();
     let header_title = format!(" accounts ({}) ", filter_label);
 
     let block = Block::default()
@@ -35,28 +36,26 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         ))
         .style(Style::default().bg(theme::BG_MAIN));
 
-    let unified = state.root.accounts.visible_entries();
+    let unified = accounts.visible_entries();
 
     let items: Vec<ListItem> = unified
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             let entry = *entry;
-            let is_selected = state.root.accounts.selected_index == Some(index);
+            let is_selected = accounts.selected_index() == Some(index);
             let is_active = match entry.provider {
                 Provider::Codex => {
-                    state.root.accounts.active_codex_profile_id.as_deref()
-                        == Some(&entry.profile_id)
+                    accounts.active_codex_profile_id() == Some(entry.profile_id.as_str())
                 }
                 Provider::Claude => {
-                    state.root.accounts.active_claude_profile_id.as_deref()
-                        == Some(&entry.profile_id)
+                    accounts.active_claude_profile_id() == Some(entry.profile_id.as_str())
                 }
             };
 
             let profiles_dir = match entry.provider {
-                Provider::Codex => &state.config.codex_profiles_dir,
-                Provider::Claude => &state.config.claude_profiles_dir,
+                Provider::Codex => &state.config().codex_profiles_dir,
+                Provider::Claude => &state.config().claude_profiles_dir,
             };
             let profile_dir = profiles_dir.join(&entry.profile_id);
 
@@ -70,9 +69,8 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
             };
 
             let quota_indicator = {
-                state.root
-                    .accounts
-                    .quota_by_key
+                accounts
+                    .quota_by_key()
                     .get(&crate::app::state::AccountKey::new(
                         entry.provider,
                         entry.profile_id.clone(),
@@ -150,7 +148,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         .collect();
 
     if unified.is_empty() {
-        let hint = match state.root.accounts.provider_filter {
+        let hint = match accounts.provider_filter() {
             ProviderFilter::Codex => "No Codex profiles. Press i to import.",
             ProviderFilter::Claude => "No Claude profiles. Press I to import.",
             ProviderFilter::All => "No profiles. Press i (Codex) or I (Claude) to import.",
@@ -172,7 +170,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         .highlight_style(theme::selected_style());
 
     let mut list_state = ListState::default();
-    list_state.select(state.root.accounts.selected_index);
+    list_state.select(accounts.selected_index());
 
     frame.render_stateful_widget(list, area, &mut list_state);
 }

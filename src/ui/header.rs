@@ -4,11 +4,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::{ActiveTab, AppState};
+use crate::app::ActiveTab;
+use crate::services::runtime::RuntimeSession;
 
 use super::{theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>, area: Rect) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderData<'_>, area: Rect) {
     let total = render_data.header.total;
     let running = render_data.header.running;
     let waiting = render_data.header.waiting;
@@ -73,7 +74,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>,
     }
 
     right_spans.push(Span::styled(
-        format!("  poll: {}s ", state.config.poll_interval_secs),
+        format!("  poll: {}s ", state.config().poll_interval_secs),
         theme::bar_style().fg(theme::FG_DIMMED),
     ));
 

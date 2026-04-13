@@ -8,7 +8,7 @@ use crate::app::{AccountsMode, AppState};
 use super::theme;
 
 pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
-    if let crate::app::OverviewMode::Renaming { input, .. } = &state.root.overview.mode {
+    if let crate::app::OverviewMode::Renaming { input, .. } = state.root().overview().mode() {
         let line = Line::from(vec![
             Span::styled(" rename: ", theme::bar_style().fg(theme::STATUS_WAITING)),
             Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
@@ -19,7 +19,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
-    if let crate::app::OverviewMode::Filtering { input } = &state.root.overview.mode {
+    if let crate::app::OverviewMode::Filtering { input } = state.root().overview().mode() {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
             Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
@@ -30,7 +30,7 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
         return;
     }
 
-    if let AccountsMode::Filtering { input } = &state.root.accounts.mode {
+    if let AccountsMode::Filtering { input } = state.root().accounts().mode() {
         let line = Line::from(vec![
             Span::styled(" / ", theme::bar_style().fg(theme::STATUS_WAITING)),
             Span::styled(input.clone(), theme::bar_style().fg(theme::FG_DEFAULT)),
@@ -48,6 +48,8 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 pub fn shortcut_text(state: &AppState) -> String {
     shortcut_line(state)
         .spans
@@ -64,7 +66,7 @@ fn shortcut_line(state: &AppState) -> Line<'static> {
 }
 
 fn overview_shortcut_line(state: &AppState) -> Line<'static> {
-    let sort_label = state.root.overview.sort_mode.as_str();
+    let sort_label = state.root().overview().sort_mode().as_str();
     Line::from(vec![
         Span::styled(" j/k", theme::bar_style().fg(theme::FG_DEFAULT)),
         Span::styled(" navigate", theme::bar_style().fg(theme::FG_DIMMED)),
@@ -91,7 +93,10 @@ fn overview_shortcut_line(state: &AppState) -> Line<'static> {
 }
 
 fn accounts_shortcut_line(state: &AppState) -> Line<'static> {
-    if matches!(state.root.accounts.mode, AccountsMode::Confirming { .. }) {
+    if matches!(
+        state.root().accounts().mode(),
+        AccountsMode::Confirming { .. }
+    ) {
         return Line::from(vec![
             Span::styled(" Enter", theme::bar_style().fg(theme::FG_DEFAULT)),
             Span::styled(" confirm", theme::bar_style().fg(theme::FG_DIMMED)),

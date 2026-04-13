@@ -24,7 +24,12 @@ If you want to understand how the application behaves, this is the layer to read
 
 - `src/event.rs`
 - `src/app/mod.rs`
+- `src/app/core.rs`
+- `src/app/system.rs`
+- `src/app/state/`
 - `src/app/reducer/overview.rs`
+- `src/app/reducer/accounts.rs`
+- `src/app/reducer/system.rs`
 - `src/app/accounts.rs`
 - `src/app/action.rs`
 - `src/app/effect.rs`
@@ -41,51 +46,51 @@ Important event families include:
 - interaction traces: `ToolCallStarted`, `ToolCallCompleted`, `TodosUpdated`
 - infrastructure state: `DetectorHealthChanged`
 
+Detector-health events now use a typed `DetectorKind` identifier instead of free-form strings, so reducer/state code is keyed by explicit domain values rather than string conventions.
+
 These events are intentionally domain-oriented rather than raw provider-specific records.
 
 ## `AppState` Responsibilities
 
 `AppState` owns:
 
-- the active workspace
-- the list of agents visible to the app
-- selection state
-- sorting and filtering state
-- rename/filter modal state for Overview
-- all Accounts-tab UI state
-- detector-health issues
-- visible-agent cache bookkeeping
+- the root application state in `root`
+- the rich `agents: Vec<Agent>` detail store used for diagnostics, recent activity, subagents, and todos
 
-It also exposes read helpers such as visible-agent queries and mutating handlers for both detector events and user actions.
+It exposes read helpers that join root-owned workspace state back to rich agent detail where needed, but it is intentionally no longer the owner of runtime configuration, clocks, or async bookkeeping.
+
+`RuntimeSession` owns:
+
+- `Config`
+- startup timing used by empty/degraded render states
+- transient quota-refresh bookkeeping
+- async effect dispatch and effect-result application for Accounts workflows
 
 ## Overview State
 
 The Overview side of state is centered on:
 
-- `agents`
-- `selected`
+- `root.overview.agents`
+- `selected_index`
 - `sort_mode`
 - `filter`
-- `filter_mode`
-- `rename_mode`
-- help overlay state
+- `mode`
 
-The Overview tab treats the agent list as the main domain surface. It is intentionally passive and read-only from the perspective of the outside world. Removing or renaming an item affects the app’s local representation, not the underlying provider process.
+`root.overview` is authoritative for the visible list model: selection, filtering, sorting, rename workflow state, and summarized agent rows. `AppState.agents` remains the richer runtime-detail store keyed by agent identity. The UI list path reads from `root.overview`; detail views join those rows back to rich `Agent` records when they need activity history, todos, or subagent state.
 
 ## Accounts State
 
-The Accounts tab has its own focused state object: `AccountsTabState`.
+The Accounts tab has its own focused state object: `AccountsState`.
 
 It contains:
 
-- profile IDs for Codex and Claude
-- selected profile index
+- account entries and selected visible index
+- loaded profiles keyed by provider/profile identity
+- quota snapshots keyed by provider/profile identity
 - active provider filter
 - filter/edit/confirmation modes
-- edit form fields
-- cached quota snapshots
 - transient status message state
-- confirmation state for destructive actions
+- active profile badges and loading state
 
 This separation matters because the Accounts workspace behaves like a small form/workflow subsystem, not just another list view.
 
@@ -93,7 +98,12 @@ This separation matters because the Accounts workspace behaves like a small form
 
 `AppState::handle_event` is the central dispatcher for external events.
 
-The implementation now fans out through reducer and effect modules under `src/app/reducer/`, with `src/app/accounts.rs` still carrying some compatibility orchestration.
+The important split is:
+
+- detector events that affect Overview or detector health are translated onto the semantic `Action::Detector` reducer path
+- semantic keyboard actions are handed back into `RuntimeSession::dispatch_action`, which routes workspace, overview, accounts, and system actions onto the right reducer/effect path while keeping async effect work outside the pure model
+- rich runtime details such as activity traces, subagents, tool calls, and todos still update `AppState.agents`
+- Accounts actions and effect results flow through reducer/effect modules, with `src/services/runtime/session.rs` coordinating dispatch and async result application
 
 That organization keeps the top-level event dispatcher readable while still letting the app support many event families.
 
@@ -119,21 +129,18 @@ The application cannot assume that a provider gives one perfect stable key for e
 
 This is one reason the app has a relatively large behavioral test suite.
 
-## Visible-Agent Cache
+## Overview Authority Boundary
 
-The app does not recompute the visible-agent list blindly on every read. It maintains a small cache keyed by:
+The important architecture rule is:
 
-- agent version
-- filter
-- sort mode
+- `root.overview` owns what the Overview list is
+- `AppState.agents` owns the richer operational detail attached to those rows
 
-The cache is invalidated when relevant state changes.
-
-This is not a performance micro-optimization so much as a clarity tool: it gives the rest of the UI one place to ask for the current visible ordering without duplicating filter/sort logic.
+That means render code should not derive list ordering or visibility from `AppState.agents` directly. It should ask `root.overview` which rows exist and in what order, then join back to `Agent` data only when richer detail is actually needed.
 
 ## Selection, Filter, And Sort Semantics
 
-Overview selection is expressed in terms of the visible list, not raw `agents` indices. That means:
+Overview selection is expressed in terms of `root.overview.visible_agents()`, not raw `AppState.agents` indices. That means:
 
 - filtering may clamp selection
 - sorting changes how the selection maps onto raw agent positions
@@ -143,7 +150,13 @@ This is the sort of logic that looks trivial until it starts producing off-by-on
 
 ## Accounts Workflow Semantics
 
-The Accounts logic in `src/app/accounts.rs` handles workflows such as:
+The Accounts logic split is now:
+
+- reducers own selection/filter/edit/confirm transitions in `root.accounts`
+- services own storage, import, quota refresh, and write-to-home behavior
+- `src/services/runtime/session.rs` coordinates effect dispatch and result application for the live runtime
+
+User-facing workflows still include:
 
 - import Codex auth
 - import Claude credentials
@@ -168,7 +181,7 @@ Violating that boundary makes the codebase much harder to maintain because behav
 High-risk changes in this layer include:
 
 - identity/reconciliation logic
-- selection/filter/cache invalidation behavior
+- keeping the root-overview summary and rich agent detail stores aligned by identity
 - mixing Accounts behavior into Overview assumptions
 - turning provider-specific quirks into hardcoded UI behavior
 - adding new state without deciding who owns invalidation and cleanup

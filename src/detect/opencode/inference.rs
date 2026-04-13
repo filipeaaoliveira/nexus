@@ -1,10 +1,10 @@
-use crate::domain::shared::time::from_epoch_millis;
 use crate::detect::heuristics::looks_like_review_output;
 use crate::domain::agents::activity::{Activity, Subagent};
 use crate::domain::agents::ids::{AgentId, AgentTool};
 use crate::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
+use crate::domain::shared::time::from_epoch_millis;
 use crate::event::AgentEvent;
 
 use super::types::{OpenCodeSession, PartData, SessionEmitState};
@@ -145,6 +145,7 @@ pub fn infer_activity_from_parts(parts: &[PartData]) -> Option<Activity> {
 }
 
 /// Check if a session title indicates it's a subagent session.
+#[cfg(test)]
 pub fn is_subagent_title(title: &str) -> bool {
     title.contains("subagent)")
 }

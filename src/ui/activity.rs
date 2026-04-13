@@ -124,9 +124,9 @@ fn subagent_status_text(subagent: &Subagent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Local;
     use crate::domain::agents::activity::Subagent;
     use crate::domain::agents::status::{NormalizedReason, PrimaryStatus};
+    use chrono::Local;
 
     use super::subagent_status_text;
 

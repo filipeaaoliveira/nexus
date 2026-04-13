@@ -5,10 +5,11 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::state::AccountKey;
-use crate::app::{AccountsMode, AppState};
+use crate::app::AccountsMode;
 use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use crate::domain::accounts::Provider;
 use crate::services::accounts::storage as storage_service;
+use crate::services::runtime::RuntimeSession;
 
 use super::provider_badge_color;
 use crate::ui::theme;
@@ -76,15 +77,15 @@ pub(crate) fn quota_row(
     Line::from(spans)
 }
 
-pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let Some((provider, profile_id)) = state.selected_account() else {
         render_placeholder(frame, state, area);
         return;
     };
 
     let profiles_dir = match provider {
-        Provider::Codex => &state.config.codex_profiles_dir,
-        Provider::Claude => &state.config.claude_profiles_dir,
+        Provider::Codex => &state.config().codex_profiles_dir,
+        Provider::Claude => &state.config().claude_profiles_dir,
     };
     let profile_dir = profiles_dir.join(profile_id);
 
@@ -165,15 +166,15 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     }
 
     let quota_key = AccountKey::new(provider, profile_id.to_string());
-    if let Some(quota) = state.root.accounts.quota_by_key.get(&quota_key) {
+    if let Some(quota) = state.root().accounts().quota_by_key().get(&quota_key) {
         append_quota_lines(&mut lines, quota);
     }
 
-    if let Some(msg) = state.root.accounts.status_message.as_ref() {
+    if let Some(msg) = state.root().accounts().status_message() {
         lines.push(Line::from(Span::raw("")));
         lines.push(Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(msg.clone(), Style::default().fg(theme::STATUS_WAITING)),
+            Span::styled(msg.to_string(), Style::default().fg(theme::STATUS_WAITING)),
         ]));
     }
 
@@ -278,7 +279,7 @@ fn load_profile_details(
     }
 }
 
-fn render_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
+fn render_placeholder(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let block = Block::default()
         .borders(Borders::NONE)
         .title(Span::styled(
@@ -289,7 +290,7 @@ fn render_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
 
     let mut lines = Vec::new();
 
-    if let AccountsMode::Filtering { input } = &state.root.accounts.mode {
+    if let AccountsMode::Filtering { input } = state.root().accounts().mode() {
         lines.push(Line::from(vec![
             Span::styled("  filter: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(input.clone(), Style::default().fg(theme::FG_DEFAULT)),
@@ -297,10 +298,13 @@ fn render_placeholder(frame: &mut Frame, state: &AppState, area: Rect) {
         ]));
     }
 
-    if let Some(message) = state.root.accounts.status_message.as_ref() {
+    if let Some(message) = state.root().accounts().status_message() {
         lines.push(Line::from(vec![
             Span::styled("  ", Style::default()),
-            Span::styled(message, Style::default().fg(theme::STATUS_WAITING)),
+            Span::styled(
+                message.to_string(),
+                Style::default().fg(theme::STATUS_WAITING),
+            ),
         ]));
     }
 

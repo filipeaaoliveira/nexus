@@ -3,15 +3,15 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 
+use crate::detect::heuristics::looks_like_review_output;
+use crate::detect::registry::AgentRegistry;
 use crate::domain::agents::activity::{Activity, Subagent};
 use crate::domain::agents::ids::{AgentId, AgentTool};
 use crate::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
-use crate::domain::system::health::CodexBackendHealth;
 use crate::domain::shared::time::from_epoch_secs;
-use crate::detect::heuristics::looks_like_review_output;
-use crate::detect::registry::AgentRegistry;
+use crate::domain::system::health::CodexBackendHealth;
 use crate::event::AgentEvent;
 
 use super::rollout::{
@@ -297,6 +297,7 @@ fn materialize_backend_health(
     snapshot
 }
 
+#[cfg(test)]
 pub fn detect_codex_backend(db_path: &Path, registry: &AgentRegistry) -> CodexDetectionResult {
     detect_codex_backend_with_history(db_path, registry, false)
 }

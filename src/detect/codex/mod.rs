@@ -6,14 +6,22 @@ use tokio::sync::mpsc;
 use crate::detect::registry::AgentRegistry;
 use crate::event::AgentEvent;
 
+#[cfg(test)]
+mod integration_tests;
 mod rollout;
 mod snapshot;
 mod sqlite;
 mod types;
 
+#[cfg(test)]
 pub use rollout::*;
+#[cfg(test)]
 pub use snapshot::*;
+use snapshot::{detect_codex_backend_with_history, reconcile_codex_snapshots};
+#[cfg(test)]
 pub use sqlite::*;
+use types::CodexEventSnapshot;
+#[cfg(test)]
 pub use types::*;
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
@@ -67,10 +75,10 @@ mod tests {
         CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
         ObservedCodexSubagent, ObservedCodexThread,
     };
+    use crate::detect::registry::AgentRegistry;
     use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::domain::agents::status::PrimaryStatus;
     use crate::domain::shared::time::from_epoch_secs;
-    use crate::detect::registry::AgentRegistry;
     use crate::event::AgentEvent;
     use rusqlite::Connection;
     use std::path::PathBuf;

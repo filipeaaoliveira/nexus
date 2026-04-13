@@ -9,12 +9,13 @@ use ratatui::style::Style;
 use ratatui::widgets::Block;
 use ratatui::Frame;
 
-use crate::app::{AccountsConfirmAction, AccountsMode, AppState, ConfirmKind};
+use crate::app::{AccountsConfirmAction, AccountsMode, ConfirmKind};
 use crate::codex_profiles::quota::{Confidence, CreditsState, LimitState};
 use crate::domain::accounts::Provider;
+use crate::services::runtime::RuntimeSession;
 use crate::ui::{header, theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession) {
     let render_data = RenderData::from_state(state);
 
     frame.render_widget(
@@ -40,9 +41,9 @@ pub fn render(frame: &mut Frame, state: &AppState) {
 
     list::render(frame, state, main_chunks[0]);
     detail::render(frame, state, main_chunks[1]);
-    footer::render(frame, state, outer[2]);
+    footer::render(frame, state.app(), outer[2]);
 
-    if matches!(state.root.accounts.mode, AccountsMode::Editing { .. }) {
+    if matches!(state.root().accounts().mode(), AccountsMode::Editing { .. }) {
         let edit_width = main_chunks[1].width.saturating_sub(8).clamp(36, 64);
         let edit_height = 10u16;
         let edit_area = Rect::new(
@@ -51,15 +52,15 @@ pub fn render(frame: &mut Frame, state: &AppState) {
             edit_width,
             edit_height,
         );
-        edit::render(frame, state, edit_area);
+        edit::render(frame, state.app(), edit_area);
     }
 
-    if let AccountsMode::Confirming { action } = state.root.accounts.mode {
-        let confirm = match action {
+    if let AccountsMode::Confirming { action } = state.root().accounts().mode() {
+        let confirm = match *action {
             AccountsConfirmAction::DeleteProfile => ConfirmKind::DeleteProfile,
             AccountsConfirmAction::WriteProfileToHome => ConfirmKind::WriteToHome,
         };
-        confirm::render(frame, state, &confirm);
+        confirm::render(frame, state.app(), &confirm);
     }
 }
 

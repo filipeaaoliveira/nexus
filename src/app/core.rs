@@ -8,6 +8,13 @@ pub struct AppState {
     pub(in crate::app) agents: Vec<Agent>,
 }
 
+#[cfg(test)]
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppState {
     #[cfg(test)]
     pub fn new() -> Self {
@@ -57,43 +64,20 @@ impl AppState {
                 detector,
                 healthy,
                 message,
-            } => self.run_detector_reducer_action(DetectorAction::HealthChanged {
-                detector,
-                healthy,
-                message,
-            }),
+            } => self.root.record_detector_health(detector, healthy, message),
             AgentEvent::Discovered {
                 id,
                 pid,
                 cwd,
                 started_at,
-            } => {
-                self.run_detector_reducer_action(DetectorAction::Discovered {
-                    id: id.clone(),
-                    pid,
-                    cwd: cwd.clone(),
-                    started_at,
-                });
-                self.handle_discovered(id, pid, cwd, started_at, now);
-            }
+            } => self.handle_discovered(id, pid, cwd, started_at, now),
             AgentEvent::StatusChanged { id, pid, old, new } => {
-                self.run_detector_reducer_action(DetectorAction::StatusChanged {
-                    id: id.clone(),
-                    pid,
-                    old,
-                    new,
-                });
-                self.handle_status_changed(id, pid, old, new, now);
+                self.handle_status_changed(id, pid, old, new, now)
             }
             AgentEvent::ActivityChanged { id, pid, activity } => {
                 self.handle_activity_changed(id, pid, activity, now)
             }
             AgentEvent::NormalizedStateChanged { id, pid, state } => {
-                self.run_detector_reducer_action(DetectorAction::NormalizedStateChanged {
-                    id: id.clone(),
-                    pid,
-                    state: state.clone(),
-                });
                 self.handle_normalized_state_changed(id, pid, state, now);
             }
             AgentEvent::SubagentSpawned { id, pid, subagent } => {
@@ -116,13 +100,7 @@ impl AppState {
             AgentEvent::ToolCallCompleted { id, pid } => {
                 self.handle_tool_call_completed(id, pid, now)
             }
-            AgentEvent::ProcessExited { id, pid } => {
-                self.run_detector_reducer_action(DetectorAction::ProcessExited {
-                    id: id.clone(),
-                    pid,
-                });
-                self.handle_process_exited(id, pid, now);
-            }
+            AgentEvent::ProcessExited { id, pid } => self.handle_process_exited(id, pid, now),
             AgentEvent::SessionInfo {
                 id,
                 pid,
@@ -130,27 +108,17 @@ impl AppState {
                 branch,
                 is_worktree,
                 started_at,
-            } => {
-                self.run_detector_reducer_action(DetectorAction::SessionInfo {
-                    id: id.clone(),
+            } => self.handle_session_info(
+                id,
+                SessionInfoUpdate {
                     pid,
-                    session_id: session_id.clone(),
-                    branch: branch.clone(),
+                    session_id,
+                    branch,
                     is_worktree,
                     started_at,
-                });
-                self.handle_session_info(
-                    id,
-                    SessionInfoUpdate {
-                        pid,
-                        session_id,
-                        branch,
-                        is_worktree,
-                        started_at,
-                    },
-                    now,
-                );
-            }
+                },
+                now,
+            ),
             AgentEvent::TodosUpdated { id, pid, todos } => {
                 self.handle_todos_updated(id, pid, todos, now)
             }
@@ -187,6 +155,7 @@ mod tests {
     use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::domain::agents::model::SortMode;
     use crate::domain::agents::status::PrimaryStatus;
+    use crate::domain::system::DetectorKind;
     use crate::event::AgentEvent;
     use crate::services::accounts::storage::next_profile_id;
     use std::fs;
@@ -363,14 +332,13 @@ mod tests {
     }
 
     #[test]
-    fn detector_reducer_keeps_overview_state_as_view_state_only() {
+    fn detector_health_does_not_affect_agent_list() {
         let mut state = AppState::new();
 
-        state.run_detector_reducer_action(DetectorAction::Discovered {
-            id: AgentId::new(AgentTool::Claude, 1),
-            pid: Some(1),
-            cwd: PathBuf::from("/tmp/claude"),
-            started_at: None,
+        state.handle_event(AgentEvent::DetectorHealthChanged {
+            detector: DetectorKind::Claude,
+            healthy: true,
+            message: "ok".into(),
         });
 
         assert!(state.visible_agents().is_empty());

@@ -22,7 +22,7 @@ The code is grouped by provider under:
 - `src/codex_profiles/`
 - `src/claude_profiles/`
 
-while the workflow logic that binds those pieces into the Accounts workspace currently lives in `src/app/accounts.rs` and the reducer/effect bridge around it.
+while the Accounts workspace itself is owned by `root.accounts`, with `src/app/accounts.rs` coordinating reducer/effect dispatch and `src/services/accounts/` owning the side-effectful operations.
 
 ## Storage Model
 
@@ -105,18 +105,16 @@ In both cases, the UI treats quota as best-effort operational data rather than a
 
 ## Accounts Workflow Layer
 
-`src/app/accounts.rs` still acts as the legacy bridge that ties profile storage and provider logic into user workflows while reducer/effect ownership continues to expand.
+`src/app/accounts.rs` is the live runtime adapter that ties reducer-owned Accounts state to async effect dispatch.
 
 It owns:
 
-- import actions
-- edit mode lifecycle
-- delete/write confirmation behavior
-- status messages
-- provider filter behavior
-- manual quota refresh actions
+- reducer invocation for Accounts actions and effect results
+- manual quota refresh coordination and in-flight tracking
+- status-message lifetime handling
+- applying service results back into `root.accounts`
 
-This layer is where file operations become user-facing workflows.
+This layer is where file operations become user-facing workflows, but the side effects themselves live in `src/services/accounts/`.
 
 ## Persistence Boundaries
 

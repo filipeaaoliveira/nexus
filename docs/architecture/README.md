@@ -23,8 +23,9 @@ The binary is not a client/server system. There is no internal RPC layer, no dae
 4. `src/services/runtime/terminal.rs` validates the terminal, installs panic restoration, and initializes the TUI
 5. detectors are spawned and begin emitting `AgentEvent` values
 6. `AppState` receives those events and becomes the single source of truth for visible UI state
-7. the TUI renders from `AppState`
-8. `src/input/` translates keyboard input into actions and applies them back into `AppState`
+7. `RuntimeSession` owns config, clocks, and async bookkeeping around that pure app model
+8. the TUI renders from runtime-owned view state backed by `AppState`
+9. `src/input/` translates keyboard input into actions and applies them back through `RuntimeSession`
 
 That loop continues until the user quits or the process receives a terminating signal.
 
@@ -66,12 +67,15 @@ The behavioral core of the application lives in:
 
 - `src/event.rs`
 - `src/app/mod.rs`
+- `src/app/core.rs`
+- `src/app/system.rs`
+- `src/app/state/`
 - `src/app/reducer/`
 - `src/app/action.rs`
 - `src/app/effect.rs`
 - `src/app/accounts.rs`
 
-`AppState` is the bridge between low-level detector events and high-level UI behavior. It owns selections, filters, cached visible-agent indices, profile-management state, status messages, and quota-related UI state.
+`AppState` is the bridge between low-level detector events and high-level UI behavior. `root` owns the visible workspace state, `AppState.agents` owns richer runtime detail, `src/app/system.rs` owns pure system/workspace transitions, and `src/services/runtime/session.rs` owns runtime coordination such as config-backed effect dispatch, startup timing, and transient async bookkeeping.
 
 Read next: [app-state-and-events.md](app-state-and-events.md)
 
@@ -97,9 +101,10 @@ The account-management and runtime-isolation logic lives mainly in:
 
 - `src/codex_profiles/`
 - `src/claude_profiles/`
+- `src/services/accounts/`
 - `src/app/accounts.rs`
 
-This is the part of the codebase with the most sensitive file-handling and external API behavior. It is where profile import, auth writes, quota refreshes, and Codex runtime materialization happen.
+This is the part of the codebase with the most sensitive file-handling and external API behavior. It is where profile import, auth writes, quota refreshes, effect dispatch, and Codex runtime materialization happen.
 
 Read next: [codex-and-claude-profiles.md](codex-and-claude-profiles.md)
 
@@ -109,8 +114,8 @@ The intended dependency flow is:
 
 1. provider/detection/config/runtime helpers produce data or events
 2. `AppState` consumes those events and owns behavior
-3. `ui/` renders from `AppState`
-4. `src/input/` produces actions that are applied back into `AppState`
+3. `ui/` renders from runtime-owned view state backed by `AppState`
+4. `src/input/` produces actions that are applied back through `RuntimeSession`
 
 The important boundary is that `ui/` should not become responsible for business logic and detectors should not directly know about presentation concerns.
 
@@ -125,6 +130,8 @@ This gives the codebase a clean separation:
 - detectors answer "what changed outside the app?"
 - `AppState` answers "what does that mean for the app?"
 - render code answers "what should the user see?"
+
+Semantic keyboard actions now follow the same rule: runtime/input code translates keys into `Action` values, then hands those actions back to `RuntimeSession` instead of mutating app state directly. `RuntimeSession` can coordinate async effects without pushing config or timer state back into `AppState`.
 
 ### Terminal safety first
 

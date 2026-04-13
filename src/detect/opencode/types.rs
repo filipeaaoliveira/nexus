@@ -5,6 +5,7 @@ use crate::domain::agents::activity::TodoItem;
 use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
+#[allow(dead_code)] // parsed message rows intentionally retain optional provider metadata
 #[derive(Debug, Clone)]
 pub struct MessageData {
     pub role: String,
@@ -31,6 +32,7 @@ pub struct PartData {
 }
 
 /// An OpenCode session from the SQLite database.
+#[allow(dead_code)] // sqlite row mirror keeps extra columns that are useful in tests and diagnostics
 #[derive(Debug, Clone)]
 pub struct OpenCodeSession {
     pub id: String,

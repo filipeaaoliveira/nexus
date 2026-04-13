@@ -13,6 +13,8 @@ use crate::event::AgentEvent;
 
 mod inference;
 mod query;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use inference::*;

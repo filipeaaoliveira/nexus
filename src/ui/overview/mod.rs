@@ -8,11 +8,11 @@ use ratatui::style::Style;
 use ratatui::widgets::Block;
 use ratatui::Frame;
 
-use crate::app::AppState;
+use crate::services::runtime::RuntimeSession;
 
 use crate::ui::{header, shared, theme, RenderData};
 
-pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderData<'_>) {
     frame.render_widget(
         Block::default().style(Style::default().bg(theme::BG_MAIN)),
         frame.area(),
@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, state: &AppState, render_data: &RenderData<'_>)
 
     detail::render(frame, render_data, right_chunks[0]);
     activity::render(frame, render_data, right_chunks[1]);
-    footer::render(frame, state, outer[2]);
+    footer::render(frame, state.app(), outer[2]);
 
     if state.show_help() {
         shared::help::render(frame, state.help_scroll());

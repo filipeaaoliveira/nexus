@@ -1,9 +1,9 @@
-use nexus::detect::claude::*;
-use nexus::detect::registry::ClaudeLaunchInfo;
-use nexus::domain::agents::{
+use crate::detect::claude::*;
+use crate::detect::registry::ClaudeLaunchInfo;
+use crate::domain::agents::{
     Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
 };
-use nexus::domain::shared::from_rfc3339;
+use crate::domain::shared::from_rfc3339;
 
 #[test]
 fn test_infer_activity_tool_use_last() {
@@ -20,7 +20,7 @@ fn test_infer_activity_tool_use_last() {
 
 #[test]
 fn test_infer_activity_tool_result_last() {
-    let content = include_str!("fixtures/claude_transcript_tool_result_last.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript_tool_result_last.jsonl");
     let entries = parse_transcript(content);
     assert_eq!(
         infer_activity_from_last_entry(&entries),
@@ -30,7 +30,7 @@ fn test_infer_activity_tool_result_last() {
 
 #[test]
 fn test_infer_activity_user_last() {
-    let content = include_str!("fixtures/claude_transcript_user_last.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript_user_last.jsonl");
     let entries = parse_transcript(content);
     assert_eq!(
         infer_activity_from_last_entry(&entries),
@@ -45,14 +45,14 @@ fn test_infer_activity_empty() {
 
 #[test]
 fn test_parse_transcript_events() {
-    let content = include_str!("fixtures/claude_transcript.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript.jsonl");
     let events = parse_transcript(content);
     assert_eq!(events.len(), 9);
 }
 
 #[test]
 fn test_extract_tool_calls() {
-    let content = include_str!("fixtures/claude_transcript.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript.jsonl");
     let events = parse_transcript(content);
     let tool_calls: Vec<_> = events
         .iter()
@@ -63,7 +63,7 @@ fn test_extract_tool_calls() {
 
 #[test]
 fn test_detect_subagent_spawn() {
-    let content = include_str!("fixtures/claude_transcript.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript.jsonl");
     let events = parse_transcript(content);
     let subagents: Vec<_> = events
         .iter()
@@ -85,7 +85,7 @@ fn test_detect_subagent_spawn() {
 
 #[test]
 fn test_infer_status_active_tool_call() {
-    let content = include_str!("fixtures/claude_transcript.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript.jsonl");
     let events = parse_transcript(content);
     let status = infer_status_from_transcript(&events);
     assert_eq!(status, InferredStatus::Running);
@@ -464,7 +464,7 @@ fn test_normalize_claude_stale_generic_assistant_after_older_review_stays_workin
 
 #[test]
 fn test_parse_project_session_extracts_branch() {
-    let content = include_str!("fixtures/claude_project_session.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session.jsonl");
     let info = parse_project_session(content);
     assert_eq!(info.session_id.as_deref(), Some("b1508a89-test"));
     assert_eq!(info.branch.as_deref(), Some("feat/error-handling"));
@@ -476,7 +476,7 @@ fn test_parse_project_session_extracts_branch() {
 
 #[test]
 fn test_detect_internal_initiator_subagent() {
-    let content = include_str!("fixtures/claude_project_session.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session.jsonl");
     let info = parse_project_session(content);
     assert!(info.has_internal_initiator);
 }
@@ -487,7 +487,7 @@ fn test_detect_internal_initiator_subagent() {
 /// maps to Thinking, not to something that would produce ToolCallCompleted.
 #[test]
 fn test_tool_result_does_not_imply_idle_activity() {
-    let content = include_str!("fixtures/claude_transcript_tool_result_last.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_transcript_tool_result_last.jsonl");
     let entries = parse_transcript(content);
     // The activity inferred should be Thinking, never Idle
     let activity = infer_activity_from_last_entry(&entries);
@@ -519,14 +519,14 @@ fn test_inferred_to_primary_mapping() {
 fn test_is_stale_old_mtime() {
     use std::time::{Duration, SystemTime};
     let old = SystemTime::now() - Duration::from_secs(30);
-    assert!(nexus::detect::claude::is_stale(old, 10));
+    assert!(crate::detect::claude::is_stale(old, 10));
 }
 
 #[test]
 fn test_is_stale_recent_mtime() {
     use std::time::SystemTime;
     let now = SystemTime::now();
-    assert!(!nexus::detect::claude::is_stale(now, 10));
+    assert!(!crate::detect::claude::is_stale(now, 10));
 }
 
 #[test]
@@ -656,7 +656,7 @@ fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
         started_at: Some(from_rfc3339("2026-04-02T10:00:00Z").unwrap()),
         resume_session_id: Some("session-123".to_string()),
     };
-    let matching_session = Some(&nexus::detect::claude::ProjectSessionInfo {
+    let matching_session = Some(&crate::detect::claude::ProjectSessionInfo {
         session_id: Some("session-123".to_string()),
         branch: None,
         cwd: None,
@@ -664,7 +664,7 @@ fn test_should_hydrate_session_history_requires_matching_resume_session_id() {
         has_internal_initiator: false,
         started_at: None,
     });
-    let mismatched_session = Some(&nexus::detect::claude::ProjectSessionInfo {
+    let mismatched_session = Some(&crate::detect::claude::ProjectSessionInfo {
         session_id: Some("session-999".to_string()),
         branch: None,
         cwd: None,
@@ -890,7 +890,7 @@ fn test_extract_todos_handles_missing_fields() {
 
 #[test]
 fn test_parse_project_file_nested_format_extracts_tool_use_from_assistant() {
-    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session_nested.jsonl");
     let entries = parse_transcript(content);
 
     // Expect: User, ToolUse(Read), ToolUse(Bash), Assistant(""), ToolResult×2, Assistant(text)
@@ -910,7 +910,7 @@ fn test_parse_project_file_nested_format_extracts_tool_use_from_assistant() {
 
 #[test]
 fn test_parse_project_file_nested_format_extracts_tool_result_from_user() {
-    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session_nested.jsonl");
     let entries = parse_transcript(content);
 
     let tool_results: Vec<_> = entries
@@ -927,7 +927,7 @@ fn test_parse_project_file_nested_format_extracts_tool_result_from_user() {
 #[test]
 fn test_parse_project_file_nested_format_normalizes_to_done() {
     // The fixture ends with an assistant message containing "Ready for the next task."
-    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session_nested.jsonl");
     let entries = parse_transcript(content);
 
     let state = normalize_claude_state(&entries, false);
@@ -942,7 +942,7 @@ fn test_parse_project_file_nested_format_normalizes_to_done() {
 fn test_parse_project_file_nested_format_thinking_blocks_not_emitted() {
     // "thinking" content blocks must not be emitted as Assistant entries
     // (they are internal monologue and should be invisible to state inference).
-    let content = include_str!("fixtures/claude_project_session_nested.jsonl");
+    let content = include_str!("../../../tests/fixtures/claude_project_session_nested.jsonl");
     let entries = parse_transcript(content);
 
     let assistant_entries: Vec<_> = entries
@@ -1502,7 +1502,7 @@ fn test_normalize_clear_command_shows_done_non_stale() {
 
 #[test]
 fn test_scan_session_registry_reads_valid_file() {
-    use nexus::detect::claude::scan_session_registry;
+    use crate::detect::claude::scan_session_registry;
     use std::io::Write;
 
     let dir = tempfile::tempdir().expect("create temp dir");
@@ -1525,7 +1525,7 @@ fn test_scan_session_registry_reads_valid_file() {
 
 #[test]
 fn test_scan_session_registry_skips_invalid_files() {
-    use nexus::detect::claude::scan_session_registry;
+    use crate::detect::claude::scan_session_registry;
     use std::io::Write;
 
     let dir = tempfile::tempdir().expect("create temp dir");
@@ -1551,7 +1551,7 @@ fn test_scan_session_registry_skips_invalid_files() {
 
 #[test]
 fn test_scan_session_registry_empty_dir() {
-    use nexus::detect::claude::scan_session_registry;
+    use crate::detect::claude::scan_session_registry;
 
     let dir = tempfile::tempdir().expect("create temp dir");
     let map = scan_session_registry(dir.path());
@@ -1560,7 +1560,7 @@ fn test_scan_session_registry_empty_dir() {
 
 #[test]
 fn test_scan_session_registry_nonexistent_dir() {
-    use nexus::detect::claude::scan_session_registry;
+    use crate::detect::claude::scan_session_registry;
 
     let map = scan_session_registry(std::path::Path::new("/nonexistent/path/sessions"));
     assert!(

@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::action::{DetectorAction, OverviewAction};
+use crate::app::action::OverviewAction;
 use crate::app::state::OverviewMode;
 
 impl AppState {
@@ -155,17 +155,6 @@ impl AppState {
                 self.root.overview.mode = OverviewMode::Normal;
                 self.clamp_selection();
             }
-        }
-    }
-
-    pub fn run_detector_reducer_action(&mut self, action: DetectorAction) {
-        if let DetectorAction::HealthChanged {
-            detector,
-            healthy,
-            message,
-        } = action
-        {
-            self.root.record_detector_health(detector, healthy, message);
         }
     }
 

@@ -154,38 +154,29 @@ This is the area where the largest cleanup has already landed.
 
 ### Overview architecture
 
-The Overview workspace is now partly migrated:
+The Overview workspace is now fully on the intended authority model:
 
-- `root.overview` owns live selection, sort mode, filter state, and rename mode
+- `root.overview` owns live selection, sort mode, filter state, rename mode, and summarized Overview agents
+- production detector updates now flow through the `Action::Detector` reducer path for Overview
 - the old legacy Overview fields were removed from `AppState`
-- runtime input now routes Overview semantics through the reducer path
-- UI reads the new root-owned Overview interaction state
+- `AppState.agents` remains as the rich runtime-detail store for activity, subagents, todos, recent events, and diagnostics
+- UI list visibility/order now follows `root.overview`, while detail rendering joins back to rich agent records by identity
+- system/workspace semantic actions now route back through dedicated app helpers instead of being interpreted inline in runtime code
 - boundary tests enforce that the deleted legacy Overview fields do not come back
 
 ## What Still Remains
 
-The refactor is not fully finished.
+No structural refactor tasks remain in this checkpoint.
 
-The main remaining architectural seam is on the Overview detection side.
+The last open Overview seam has been closed:
 
-### Remaining Overview duplication
+- production detector updates now hit the reducer path in real runtime flow, not only in isolated reducer tests
+- `root.overview` is the authoritative source for Overview list/filter/sort state and summarized agent rows
+- `AppState.agents` remains intentionally separate as the rich detail model keyed by agent identity
+- detector-health messaging now reads from explicit root system state instead of a duplicate private app field
+- architecture docs have been refreshed to describe the current behavior rather than the earlier bridge code
 
-Production detector events still mutate the rich legacy `agents: Vec<Agent>` model imperatively, and then `root.overview.agents` is refreshed as a summarized mirror.
-
-That means there are still two related but different representations in play:
-
-- `agents: Vec<Agent>` for rich runtime detail
-- `root.overview.agents: Vec<OverviewAgent>` for reducer-owned overview behavior
-
-The remaining goal is to make the reducer path more directly authoritative for Overview’s summarized state, instead of treating it as a post-hoc projection.
-
-### Remaining cleanup goals
-
-- move production detector updates onto the `Action::Detector` reducer path for Overview
-- reduce or eliminate remaining Overview summary mirroring where possible
-- keep `Agent` as the rich runtime detail model, but make the authority boundary explicit instead of implicit
-- refresh architecture docs that still describe older bridge code
-- run one final strict open-source readiness pass after the architecture settles
+That means the remaining work before public release is ordinary release work, not unresolved architecture migration. Future changes should preserve the same authority boundary instead of reopening compatibility layers.
 
 ## End-State We Want Before Public Release
 

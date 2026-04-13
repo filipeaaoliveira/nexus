@@ -1,33 +1,24 @@
-use std::path::PathBuf;
-
-use chrono::{DateTime, Local};
-
 use crate::domain::accounts::ProviderFilter;
 use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
 
 use super::effect::EffectResult;
-use super::state::{
-    AccountsConfirmAction, AccountsMode, Overlay, OverviewMode, ProfileDraft, Workflow, Workspace,
-};
+use super::state::{AccountsConfirmAction, AccountsMode};
+#[cfg(test)]
+use super::state::{ProfileDraft, Workflow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    Tick,
     QuitRequested,
     Workspace(WorkspaceAction),
     Overview(OverviewAction),
     Accounts(AccountsAction),
     System(SystemAction),
-    Detector(DetectorAction),
     EffectResult(EffectResult),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceAction {
-    SwitchTo(Workspace),
     Next,
-    Previous,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,12 +29,14 @@ pub enum OverviewAction {
     StartFiltering,
     UpdateFilter(String),
     ConfirmFilter,
+    #[cfg(test)]
     ClearFilter,
-    StartRenaming { agent_id: AgentId },
+    StartRenaming {
+        agent_id: AgentId,
+    },
     UpdateRenameInput(String),
     DismissExited,
     DismissSelected,
-    SetMode(OverviewMode),
     ConfirmRename,
     CancelMode,
 }
@@ -55,6 +48,7 @@ pub enum AccountsAction {
     SetProviderFilter(ProviderFilter),
     StartFiltering,
     UpdateFilter(String),
+    #[cfg(test)]
     StartEditing(ProfileDraft),
     UpdateEditBuffer(String),
     ToggleEnabled,
@@ -69,45 +63,7 @@ pub enum SystemAction {
     ShowHelp,
     ScrollHelpUp,
     ScrollHelpDown,
-    SetOverlay(Overlay),
     ClearOverlay,
+    #[cfg(test)]
     SetWorkflow(Workflow),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DetectorAction {
-    HealthChanged {
-        detector: String,
-        healthy: bool,
-        message: String,
-    },
-    Discovered {
-        id: AgentId,
-        pid: Option<u32>,
-        cwd: PathBuf,
-        started_at: Option<DateTime<Local>>,
-    },
-    SessionInfo {
-        id: AgentId,
-        pid: Option<u32>,
-        session_id: String,
-        branch: Option<String>,
-        is_worktree: bool,
-        started_at: Option<DateTime<Local>>,
-    },
-    StatusChanged {
-        id: AgentId,
-        pid: Option<u32>,
-        old: PrimaryStatus,
-        new: PrimaryStatus,
-    },
-    NormalizedStateChanged {
-        id: AgentId,
-        pid: Option<u32>,
-        state: NormalizedState,
-    },
-    ProcessExited {
-        id: AgentId,
-        pid: Option<u32>,
-    },
 }

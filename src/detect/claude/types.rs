@@ -23,6 +23,8 @@ pub enum TranscriptEntry {
     },
     ToolResult {
         timestamp: String,
+        #[allow(dead_code)]
+        // retained to mirror transcript payloads in tests and future heuristics
         tool_name: String,
     },
     /// Emitted from `system` entries with `subtype: "turn_duration"`.
@@ -34,7 +36,9 @@ pub enum TranscriptEntry {
     /// Signals that the API returned an error and the agent is retrying.
     ApiError {
         timestamp: String,
+        #[cfg_attr(not(test), allow(dead_code))]
         retry_attempt: Option<u32>,
+        #[cfg_attr(not(test), allow(dead_code))]
         max_retries: Option<u32>,
     },
     /// Emitted from `system` entries with `subtype: "compact_boundary"`.
@@ -50,6 +54,7 @@ pub enum TranscriptEntry {
     /// transcript observer there is no meaningful distinction from a hard block.
     TurnBlocked {
         timestamp: String,
+        #[cfg_attr(not(test), allow(dead_code))]
         stop_reason: String,
     },
     /// Emitted when a user entry's top-level `content` string contains local
@@ -68,6 +73,7 @@ pub enum TranscriptEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InferredStatus {
     Running,
+    #[cfg_attr(not(test), allow(dead_code))]
     Waiting,
     ToolCall,
     Unknown,
@@ -93,7 +99,9 @@ pub struct SessionRegistryEntry {
     /// Working directory reported by Claude Code.  Currently used only in
     /// tests; retained here for future cross-validation against the CWD
     /// derived from the project session file path.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub cwd: PathBuf,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub kind: String,
 }
 

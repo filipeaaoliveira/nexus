@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style};
 
 use crate::domain::agents::status::PrimaryStatus;
 
@@ -9,10 +9,6 @@ pub const BG_HEADER: Color = Color::Rgb(0x0d, 0x0c, 0x0c);
 pub const BG_SECTION: Color = Color::Rgb(0x1D, 0x1C, 0x19);
 pub const BG_SELECTED: Color = Color::Rgb(0x22, 0x21, 0x1E);
 pub const BG_DIALOG: Color = Color::Rgb(0x21, 0x1f, 0x1b);
-pub const BORDER: Color = Color::Rgb(0x28, 0x27, 0x27);
-
-// ── Foregrounds ────────────────────────────────────────────────────
-
 pub const FG_DEFAULT: Color = Color::Rgb(0xc5, 0xc9, 0xc5);
 pub const FG_DIMMED: Color = Color::Rgb(0x9e, 0x9b, 0x93);
 pub const FG_COMMENT: Color = Color::Rgb(0x73, 0x7c, 0x73);
@@ -52,27 +48,8 @@ pub fn status_color(status: PrimaryStatus) -> Color {
     }
 }
 
-pub fn default_style() -> Style {
-    Style::default().fg(FG_DEFAULT).bg(BG_MAIN)
-}
-
-pub fn dimmed_style() -> Style {
-    Style::default().fg(FG_DIMMED).bg(BG_MAIN)
-}
-
 pub fn bar_style() -> Style {
     Style::default().fg(FG_DEFAULT).bg(BG_HEADER)
-}
-
-pub fn status_badge_style(status: PrimaryStatus) -> Style {
-    Style::default()
-        .fg(BG_HEADER)
-        .bg(status_color(status))
-        .add_modifier(Modifier::BOLD)
-}
-
-pub fn status_dot_style(status: PrimaryStatus) -> Style {
-    Style::default().fg(status_color(status))
 }
 
 pub fn selected_style() -> Style {

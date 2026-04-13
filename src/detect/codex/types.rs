@@ -10,6 +10,7 @@ use crate::domain::system::health::CodexBackendHealth;
 // ── Types ─────────────────────────────────────────────────────────
 
 /// A parsed event from a Codex rollout JSONL file.
+#[allow(dead_code)] // rollout parsing keeps a small schema mirror for future heuristics and tests
 #[derive(Debug, Clone)]
 pub struct RolloutEvent {
     pub timestamp: String,
@@ -18,6 +19,7 @@ pub struct RolloutEvent {
 }
 
 /// Session metadata extracted from a rollout's `session_meta` event.
+#[allow(dead_code)] // retained schema fields are intentionally broader than current inference needs
 #[derive(Debug, Clone)]
 pub struct SessionMeta {
     pub id: String,
@@ -28,6 +30,7 @@ pub struct SessionMeta {
 }
 
 /// A subagent spawn extracted from a `collab_agent_spawn_end` event.
+#[allow(dead_code)] // prompt/role are preserved for richer subagent labeling and tests
 #[derive(Debug, Clone)]
 pub struct SubagentSpawn {
     pub nickname: String,
@@ -54,6 +57,7 @@ pub enum CodexInferredStatus {
 }
 
 /// An entry from the Codex session index JSONL file.
+#[allow(dead_code)] // the index format carries more metadata than the current production path uses
 #[derive(Debug, Clone)]
 pub struct SessionIndexEntry {
     pub id: String,
@@ -62,6 +66,7 @@ pub struct SessionIndexEntry {
 }
 
 /// Parsed source field info — distinguishes CLI launches from subagent spawns.
+#[allow(dead_code)] // tests and future reconciliation may inspect the full parsed source payload
 #[derive(Debug, Clone)]
 pub struct SourceInfo {
     pub is_subagent: bool,
@@ -71,6 +76,7 @@ pub struct SourceInfo {
 }
 
 /// A Codex thread from the SQLite database.
+#[allow(dead_code)] // sqlite row mirror intentionally retains non-critical columns for diagnostics/tests
 #[derive(Debug, Clone)]
 pub struct CodexThread {
     pub id: String,

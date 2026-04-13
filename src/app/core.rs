@@ -335,6 +335,77 @@ mod tests {
         assert_eq!(visible[0].id, AgentId::new(AgentTool::Claude, 1));
     }
 
+    /// Checks overview invariants: visible_agents is a subset of agents, selected index in bounds.
+    fn assert_overview_invariants(state: &AppState) {
+        let visible = state.visible_agents();
+        let all_ids: std::collections::HashSet<_> =
+            state.agents.iter().map(|a| &a.id).collect();
+
+        // Every visible agent must exist in the authoritative agent list
+        for agent in &visible {
+            assert!(
+                all_ids.contains(&agent.id),
+                "visible agent {:?} not found in agents list",
+                agent.id
+            );
+        }
+
+        // Visible count must never exceed total agent count
+        assert!(
+            visible.len() <= state.agents.len(),
+            "visible agents ({}) exceeds total agents ({})",
+            visible.len(),
+            state.agents.len()
+        );
+
+        // When no filter is active, all non-exited agents should be visible
+        // (we don't re-implement filter matching — just verify the subset property)
+
+        // Selected index must be within visible bounds
+        if let Some(idx) = state.root.overview.selected_index {
+            assert!(
+                idx < visible.len(),
+                "overview selected_index ({}) out of bounds for {} visible agents",
+                idx,
+                visible.len()
+            );
+        }
+    }
+
+    #[test]
+    fn overview_invariants_hold_after_filter_changes() {
+        let mut state = AppState::new();
+        state.handle_event(discovered(AgentTool::Claude, 1, "/tmp/claude"));
+        state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
+        assert_overview_invariants(&state);
+
+        state.root.overview.filter = Some("claude".to_string());
+        state.clamp_selection();
+        assert_overview_invariants(&state);
+
+        state.root.overview.filter = Some("nonexistent".to_string());
+        state.clamp_selection();
+        assert_overview_invariants(&state);
+
+        state.root.overview.filter = None;
+        state.clamp_selection();
+        assert_overview_invariants(&state);
+    }
+
+    #[test]
+    fn overview_invariants_hold_after_agent_exits() {
+        let mut state = AppState::new();
+        state.handle_event(discovered(AgentTool::Claude, 1, "/tmp/claude"));
+        state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
+        assert_overview_invariants(&state);
+
+        state.handle_event(AgentEvent::ProcessExited {
+            id: AgentId::new(AgentTool::Claude, 1),
+            pid: Some(1),
+        });
+        assert_overview_invariants(&state);
+    }
+
     #[test]
     fn detector_health_does_not_affect_agent_list() {
         let mut state = AppState::new();

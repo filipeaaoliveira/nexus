@@ -900,7 +900,7 @@ pub fn reconcile_codex_snapshots(
             events.push(AgentEvent::SessionInfo {
                 id: session.agent_id.clone(),
                 pid: session.pid,
-                session_id: session_id.to_string(),
+                session_id: Some(session_id.to_string()),
                 branch: session.branch.clone(),
                 is_worktree: false,
                 started_at: session.started_at,

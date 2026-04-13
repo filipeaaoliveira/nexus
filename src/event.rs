@@ -73,7 +73,7 @@ pub enum AgentEvent {
     SessionInfo {
         id: AgentId,
         pid: Option<u32>,
-        session_id: String,
+        session_id: Option<String>,
         branch: Option<String>,
         is_worktree: bool,
         started_at: Option<DateTime<Local>>,

@@ -14,7 +14,7 @@ pub struct Agent {
     pub status: PrimaryStatus,
     pub normalized: NormalizedState,
     pub activity: Option<Activity>,
-    pub cwd: PathBuf,
+    pub cwd: Option<PathBuf>,
     pub branch: Option<String>,
     pub is_worktree: bool,
     pub started_at: DateTime<Local>,

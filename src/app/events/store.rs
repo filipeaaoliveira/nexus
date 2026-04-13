@@ -29,7 +29,7 @@ impl AppState {
             status: PrimaryStatus::Running,
             normalized,
             activity: None,
-            cwd: PathBuf::new(),
+            cwd: None,
             branch: None,
             is_worktree: false,
             started_at: now,
@@ -69,7 +69,7 @@ impl AppState {
                     && a.id.is_session()
                     && a.pid == Some(pid)
                     && a.status != PrimaryStatus::Exited
-                    && (a.cwd.as_os_str().is_empty() || a.cwd == cwd)
+                    && (a.cwd.is_none() || a.cwd.as_deref() == Some(cwd))
             })
             .map(|(idx, _)| idx)
             .collect()
@@ -89,7 +89,7 @@ impl AppState {
                     && a.id.is_session()
                     && a.pid == Some(pid)
                     && a.status == PrimaryStatus::Exited
-                    && a.cwd == cwd
+                    && a.cwd.as_deref() == Some(cwd)
             })
             .map(|(idx, _)| idx)
             .collect()
@@ -143,15 +143,15 @@ impl AppState {
     pub(in crate::app) fn apply_session_info(
         agent: &mut Agent,
         pid: Option<u32>,
-        session_id: String,
+        session_id: Option<String>,
         branch: Option<String>,
         is_worktree: bool,
         started_at: Option<chrono::DateTime<chrono::Local>>,
         now: chrono::DateTime<chrono::Local>,
     ) {
         agent.pid = pid.or(agent.pid);
-        if !session_id.is_empty() {
-            agent.session_id = Some(session_id);
+        if session_id.is_some() {
+            agent.session_id = session_id;
         }
         if branch.is_some() {
             agent.branch = branch;

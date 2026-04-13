@@ -39,7 +39,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     terminal::ensure_interactive_terminal()?;
     terminal::install_panic_restore_hook();
 
-    let mut rx = detect::spawn_detectors(&config);
+    let (_detectors, mut rx) = detect::spawn_detectors(&config);
     let root = bootstrap::load_root_state(&config);
     let app = AppState::from_root(root);
     let mut session = RuntimeSession::new(config, app);

@@ -137,7 +137,11 @@ fn agent_matches_filter(agent: &Agent, filter: &str) -> bool {
             .as_ref()
             .map(|reason| reason.as_str().to_lowercase().contains(filter))
             .unwrap_or(false)
-        || agent.cwd.to_string_lossy().to_lowercase().contains(filter)
+        || agent
+            .cwd
+            .as_deref()
+            .map(|cwd| cwd.to_string_lossy().to_lowercase().contains(filter))
+            .unwrap_or(false)
         || agent
             .branch
             .as_deref()

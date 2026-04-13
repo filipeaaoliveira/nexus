@@ -1,11 +1,14 @@
 #![deny(unused_must_use)]
 
 mod app;
+#[doc(hidden)]
 pub mod claude_profiles;
+#[doc(hidden)]
 pub mod codex_profiles;
 pub mod config;
 #[doc(hidden)]
 pub mod detect;
+#[doc(hidden)]
 pub mod domain;
 mod event;
 mod infra;

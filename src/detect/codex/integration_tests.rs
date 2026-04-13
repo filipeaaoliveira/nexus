@@ -1489,7 +1489,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
         AgentEvent::SessionInfo { id, pid, session_id, branch, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && pid == &Some(41)
-                && session_id == "session-a"
+                && session_id.as_deref() == Some("session-a")
                 && branch.as_deref() == Some("main")
     ));
     assert!(matches!(

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use nexus::domain::agents::{AgentId, AgentTool};
 use nexus::testing::{AgentEvent, AppState, RootState};
@@ -16,7 +16,7 @@ fn session_info(pid: Option<u32>, session_id: &str, branch: Option<&str>) -> Age
     AgentEvent::SessionInfo {
         id: AgentId::session(AgentTool::Codex, session_id),
         pid,
-        session_id: session_id.into(),
+        session_id: Some(session_id.to_string()),
         branch: branch.map(str::to_string),
         is_worktree: false,
         started_at: None,
@@ -37,7 +37,7 @@ fn discovered_then_session_info_produces_one_logical_agent() {
         AgentId::session(AgentTool::Codex, "thread-1")
     );
     assert_eq!(visible[0].pid, Some(44));
-    assert_eq!(visible[0].cwd, PathBuf::from("/tmp/repo"));
+    assert_eq!(visible[0].cwd.as_deref(), Some(Path::new("/tmp/repo")));
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn session_info_then_discovered_merges_into_existing_session_row() {
     );
     assert_eq!(visible[0].pid, Some(44));
     assert_eq!(visible[0].session_id.as_deref(), Some("thread-1"));
-    assert_eq!(visible[0].cwd, PathBuf::from("/tmp/repo"));
+    assert_eq!(visible[0].cwd.as_deref(), Some(Path::new("/tmp/repo")));
 }
 
 #[test]

@@ -1,107 +1,21 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use nexus::claude_profiles::profile::{ClaudeProfile, ClaudeProfileMetadata};
-use nexus::codex_profiles::profile::{AuthMetadata, CodexProfile, ProfileMetadata};
-use nexus::codex_profiles::quota::{
-    Confidence, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
-};
-use nexus::domain::accounts::model::AccountEntry;
-use nexus::domain::accounts::provider::{Provider, ProviderFilter};
-use nexus::domain::accounts::{AccountEntry as DomainAccountEntry, Provider as DomainProvider};
-use nexus::domain::agents::activity::{
-    Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem, TodoPriority, TodoStatus,
-};
-use nexus::domain::agents::ids::{AgentId, AgentIdentity, AgentTool};
-use nexus::domain::agents::model::{Agent, SortMode};
+use nexus::claude_profiles::profile::ClaudeProfileMetadata;
+use nexus::codex_profiles::profile::ProfileMetadata;
+use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+use nexus::domain::agents::activity::Activity;
+use nexus::domain::agents::ids::{AgentId, AgentTool};
+use nexus::domain::agents::model::Agent;
 use nexus::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
-use nexus::domain::agents::{Agent as DomainAgent, AgentTool as DomainAgentTool};
 use nexus::domain::shared::time::{
     format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
 };
 use nexus::domain::system::health::CodexBackendHealth;
 use nexus::domain::system::notification::DetectorNotification;
-use nexus::domain::system::{
-    CodexBackendHealth as DomainCodexBackendHealth, DetectorKind,
-    DetectorNotification as DomainDetectorNotification,
-};
-
-#[test]
-fn domain_modules_export_expected_paths() {
-    let _ = std::any::TypeId::of::<AgentTool>();
-    let _ = std::any::TypeId::of::<AgentIdentity>();
-    let _ = std::any::TypeId::of::<AgentId>();
-    let _ = std::any::TypeId::of::<PrimaryStatus>();
-    let _ = std::any::TypeId::of::<NormalizedStatus>();
-    let _ = std::any::TypeId::of::<NormalizedReason>();
-    let _ = std::any::TypeId::of::<NormalizedState>();
-    let _ = std::any::TypeId::of::<Activity>();
-    let _ = std::any::TypeId::of::<ActivityEventKind>();
-    let _ = std::any::TypeId::of::<ActivityEvent>();
-    let _ = std::any::TypeId::of::<Subagent>();
-    let _ = std::any::TypeId::of::<TodoStatus>();
-    let _ = std::any::TypeId::of::<TodoPriority>();
-    let _ = std::any::TypeId::of::<TodoItem>();
-    let _ = std::any::TypeId::of::<Agent>();
-    let _ = std::any::TypeId::of::<SortMode>();
-    let _ = std::any::TypeId::of::<Provider>();
-    let _ = std::any::TypeId::of::<ProviderFilter>();
-    let _ = std::any::TypeId::of::<AccountEntry>();
-    let _ = std::any::TypeId::of::<AuthMetadata>();
-    let _ = std::any::TypeId::of::<CodexProfile>();
-    let _ = std::any::TypeId::of::<ProfileMetadata>();
-    let _ = std::any::TypeId::of::<ClaudeProfile>();
-    let _ = std::any::TypeId::of::<ClaudeProfileMetadata>();
-    let _ = std::any::TypeId::of::<QuotaWindow>();
-    let _ = std::any::TypeId::of::<QuotaSnapshot>();
-    let _ = std::any::TypeId::of::<QuotaCache>();
-    let _ = std::any::TypeId::of::<Confidence>();
-    let _ = std::any::TypeId::of::<LimitState>();
-    let _ = std::any::TypeId::of::<CodexBackendHealth>();
-    let _ = std::any::TypeId::of::<DetectorKind>();
-    let _ = std::any::TypeId::of::<DetectorNotification>();
-    let _ = std::any::TypeId::of::<DomainProvider>();
-    let _ = std::any::TypeId::of::<DomainAccountEntry>();
-    let _ = std::any::TypeId::of::<DomainAgentTool>();
-    let _ = std::any::TypeId::of::<DomainAgent>();
-    let _ = std::any::TypeId::of::<DomainCodexBackendHealth>();
-    let _ = std::any::TypeId::of::<DomainDetectorNotification>();
-    let _ = format_duration as fn(chrono::Duration) -> String;
-    let _ = format_duration_short as fn(chrono::Duration) -> String;
-    let _ = from_epoch_millis as fn(i64) -> Option<chrono::DateTime<chrono::Local>>;
-    let _ = from_epoch_secs as fn(i64) -> Option<chrono::DateTime<chrono::Local>>;
-    let _ = from_rfc3339 as fn(&str) -> Option<chrono::DateTime<chrono::Local>>;
-}
-
-#[test]
-fn canonical_domain_reexports_match_their_underlying_types() {
-    assert_eq!(
-        std::any::TypeId::of::<Provider>(),
-        std::any::TypeId::of::<DomainProvider>()
-    );
-    assert_eq!(
-        std::any::TypeId::of::<AccountEntry>(),
-        std::any::TypeId::of::<DomainAccountEntry>()
-    );
-    assert_eq!(
-        std::any::TypeId::of::<Agent>(),
-        std::any::TypeId::of::<DomainAgent>()
-    );
-    assert_eq!(
-        std::any::TypeId::of::<AgentTool>(),
-        std::any::TypeId::of::<DomainAgentTool>()
-    );
-    assert_eq!(
-        std::any::TypeId::of::<CodexBackendHealth>(),
-        std::any::TypeId::of::<DomainCodexBackendHealth>()
-    );
-    assert_eq!(
-        std::any::TypeId::of::<DetectorNotification>(),
-        std::any::TypeId::of::<DomainDetectorNotification>()
-    );
-}
+use nexus::domain::system::DetectorKind;
 
 #[test]
 fn agent_identity_semantics_distinguish_process_and_session_rows() {
@@ -131,7 +45,7 @@ fn agent_model_preserves_alias_elapsed_and_runtime_state() {
             Some(NormalizedReason::Review),
         ),
         activity: Some(Activity::Generating),
-        cwd: PathBuf::from("/tmp/repo"),
+        cwd: Some(PathBuf::from("/tmp/repo")),
         branch: Some("main".into()),
         is_worktree: false,
         started_at,

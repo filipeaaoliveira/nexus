@@ -45,7 +45,7 @@ pub enum ConfirmKind {
 #[derive(Debug, Clone)]
 struct SessionInfoUpdate {
     pid: Option<u32>,
-    session_id: String,
+    session_id: Option<String>,
     branch: Option<String>,
     is_worktree: bool,
     started_at: Option<chrono::DateTime<chrono::Local>>,

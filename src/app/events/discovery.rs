@@ -14,7 +14,7 @@ impl AppState {
         if let Some(agent_idx) = self.agents.iter().position(|a| a.id == id) {
             let absorbed_pid = {
                 let agent = &mut self.agents[agent_idx];
-                agent.cwd = cwd;
+                agent.cwd = Some(cwd);
                 agent.pid = pid.or(agent.pid);
                 if !(preserve_codex_session_status && agent.id.is_session()) {
                     agent.status = PrimaryStatus::Running;
@@ -43,7 +43,7 @@ impl AppState {
                 if matching_agent_indices.len() > 1 {
                     for agent_idx in matching_agent_indices {
                         let agent = &mut self.agents[agent_idx];
-                        agent.cwd = cwd.clone();
+                        agent.cwd = Some(cwd.clone());
                         agent.pid = Some(pid);
                         if !preserve_codex_session_status {
                             agent.status = PrimaryStatus::Running;
@@ -61,7 +61,7 @@ impl AppState {
                 }
                 if let Some(agent_idx) = matching_agent_indices.into_iter().next() {
                     let agent = &mut self.agents[agent_idx];
-                    agent.cwd = cwd;
+                    agent.cwd = Some(cwd);
                     agent.pid = Some(pid);
                     if !preserve_codex_session_status {
                         agent.status = PrimaryStatus::Running;
@@ -83,7 +83,7 @@ impl AppState {
                     if !exited_agent_indices.is_empty() {
                         for agent_idx in exited_agent_indices {
                             let agent = &mut self.agents[agent_idx];
-                            agent.cwd = cwd.clone();
+                            agent.cwd = Some(cwd.clone());
                             agent.pid = Some(pid);
                             agent.status = PrimaryStatus::Running;
                             if let Some(real_start) = real_start {
@@ -112,7 +112,7 @@ impl AppState {
             status: PrimaryStatus::Running,
             normalized,
             activity: None,
-            cwd,
+            cwd: Some(cwd),
             branch: None,
             is_worktree: false,
             started_at: real_start.unwrap_or(now),

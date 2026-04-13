@@ -28,7 +28,7 @@ fn agent_display_projection_prefers_alias_over_tool_name() {
         status: PrimaryStatus::Running,
         normalized: NormalizedState::new(NormalizedStatus::Working, None),
         activity: Some(Activity::Generating),
-        cwd: PathBuf::from("/tmp/repo"),
+        cwd: Some(PathBuf::from("/tmp/repo")),
         branch: Some("main".into()),
         is_worktree: false,
         started_at: chrono::Local::now(),

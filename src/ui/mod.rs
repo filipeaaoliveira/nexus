@@ -145,7 +145,7 @@ mod tests {
         state.handle_event(AgentEvent::SessionInfo {
             id: AgentId::session(AgentTool::Codex, "hidden-codex"),
             pid: None,
-            session_id: "hidden-codex".to_string(),
+            session_id: Some("hidden-codex".to_string()),
             branch: Some("main".to_string()),
             is_worktree: false,
             started_at: None,

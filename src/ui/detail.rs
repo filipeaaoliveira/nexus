@@ -73,13 +73,15 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             ]));
 
             // CWD
-            lines.push(Line::from(vec![
-                Span::styled("  cwd: ", Style::default().fg(theme::FG_COMMENT)),
-                Span::styled(
-                    agent.cwd.to_string_lossy().to_string(),
-                    Style::default().fg(theme::COLOR_PATH),
-                ),
-            ]));
+            if let Some(ref cwd) = agent.cwd {
+                lines.push(Line::from(vec![
+                    Span::styled("  cwd: ", Style::default().fg(theme::FG_COMMENT)),
+                    Span::styled(
+                        cwd.to_string_lossy().to_string(),
+                        Style::default().fg(theme::COLOR_PATH),
+                    ),
+                ]));
+            }
 
             // Branch
             if let Some(ref branch) = agent.branch {

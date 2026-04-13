@@ -198,7 +198,7 @@ pub async fn run_opencode_detector(
                                 .send(AgentEvent::SessionInfo {
                                     id: AgentId::new(AgentTool::OpenCode, pid),
                                     pid: Some(pid),
-                                    session_id: session.id.clone(),
+                                    session_id: Some(session.id.clone()),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
                                     started_at: None,

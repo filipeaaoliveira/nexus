@@ -68,7 +68,7 @@ async fn emit_enriched_session_info(
         .send(AgentEvent::SessionInfo {
             id,
             pid,
-            session_id: String::new(),
+            session_id: None,
             branch,
             is_worktree,
             started_at,
@@ -144,20 +144,41 @@ where
     }
 }
 
-/// Spawn all detector tasks. Returns the receiver end of the event channel.
-pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
+/// Owned handles for all detector background tasks.
+///
+/// Aborting on drop ensures detectors do not outlive the event channel.
+pub struct DetectorTasks {
+    forward: tokio::task::JoinHandle<()>,
+    process: tokio::task::JoinHandle<()>,
+    claude: tokio::task::JoinHandle<()>,
+    opencode: tokio::task::JoinHandle<()>,
+    codex: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for DetectorTasks {
+    fn drop(&mut self) {
+        self.forward.abort();
+        self.process.abort();
+        self.claude.abort();
+        self.opencode.abort();
+        self.codex.abort();
+    }
+}
+
+/// Spawn all detector tasks. Returns owned task handles and the event receiver.
+pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentEvent>) {
     let (raw_tx, raw_rx) = mpsc::channel::<AgentEvent>(512);
     let (tx, rx) = mpsc::channel::<AgentEvent>(512);
     let poll = Duration::from_secs(config.poll_interval_secs);
     let worktree_cache_ttl = Duration::from_secs(config.worktree_scan_interval_secs);
     let registry = registry::AgentRegistry::new();
 
-    tokio::spawn(forward_agent_events(raw_rx, tx.clone(), worktree_cache_ttl));
+    let forward = tokio::spawn(forward_agent_events(raw_rx, tx.clone(), worktree_cache_ttl));
 
     // Process scanner — pass registry so it registers discovered agents
     let process_tx = raw_tx.clone();
     let process_registry = registry.clone();
-    tokio::spawn(async move {
+    let process = tokio::spawn(async move {
         run_with_restart("Process scanner", || {
             process::run_process_scanner(process_tx.clone(), poll, process_registry.clone())
         })
@@ -168,7 +189,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     let claude_tx = raw_tx.clone();
     let claude_dir = config.claude_data_dir.clone();
     let claude_registry = registry.clone();
-    tokio::spawn(async move {
+    let claude = tokio::spawn(async move {
         run_with_restart("Claude detector", || {
             claude::run_claude_detector(
                 claude_tx.clone(),
@@ -184,7 +205,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     let oc_tx = raw_tx.clone();
     let oc_dir = config.opencode_data_dir.clone();
     let oc_registry = registry.clone();
-    tokio::spawn(async move {
+    let opencode = tokio::spawn(async move {
         run_with_restart("OpenCode detector", || {
             opencode::run_opencode_detector(
                 oc_tx.clone(),
@@ -200,7 +221,7 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
     let codex_tx = raw_tx.clone();
     let codex_dir = config.codex_data_dir.clone();
     let codex_registry = registry.clone();
-    tokio::spawn(async move {
+    let codex = tokio::spawn(async move {
         run_with_restart("Codex detector", || {
             codex::run_codex_detector(
                 codex_tx.clone(),
@@ -212,7 +233,14 @@ pub fn spawn_detectors(config: &Config) -> mpsc::Receiver<AgentEvent> {
         .await;
     });
 
-    rx
+    let tasks = DetectorTasks {
+        forward,
+        process,
+        claude,
+        opencode,
+        codex,
+    };
+    (tasks, rx)
 }
 
 #[cfg(test)]

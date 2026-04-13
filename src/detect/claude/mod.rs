@@ -392,7 +392,7 @@ pub async fn run_claude_detector(
                                 .send(AgentEvent::SessionInfo {
                                     id: AgentId::new(AgentTool::Claude, pid),
                                     pid: Some(pid),
-                                    session_id: session_info.session_id.clone().unwrap_or_default(),
+                                    session_id: session_info.session_id.clone(),
                                     branch: session_info.branch.clone(),
                                     is_worktree: false,
                                     started_at: session_started,

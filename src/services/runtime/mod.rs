@@ -5,12 +5,34 @@ mod quota;
 mod session;
 pub mod terminal;
 
+use tokio::task::JoinHandle;
+
 use crate::app::{AppState, EffectResult, RefreshOrigin};
 use crate::config::Config;
 use crate::detect;
 use crate::event::AgentEvent;
 
 pub(crate) use session::RuntimeSession;
+
+/// Owns the handles of all background tasks spawned by the runtime.
+///
+/// When this struct is dropped, the handles are aborted, ensuring clean
+/// shutdown of background work.
+struct RuntimeTasks {
+    quota_codex: JoinHandle<()>,
+    quota_claude: JoinHandle<()>,
+    #[cfg(unix)]
+    sigterm: JoinHandle<()>,
+}
+
+impl Drop for RuntimeTasks {
+    fn drop(&mut self) {
+        self.quota_codex.abort();
+        self.quota_claude.abort();
+        #[cfg(unix)]
+        self.sigterm.abort();
+    }
+}
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     logging::initialize_tracing(&config)?;
@@ -39,7 +61,7 @@ async fn run_loop(
 
     let config = session.config().clone();
 
-    tokio::spawn(quota::poll_quota_loop(
+    let quota_codex = tokio::spawn(quota::poll_quota_loop(
         config.codex_profiles_dir.clone(),
         effect_tx.clone(),
         {
@@ -51,7 +73,7 @@ async fn run_loop(
         },
     ));
 
-    tokio::spawn(quota::poll_quota_loop(
+    let quota_claude = tokio::spawn(quota::poll_quota_loop(
         config.claude_profiles_dir.clone(),
         effect_tx.clone(),
         {
@@ -66,7 +88,7 @@ async fn run_loop(
     #[cfg(unix)]
     let (sigterm_tx, mut sigterm_rx) = tokio::sync::mpsc::channel::<()>(1);
     #[cfg(unix)]
-    tokio::spawn(async move {
+    let sigterm = tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
         if let Ok(mut stream) = signal(SignalKind::terminate()) {
             if stream.recv().await.is_some() {
@@ -74,6 +96,13 @@ async fn run_loop(
             }
         }
     });
+
+    let _tasks = RuntimeTasks {
+        quota_codex,
+        quota_claude,
+        #[cfg(unix)]
+        sigterm,
+    };
 
     loop {
         #[cfg(unix)]

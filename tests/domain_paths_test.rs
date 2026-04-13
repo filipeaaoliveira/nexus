@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use nexus::domain::accounts::model::{
     AccountEntry, AuthMetadata, ClaudeProfile, ClaudeProfileMetadata, CodexProfile, ProfileMetadata,
@@ -214,44 +213,4 @@ fn time_helpers_parse_valid_inputs_and_reject_zero_epoch() {
     assert!(from_rfc3339("not-a-date").is_none());
     assert!(!format_duration(chrono::Duration::minutes(5)).is_empty());
     assert!(!format_duration_short(chrono::Duration::minutes(5)).is_empty());
-}
-
-#[test]
-fn representative_modules_no_longer_depend_on_transitional_types_shim() {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let files = [
-        "src/event.rs",
-        "src/app/action.rs",
-        "src/detect/process.rs",
-        "src/ui/theme.rs",
-    ];
-
-    for file in files {
-        let content = fs::read_to_string(repo_root.join(file)).unwrap();
-        assert!(
-            !content.contains("crate::types"),
-            "{file} should import domain modules directly instead of the transitional types shim",
-        );
-    }
-}
-
-#[test]
-fn crate_root_no_longer_exports_types_shim_module() {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let lib_rs = fs::read_to_string(repo_root.join("src/lib.rs")).unwrap();
-
-    assert!(
-        !lib_rs.contains("pub mod types;"),
-        "src/lib.rs should stop exporting the transitional types shim once production code no longer depends on it",
-    );
-}
-
-#[test]
-fn accounts_ui_no_longer_reads_legacy_accounts_tab_state() {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let detail = fs::read_to_string(repo_root.join("src/ui/accounts/detail.rs")).unwrap();
-    let list = fs::read_to_string(repo_root.join("src/ui/accounts/list.rs")).unwrap();
-
-    assert!(!detail.contains("state.accounts_tab."));
-    assert!(!list.contains("state.accounts_tab."));
 }

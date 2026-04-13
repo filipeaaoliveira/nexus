@@ -106,6 +106,38 @@ impl From<ClaudeProfile> for AccountProfile {
     }
 }
 
+/// Categorized error for effect failures.
+///
+/// Preserves structure so the reducer and runtime can branch on category
+/// (e.g. suppress background refresh failures) while still providing a
+/// human-readable message for UI display.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppError {
+    /// Profile loading, importing, saving, or deletion failed.
+    Storage { message: String },
+    /// Quota refresh failed (network, auth, parsing).
+    QuotaRefresh { message: String },
+    /// Catch-all for failures that don't fit a specific category yet.
+    #[allow(dead_code)]
+    Other { message: String },
+}
+
+impl AppError {
+    pub fn message(&self) -> &str {
+        match self {
+            Self::Storage { message } => message,
+            Self::QuotaRefresh { message } => message,
+            Self::Other { message } => message,
+        }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     LoadProfiles,
@@ -173,7 +205,7 @@ pub enum EffectResult {
     },
     Failed {
         effect: Effect,
-        message: String,
+        error: AppError,
     },
 }
 

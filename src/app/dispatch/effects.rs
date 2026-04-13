@@ -13,10 +13,30 @@ use crate::services::accounts::{
 pub async fn dispatch_effect(config: &Config, effect: Effect) -> EffectResult {
     match dispatch_effect_inner(config, &effect).await {
         Ok(result) => result,
-        Err(error) => EffectResult::Failed {
-            effect,
-            message: error.to_string(),
-        },
+        Err(error) => {
+            let app_error = categorize_error(&effect, error);
+            EffectResult::Failed {
+                effect,
+                error: app_error,
+            }
+        }
+    }
+}
+
+fn categorize_error(effect: &Effect, error: anyhow::Error) -> crate::app::effect::AppError {
+    use crate::app::effect::AppError;
+    let message = error.to_string();
+    match effect {
+        Effect::RefreshCodexQuota { .. } | Effect::RefreshClaudeQuota { .. } => {
+            AppError::QuotaRefresh { message }
+        }
+        Effect::LoadProfiles
+        | Effect::LoadProfileDraft { .. }
+        | Effect::ImportCodexProfile
+        | Effect::ImportClaudeProfile
+        | Effect::SaveProfileEdits { .. }
+        | Effect::WriteProfileToHome { .. }
+        | Effect::DeleteProfile { .. } => AppError::Storage { message },
     }
 }
 

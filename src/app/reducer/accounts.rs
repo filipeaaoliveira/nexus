@@ -150,9 +150,9 @@ pub fn reduce_result(
             *workflow = Workflow::Idle;
             true
         }
-        EffectResult::Failed { effect, message } => {
+        EffectResult::Failed { effect, error } => {
             if is_accounts_effect(effect) {
-                state.status_message = Some(message.clone());
+                state.status_message = Some(error.message().to_string());
                 if !matches!(effect, Effect::SaveProfileEdits { .. }) {
                     state.mode = AccountsMode::Normal;
                 }

@@ -181,7 +181,9 @@ mod tests {
                         profile_id: pid.into(),
                         origin: RefreshOrigin::Background,
                     },
-                    message: "failed refresh".to_string(),
+                    error: crate::app::effect::AppError::QuotaRefresh {
+                        message: "failed refresh".to_string(),
+                    },
                 }
             },
         ));

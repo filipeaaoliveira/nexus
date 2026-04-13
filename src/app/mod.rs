@@ -27,16 +27,12 @@ pub use action::{
     AccountsAction, Action, DetectorAction, OverviewAction, SystemAction, WorkspaceAction,
 };
 pub use core::AppState;
-#[cfg(test)]
-pub use effect::AccountProfile;
 pub use effect::{Effect, EffectResult, RefreshOrigin};
 pub use state::Workspace as ActiveTab;
 pub use state::{
     AccountsConfirmAction, AccountsEditField, AccountsMode, Overlay, OverviewMode, ProfileDraft,
     RootState, Workspace,
 };
-#[cfg(test)]
-pub use state::{AccountsState, OverviewStatusCounts, Workflow};
 
 const MAX_RECENT_EVENTS: usize = 20;
 
@@ -81,8 +77,9 @@ mod invariant_tests {
     fn push_event_caps_recent_event_history() {
         let now = Local::now();
         let mut events = VecDeque::new();
+        let overflow = 3;
 
-        for idx in 0..(MAX_RECENT_EVENTS + 3) {
+        for idx in 0..(MAX_RECENT_EVENTS + overflow) {
             push_event(
                 &mut events,
                 ActivityEventKind::StatusChanged,
@@ -92,10 +89,15 @@ mod invariant_tests {
         }
 
         assert_eq!(events.len(), MAX_RECENT_EVENTS);
-        assert_eq!(events.front().map(|event| event.description.as_str()), Some("event-3"));
+        let first_kept = format!("event-{overflow}");
+        let last_kept = format!("event-{}", MAX_RECENT_EVENTS + overflow - 1);
+        assert_eq!(
+            events.front().map(|event| event.description.as_str()),
+            Some(first_kept.as_str())
+        );
         assert_eq!(
             events.back().map(|event| event.description.as_str()),
-            Some("event-22")
+            Some(last_kept.as_str())
         );
     }
 }

@@ -14,6 +14,7 @@ use ratatui::Frame;
 use crate::app::{ActiveTab, AppState};
 use crate::domain::agents::model::Agent;
 use crate::domain::agents::status::NormalizedStatus;
+use crate::services::runtime::RuntimeSession;
 
 pub struct HeaderStats {
     pub total: usize,
@@ -35,9 +36,9 @@ impl<'a> RenderData<'a> {
     fn from_state(state: &'a AppState) -> Self {
         let visible_agents = state.visible_agents();
         let selected_agent = state
-            .root
-            .overview
-            .selected_index
+            .root()
+            .overview()
+            .selected_index()
             .and_then(|i| visible_agents.get(i).copied());
         let count_visible_with_normalized_status = |status| {
             visible_agents
@@ -76,7 +77,7 @@ impl<'a> RenderData<'a> {
     }
 }
 
-pub fn render(frame: &mut Frame, state: &AppState) {
+pub fn render(frame: &mut Frame, state: &RuntimeSession) {
     let area = frame.area();
     if area.width < 40 || area.height < 8 {
         shared::layout::render_small_terminal_message(frame);
@@ -97,30 +98,24 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::AppState;
-    use crate::config::Config;
     use crate::domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
     use crate::domain::agents::{AgentId, AgentTool};
     use crate::event::AgentEvent;
+    use crate::services::runtime::RuntimeSession;
 
     use super::RenderData;
 
     #[test]
     fn workspace_render_modules_export_entrypoints() {
-        let _overview_render: fn(
-            &mut ratatui::Frame,
-            &crate::app::AppState,
-            &super::RenderData<'_>,
-        ) = crate::ui::overview::render;
-        let _accounts_render: fn(&mut ratatui::Frame, &crate::app::AppState) =
+        let _overview_render: fn(&mut ratatui::Frame, &RuntimeSession, &super::RenderData<'_>) =
+            crate::ui::overview::render;
+        let _accounts_render: fn(&mut ratatui::Frame, &RuntimeSession) =
             crate::ui::accounts::render;
-        let _accounts_list_render: fn(
-            &mut ratatui::Frame,
-            &crate::app::AppState,
-            ratatui::layout::Rect,
-        ) = crate::ui::accounts::list::render;
+        let _accounts_list_render: fn(&mut ratatui::Frame, &RuntimeSession, ratatui::layout::Rect) =
+            crate::ui::accounts::list::render;
         let _accounts_detail_render: fn(
             &mut ratatui::Frame,
-            &crate::app::AppState,
+            &RuntimeSession,
             ratatui::layout::Rect,
         ) = crate::ui::accounts::detail::render;
         let _accounts_edit_render: fn(
@@ -138,7 +133,7 @@ mod tests {
 
     #[test]
     fn header_counts_only_visible_agents() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
             id: AgentId::new(AgentTool::Claude, 10),
@@ -164,7 +159,7 @@ mod tests {
 
     #[test]
     fn header_status_counts_follow_active_filter() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
             id: AgentId::new(AgentTool::Claude, 10),
@@ -186,7 +181,11 @@ mod tests {
                 Some(NormalizedReason::Review),
             ),
         });
-        state.root.overview.filter = Some("claude".to_string());
+        state.start_filter();
+        for ch in "claude".chars() {
+            state.filter_push_char(ch);
+        }
+        state.confirm_filter();
 
         let render_data = RenderData::from_state(&state);
 
@@ -197,7 +196,7 @@ mod tests {
 
     #[test]
     fn header_counts_normalized_states_and_maps_unknown_to_error_bucket() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
             id: AgentId::new(AgentTool::Claude, 10),
@@ -252,7 +251,7 @@ mod tests {
 
     #[test]
     fn header_counts_blocked_in_error_bucket() {
-        let mut state = AppState::new(Config::default());
+        let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
             id: AgentId::new(AgentTool::Claude, 10),

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Local};
 
@@ -8,7 +8,6 @@ use crate::domain::agents::ids::AgentTool;
 
 type AgentKey = (AgentTool, PathBuf);
 type PidList = Vec<u32>;
-type AgentMap = HashMap<AgentKey, PidList>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClaudeLaunchInfo {
@@ -26,15 +25,24 @@ pub struct OpenCodeLaunchInfo {
     pub started_at: Option<DateTime<Local>>,
 }
 
+/// All mutable state behind a single lock.
+#[derive(Debug, Default)]
+struct RegistryState {
+    agents: HashMap<AgentKey, PidList>,
+    codex_thread_pids: HashMap<String, u32>,
+    codex_launches: HashMap<u32, CodexLaunchInfo>,
+    claude_launches: HashMap<u32, ClaudeLaunchInfo>,
+    opencode_launches: HashMap<u32, OpenCodeLaunchInfo>,
+}
+
 /// Shared registry of known agents, mapping (tool, cwd) → one or more pids.
 /// Populated by the process scanner, read by enrichment detectors.
+///
+/// All state is behind a single `Mutex` to avoid multi-lock ordering issues
+/// and simplify the concurrent access pattern.
 #[derive(Debug, Clone, Default)]
 pub struct AgentRegistry {
-    inner: Arc<RwLock<AgentMap>>,
-    codex_thread_pids: Arc<RwLock<HashMap<String, u32>>>,
-    codex_launches: Arc<RwLock<HashMap<u32, CodexLaunchInfo>>>,
-    claude_launches: Arc<RwLock<HashMap<u32, ClaudeLaunchInfo>>>,
-    opencode_launches: Arc<RwLock<HashMap<u32, OpenCodeLaunchInfo>>>,
+    state: Arc<Mutex<RegistryState>>,
 }
 
 impl AgentRegistry {
@@ -44,8 +52,8 @@ impl AgentRegistry {
 
     /// Register a discovered agent. Called by process scanner.
     pub fn register(&self, tool: AgentTool, cwd: PathBuf, pid: u32) {
-        let mut map = self.inner.write().unwrap();
-        let entry = map.entry((tool, cwd)).or_default();
+        let mut state = self.state.lock().expect("registry lock");
+        let entry = state.agents.entry((tool, cwd)).or_default();
         if tool == AgentTool::Codex {
             if !entry.contains(&pid) {
                 entry.push(pid);
@@ -59,14 +67,14 @@ impl AgentRegistry {
     /// Register an exact Codex thread → pid binding discovered from the
     /// process command line (for example `codex resume <thread-id>`).
     pub fn register_codex_thread(&self, thread_id: String, pid: u32) {
-        let mut map = self.codex_thread_pids.write().unwrap();
-        map.insert(thread_id, pid);
+        let mut state = self.state.lock().expect("registry lock");
+        state.codex_thread_pids.insert(thread_id, pid);
     }
 
     /// Register Codex launch metadata discovered from the process command line.
     pub fn register_codex_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
-        let mut map = self.codex_launches.write().unwrap();
-        map.insert(pid, CodexLaunchInfo { started_at });
+        let mut state = self.state.lock().expect("registry lock");
+        state.codex_launches.insert(pid, CodexLaunchInfo { started_at });
     }
 
     /// Register Claude launch metadata discovered from the process command line.
@@ -76,8 +84,8 @@ impl AgentRegistry {
         started_at: Option<DateTime<Local>>,
         resume_session_id: Option<String>,
     ) {
-        let mut map = self.claude_launches.write().unwrap();
-        map.insert(
+        let mut state = self.state.lock().expect("registry lock");
+        state.claude_launches.insert(
             pid,
             ClaudeLaunchInfo {
                 started_at,
@@ -88,31 +96,27 @@ impl AgentRegistry {
 
     /// Register OpenCode launch metadata discovered from the process command line.
     pub fn register_opencode_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
-        let mut map = self.opencode_launches.write().unwrap();
-        map.insert(pid, OpenCodeLaunchInfo { started_at });
+        let mut state = self.state.lock().expect("registry lock");
+        state.opencode_launches.insert(pid, OpenCodeLaunchInfo { started_at });
     }
 
     /// Find launch metadata for an OpenCode process by pid.
     pub fn find_opencode_launch(&self, pid: u32) -> Option<OpenCodeLaunchInfo> {
-        let map = self.opencode_launches.read().unwrap();
-        map.get(&pid).cloned()
+        let state = self.state.lock().expect("registry lock");
+        state.opencode_launches.get(&pid).cloned()
     }
 
     /// Remove an agent by pid. Called when process exits.
     pub fn remove(&self, pid: u32) {
-        let mut map = self.inner.write().unwrap();
-        map.retain(|_, pids| {
+        let mut state = self.state.lock().expect("registry lock");
+        state.agents.retain(|_, pids| {
             pids.retain(|current_pid| *current_pid != pid);
             !pids.is_empty()
         });
-        let mut codex_map = self.codex_thread_pids.write().unwrap();
-        codex_map.retain(|_, current_pid| *current_pid != pid);
-        let mut codex_launches = self.codex_launches.write().unwrap();
-        codex_launches.remove(&pid);
-        let mut claude_map = self.claude_launches.write().unwrap();
-        claude_map.remove(&pid);
-        let mut opencode_launches = self.opencode_launches.write().unwrap();
-        opencode_launches.remove(&pid);
+        state.codex_thread_pids.retain(|_, current_pid| *current_pid != pid);
+        state.codex_launches.remove(&pid);
+        state.claude_launches.remove(&pid);
+        state.opencode_launches.remove(&pid);
     }
 
     /// Find a PID by tool and CWD. Used by enrichment detectors.
@@ -124,8 +128,8 @@ impl AgentRegistry {
     /// if the process CWD starts with the session directory (handles cases where
     /// session was created in a parent directory but process runs in a subdirectory).
     pub fn find_pid(&self, tool: AgentTool, cwd: &Path) -> Option<u32> {
-        let map = self.inner.read().unwrap();
-        let pids = map.get(&(tool, cwd.to_path_buf()))?;
+        let state = self.state.lock().expect("registry lock");
+        let pids = state.agents.get(&(tool, cwd.to_path_buf()))?;
         if tool == AgentTool::Codex {
             match pids.as_slice() {
                 [pid] => Some(*pid),
@@ -143,17 +147,17 @@ impl AgentRegistry {
     /// This handles cases where OpenCode sessions are created in a parent directory
     /// but the actual process runs in a subdirectory.
     pub fn find_pid_prefix(&self, tool: AgentTool, cwd: &Path) -> Option<u32> {
-        let map = self.inner.read().unwrap();
+        let state = self.state.lock().expect("registry lock");
 
         // First try exact match
-        if let Some(pids) = map.get(&(tool, cwd.to_path_buf())) {
+        if let Some(pids) = state.agents.get(&(tool, cwd.to_path_buf())) {
             return pids.first().copied();
         }
 
         // Then try prefix matching: find any CWD that starts with cwd + "/"
         let cwd_str = cwd.to_string_lossy();
         let cwd_prefix = format!("{}/", cwd_str);
-        for ((registered_tool, registered_cwd), pids) in map.iter() {
+        for ((registered_tool, registered_cwd), pids) in state.agents.iter() {
             if *registered_tool != tool {
                 continue;
             }
@@ -171,35 +175,35 @@ impl AgentRegistry {
 
     /// Find all PIDs by tool and CWD.
     pub fn find_pids(&self, tool: AgentTool, cwd: &Path) -> Vec<u32> {
-        let map = self.inner.read().unwrap();
-        map.get(&(tool, cwd.to_path_buf()))
+        let state = self.state.lock().expect("registry lock");
+        state.agents.get(&(tool, cwd.to_path_buf()))
             .cloned()
             .unwrap_or_default()
     }
 
     /// Find an exact pid for a known Codex thread id.
     pub fn find_codex_pid_for_thread(&self, thread_id: &str) -> Option<u32> {
-        let map = self.codex_thread_pids.read().unwrap();
-        map.get(thread_id).copied()
+        let state = self.state.lock().expect("registry lock");
+        state.codex_thread_pids.get(thread_id).copied()
     }
 
     /// Find launch metadata for a Codex process by pid.
     pub fn find_codex_launch(&self, pid: u32) -> Option<CodexLaunchInfo> {
-        let map = self.codex_launches.read().unwrap();
-        map.get(&pid).cloned()
+        let state = self.state.lock().expect("registry lock");
+        state.codex_launches.get(&pid).cloned()
     }
 
     /// Find launch metadata for a Claude process by pid.
     pub fn find_claude_launch(&self, pid: u32) -> Option<ClaudeLaunchInfo> {
-        let map = self.claude_launches.read().unwrap();
-        map.get(&pid).cloned()
+        let state = self.state.lock().expect("registry lock");
+        state.claude_launches.get(&pid).cloned()
     }
 
     /// Get all registered agents for a given tool.
     pub fn agents_for_tool(&self, tool: AgentTool) -> Vec<(PathBuf, u32)> {
-        let map = self.inner.read().unwrap();
+        let state = self.state.lock().expect("registry lock");
         let mut agents = Vec::new();
-        for ((registered_tool, cwd), pids) in map.iter() {
+        for ((registered_tool, cwd), pids) in state.agents.iter() {
             if *registered_tool != tool {
                 continue;
             }

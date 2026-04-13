@@ -246,7 +246,7 @@ fn quota_cache_for_provider(
         if key.provider == provider {
             cache
                 .by_profile
-                .insert(key.profile_id.clone(), quota.clone());
+                .insert(key.profile_id.to_string(), quota.clone());
         }
     }
     cache

@@ -221,7 +221,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
             };
             vec![Effect::SaveProfileEdits {
                 provider: entry.provider,
-                profile_id: entry.profile_id,
+                profile_id: entry.profile_id.into(),
                 draft,
             }]
         }
@@ -238,7 +238,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
                     };
                     vec![Effect::DeleteProfile {
                         provider: entry.provider,
-                        profile_id: entry.profile_id,
+                        profile_id: entry.profile_id.into(),
                     }]
                 }
                 crate::app::state::AccountsConfirmAction::WriteProfileToHome => {
@@ -248,7 +248,7 @@ fn confirm(state: &mut AccountsState, workflow: &mut Workflow) -> Vec<Effect> {
                     };
                     vec![Effect::WriteProfileToHome {
                         provider: entry.provider,
-                        profile_id: entry.profile_id,
+                        profile_id: entry.profile_id.into(),
                     }]
                 }
             }
@@ -262,11 +262,11 @@ fn upsert_profile(state: &mut AccountsState, profile: AccountProfile) {
     if !state
         .entries
         .iter()
-        .any(|entry| entry.provider == key.provider && entry.profile_id == key.profile_id)
+        .any(|entry| entry.provider == key.provider && key.profile_id == entry.profile_id)
     {
         state.entries.push(AccountEntry {
             provider: key.provider,
-            profile_id: key.profile_id.clone(),
+            profile_id: key.profile_id.to_string(),
         });
     }
     state.profiles_by_key.insert(key, profile);
@@ -291,7 +291,7 @@ fn focus_profile(state: &mut AccountsState, key: &AccountKey) {
     let visible_indices = state.visible_entry_indices();
     state.selected_index = visible_indices.iter().position(|real_idx| {
         state.entries[*real_idx].provider == key.provider
-            && state.entries[*real_idx].profile_id == key.profile_id
+            && key.profile_id == state.entries[*real_idx].profile_id
     });
     state.clamp_selection();
 }

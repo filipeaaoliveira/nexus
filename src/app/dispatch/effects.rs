@@ -144,7 +144,7 @@ async fn load_profile_draft(
 
     Ok(EffectResult::ProfileDraftLoaded {
         provider,
-        profile_id,
+        profile_id: profile_id.into(),
         draft,
     })
 }
@@ -160,7 +160,7 @@ async fn refresh_codex_quota(
         .await
         .ok_or_else(|| anyhow::anyhow!("failed to refresh Codex quota"))?;
     Ok(EffectResult::CodexQuotaRefreshed {
-        profile_id: profile_id.to_string(),
+        profile_id: profile_id.into(),
         quota,
         origin,
     })
@@ -186,7 +186,7 @@ async fn refresh_claude_quota(
         .await
         .ok_or_else(|| anyhow::anyhow!("failed to refresh Claude quota"))?;
     Ok(EffectResult::ClaudeQuotaRefreshed {
-        profile_id: profile_id.to_string(),
+        profile_id: profile_id.into(),
         quota,
         origin,
     })
@@ -379,7 +379,7 @@ mod tests {
             &config,
             Effect::SaveProfileEdits {
                 provider: Provider::Codex,
-                profile_id: "profile-01".to_string(),
+                profile_id: "profile-01".into(),
                 draft: ProfileDraft {
                     label: "Renamed".to_string(),
                     email: Some("dev@example.com".to_string()),
@@ -427,7 +427,7 @@ mod tests {
             &config,
             Effect::LoadProfileDraft {
                 provider: Provider::Codex,
-                profile_id: "profile-03".to_string(),
+                profile_id: "profile-03".into(),
             },
         )
         .await;
@@ -462,7 +462,7 @@ mod tests {
             &config,
             Effect::DeleteProfile {
                 provider: Provider::Claude,
-                profile_id: "profile-02".to_string(),
+                profile_id: "profile-02".into(),
             },
         )
         .await;
@@ -484,7 +484,7 @@ mod tests {
         let result = dispatch_effect(
             &config,
             Effect::RefreshClaudeQuota {
-                profile_id: "profile-09".to_string(),
+                profile_id: "profile-09".into(),
                 origin: RefreshOrigin::Manual,
             },
         )

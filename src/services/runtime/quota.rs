@@ -1,4 +1,5 @@
 use crate::app::dispatch::effects::dispatch_effect;
+use crate::app::effect::ProfileId;
 use crate::app::{Effect, EffectResult, RefreshOrigin};
 use crate::config::Config;
 
@@ -9,6 +10,7 @@ pub(super) async fn refresh_codex_quota(
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
+    let profile_id: ProfileId = profile_id.into();
     dispatch_effect(config, Effect::RefreshCodexQuota { profile_id, origin }).await
 }
 
@@ -17,6 +19,7 @@ pub(super) async fn refresh_claude_quota(
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
+    let profile_id: ProfileId = profile_id.into();
     dispatch_effect(config, Effect::RefreshClaudeQuota { profile_id, origin }).await
 }
 
@@ -134,7 +137,7 @@ mod tests {
             tx,
             |pid, _| async move {
                 EffectResult::CodexQuotaRefreshed {
-                    profile_id: pid,
+                    profile_id: pid.into(),
                     quota: test_snapshot(),
                     origin: RefreshOrigin::Background,
                 }
@@ -175,7 +178,7 @@ mod tests {
             |pid, _| async move {
                 EffectResult::Failed {
                     effect: Effect::RefreshCodexQuota {
-                        profile_id: pid,
+                        profile_id: pid.into(),
                         origin: RefreshOrigin::Background,
                     },
                     message: "failed refresh".to_string(),

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use crate::app::effect::AccountProfile;
+use crate::app::effect::{AccountProfile, ProfileId};
 use crate::domain::accounts::QuotaSnapshot;
 use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
 
@@ -47,11 +47,11 @@ pub enum AccountsMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountKey {
     pub provider: Provider,
-    pub profile_id: String,
+    pub profile_id: ProfileId,
 }
 
 impl AccountKey {
-    pub fn new(provider: Provider, profile_id: impl Into<String>) -> Self {
+    pub fn new(provider: Provider, profile_id: impl Into<ProfileId>) -> Self {
         Self {
             provider,
             profile_id: profile_id.into(),
@@ -59,11 +59,11 @@ impl AccountKey {
     }
 
     pub fn for_entry(entry: &AccountEntry) -> Self {
-        Self::new(entry.provider, entry.profile_id.clone())
+        Self::new(entry.provider, ProfileId::from(entry.profile_id.as_str()))
     }
 
     pub fn for_profile(profile: &AccountProfile) -> Self {
-        Self::new(profile.provider(), profile.profile_id())
+        Self::new(profile.provider(), ProfileId::from(profile.profile_id()))
     }
 }
 
@@ -71,7 +71,7 @@ impl Ord for AccountKey {
     fn cmp(&self, other: &Self) -> Ordering {
         provider_rank(self.provider)
             .cmp(&provider_rank(other.provider))
-            .then_with(|| self.profile_id.cmp(&other.profile_id))
+            .then_with(|| self.profile_id.as_str().cmp(other.profile_id.as_str()))
     }
 }
 

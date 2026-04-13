@@ -110,7 +110,7 @@ pub(super) async fn handle_runtime_input_action(
                     session
                         .run_accounts_effect(Effect::LoadProfileDraft {
                             provider,
-                            profile_id: profile_id.to_string(),
+                            profile_id: profile_id.into(),
                         })
                         .await;
                 }

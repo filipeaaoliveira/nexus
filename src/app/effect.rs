@@ -1,4 +1,6 @@
-use crate::domain::accounts::{AccountEntry, ClaudeProfile, CodexProfile, Provider, QuotaSnapshot};
+use crate::claude_profiles::profile::ClaudeProfile;
+use crate::codex_profiles::profile::CodexProfile;
+use crate::domain::accounts::{AccountEntry, Provider, QuotaSnapshot};
 
 use super::state::ProfileDraft;
 
@@ -120,9 +122,10 @@ mod tests {
     use chrono::Utc;
     use std::path::PathBuf;
 
-    use crate::domain::accounts::{
-        AccountEntry, ClaudeProfile, CodexProfile, Confidence, LimitState, Provider, QuotaSnapshot,
-    };
+    use crate::claude_profiles::profile::ClaudeProfile;
+    use crate::codex_profiles::profile::CodexProfile;
+    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+    use crate::domain::accounts::{AccountEntry, Provider};
 
     use super::*;
 

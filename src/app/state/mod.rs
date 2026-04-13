@@ -96,10 +96,10 @@ mod tests {
 
     use super::*;
     use crate::app::effect::AccountProfile;
-    use crate::domain::accounts::{
-        AccountEntry, ClaudeProfile, CodexProfile, Confidence, LimitState, Provider,
-        ProviderFilter, QuotaSnapshot,
-    };
+    use crate::claude_profiles::profile::ClaudeProfile;
+    use crate::codex_profiles::profile::CodexProfile;
+    use crate::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+    use crate::domain::accounts::{AccountEntry, Provider, ProviderFilter};
     use crate::domain::agents::model::SortMode;
 
     fn codex_profile(id: &str) -> CodexProfile {

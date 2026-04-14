@@ -13,7 +13,6 @@ use crate::services::runtime::RuntimeSession;
 use super::provider_badge_color;
 use crate::ui::theme;
 
-
 /// Build one quota row line. Uses a progress bar when `pct` is available,
 /// otherwise falls back to a text label. If `suffix` is provided it is
 /// appended as a final styled span (used to attach the "as of HH:MM" caption).
@@ -210,7 +209,6 @@ fn append_quota_lines(lines: &mut Vec<Line<'static>>, quota: &QuotaSnapshot) {
     ]));
 }
 
-
 fn render_placeholder(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let block = Block::default()
         .borders(Borders::NONE)
@@ -348,5 +346,4 @@ mod tests {
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(!text.contains("as of"), "5h line must not contain as of");
     }
-
 }

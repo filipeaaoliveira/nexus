@@ -4,9 +4,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use crate::app::state::AccountKey;
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::detect_live_profile_id;
-use crate::app::state::AccountKey;
 use crate::domain::accounts::{Provider, ProviderFilter};
 use crate::services::runtime::RuntimeSession;
 

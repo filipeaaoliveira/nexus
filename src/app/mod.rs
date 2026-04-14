@@ -8,7 +8,7 @@ pub use crate::domain::agents::activity::{
     Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem,
 };
 pub use crate::domain::agents::ids::{AgentId, AgentTool};
-pub use crate::domain::agents::model::Agent;
+pub use crate::domain::agents::model::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 pub use crate::domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
 pub mod action;

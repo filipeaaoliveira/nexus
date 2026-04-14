@@ -27,10 +27,10 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
     let agent = view.agent;
 
     // Split area: subagents top, events bottom
-    let has_subagents = !agent.subagents.is_empty();
+    let has_subagents = !agent.subagents().is_empty();
     let constraints = if has_subagents {
         vec![
-            Constraint::Length((agent.subagents.len() as u16 + 2).min(inner.height / 2)),
+            Constraint::Length((agent.subagents().len() as u16 + 2).min(inner.height / 2)),
             Constraint::Min(0),
         ]
     } else {
@@ -50,8 +50,8 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             Style::default().fg(theme::FG_COMMENT),
         )));
 
-        let count = agent.subagents.len();
-        for (i, sub) in agent.subagents.iter().enumerate() {
+        let count = agent.subagents().len();
+        for (i, sub) in agent.subagents().iter().enumerate() {
             let connector = if i == count - 1 { "└─" } else { "├─" };
             let elapsed = if let Some(ended) = sub.ended_at {
                 let d = ended - sub.started_at;
@@ -89,13 +89,13 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
         Style::default().fg(theme::FG_COMMENT),
     )));
 
-    if agent.recent_events.is_empty() {
+    if agent.recent_events().is_empty() {
         event_lines.push(Line::from(Span::styled(
             "  no events yet",
             Style::default().fg(theme::FG_FADED),
         )));
     } else {
-        for event in agent.recent_events.iter() {
+        for event in agent.recent_events().iter() {
             let ts = event.timestamp.format("%H:%M:%S").to_string();
             let color = match event.kind {
                 ActivityEventKind::ToolCall => theme::COLOR_TOOL_EVENT,

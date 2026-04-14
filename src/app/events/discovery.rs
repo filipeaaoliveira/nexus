@@ -11,21 +11,21 @@ impl AppState {
     ) {
         let pid = pid.or_else(|| id.pid());
         let preserve_codex_session_status = id.tool() == AgentTool::Codex && id.is_process();
-        if let Some(agent_idx) = self.agents.iter().position(|a| a.id == id) {
+        if let Some(agent_idx) = self.agents.iter().position(|a| *a.id() == id) {
             let absorbed_pid = {
                 let agent = &mut self.agents[agent_idx];
-                agent.cwd = Some(cwd);
-                agent.pid = pid.or(agent.pid);
-                if !(preserve_codex_session_status && agent.id.is_session()) {
-                    agent.status = PrimaryStatus::Running;
+                agent.ident.cwd = Some(cwd);
+                agent.ident.pid = pid.or(agent.ident.pid);
+                if !(preserve_codex_session_status && agent.id().is_session()) {
+                    agent.lifecycle.status = PrimaryStatus::Running;
                 }
                 if let Some(real_start) = real_start {
-                    if real_start < agent.started_at {
-                        agent.started_at = real_start;
+                    if real_start < agent.ident.started_at {
+                        agent.ident.started_at = real_start;
                     }
                 }
-                agent.last_activity = now;
-                agent.pid
+                agent.lifecycle.last_activity = now;
+                agent.ident.pid
             };
             self.mark_agents_dirty();
             if id.tool() == AgentTool::Codex && id.is_session() {
@@ -43,17 +43,17 @@ impl AppState {
                 if matching_agent_indices.len() > 1 {
                     for agent_idx in matching_agent_indices {
                         let agent = &mut self.agents[agent_idx];
-                        agent.cwd = Some(cwd.clone());
-                        agent.pid = Some(pid);
+                        agent.ident.cwd = Some(cwd.clone());
+                        agent.ident.pid = Some(pid);
                         if !preserve_codex_session_status {
-                            agent.status = PrimaryStatus::Running;
+                            agent.lifecycle.status = PrimaryStatus::Running;
                         }
                         if let Some(real_start) = real_start {
-                            if real_start < agent.started_at {
-                                agent.started_at = real_start;
+                            if real_start < agent.ident.started_at {
+                                agent.ident.started_at = real_start;
                             }
                         }
-                        agent.last_activity = now;
+                        agent.lifecycle.last_activity = now;
                     }
                     self.mark_agents_dirty();
                     self.clamp_selection();
@@ -61,17 +61,17 @@ impl AppState {
                 }
                 if let Some(agent_idx) = matching_agent_indices.into_iter().next() {
                     let agent = &mut self.agents[agent_idx];
-                    agent.cwd = Some(cwd);
-                    agent.pid = Some(pid);
+                    agent.ident.cwd = Some(cwd);
+                    agent.ident.pid = Some(pid);
                     if !preserve_codex_session_status {
-                        agent.status = PrimaryStatus::Running;
+                        agent.lifecycle.status = PrimaryStatus::Running;
                     }
                     if let Some(real_start) = real_start {
-                        if real_start < agent.started_at {
-                            agent.started_at = real_start;
+                        if real_start < agent.ident.started_at {
+                            agent.ident.started_at = real_start;
                         }
                     }
-                    agent.last_activity = now;
+                    agent.lifecycle.last_activity = now;
                     self.mark_agents_dirty();
                     self.clamp_selection();
                     return;
@@ -83,15 +83,15 @@ impl AppState {
                     if !exited_agent_indices.is_empty() {
                         for agent_idx in exited_agent_indices {
                             let agent = &mut self.agents[agent_idx];
-                            agent.cwd = Some(cwd.clone());
-                            agent.pid = Some(pid);
-                            agent.status = PrimaryStatus::Running;
+                            agent.ident.cwd = Some(cwd.clone());
+                            agent.ident.pid = Some(pid);
+                            agent.lifecycle.status = PrimaryStatus::Running;
                             if let Some(real_start) = real_start {
-                                if real_start < agent.started_at {
-                                    agent.started_at = real_start;
+                                if real_start < agent.ident.started_at {
+                                    agent.ident.started_at = real_start;
                                 }
                             }
-                            agent.last_activity = now;
+                            agent.lifecycle.last_activity = now;
                         }
                         self.mark_agents_dirty();
                         self.clamp_selection();
@@ -107,21 +107,27 @@ impl AppState {
             NormalizedState::new(NormalizedStatus::Working, None)
         };
         self.agents.push(Agent {
-            id,
-            pid,
-            status: PrimaryStatus::Running,
-            normalized,
-            activity: None,
-            cwd: Some(cwd),
-            branch: None,
-            is_worktree: false,
-            started_at: real_start.unwrap_or(now),
-            last_activity: now,
-            subagents: Vec::new(),
-            recent_events: std::collections::VecDeque::new(),
-            session_id,
-            alias: None,
-            todos: Vec::new(),
+            ident: AgentIdent {
+                id,
+                pid,
+                session_id,
+                alias: None,
+                cwd: Some(cwd),
+                branch: None,
+                is_worktree: false,
+                started_at: real_start.unwrap_or(now),
+            },
+            lifecycle: AgentLifecycle {
+                status: PrimaryStatus::Running,
+                normalized,
+                activity: None,
+                last_activity: now,
+            },
+            detail: AgentDetail {
+                subagents: Vec::new(),
+                recent_events: std::collections::VecDeque::new(),
+                todos: Vec::new(),
+            },
         });
         self.mark_agents_dirty();
         if self.root.overview.selected_index.is_none() {
@@ -149,7 +155,7 @@ impl AppState {
                         update.started_at,
                         now,
                     );
-                    agent.pid
+                    agent.ident.pid
                 };
                 self.mark_agents_dirty();
                 self.remove_redundant_codex_process_agents(absorbed_pid);
@@ -159,7 +165,7 @@ impl AppState {
 
             if let Some(pid) = pid {
                 if let Some(agent) = self.find_process_agent_mut(id.tool(), pid) {
-                    agent.id = id.clone();
+                    agent.ident.id = id.clone();
                     Self::apply_session_info(
                         agent,
                         Some(pid),

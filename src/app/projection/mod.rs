@@ -30,19 +30,23 @@ impl<'a> AgentView<'a> {
 }
 
 fn format_status_label(agent: &Agent) -> String {
-    match &agent.normalized.reason {
-        Some(reason) => format!("{} · {}", agent.normalized.status.as_str(), reason.as_str()),
-        None if agent.normalized.status == NormalizedStatus::Working
-            && agent.activity == Some(Activity::ToolCall) =>
+    match &agent.normalized().reason {
+        Some(reason) => format!(
+            "{} · {}",
+            agent.normalized().status.as_str(),
+            reason.as_str()
+        ),
+        None if agent.normalized().status == NormalizedStatus::Working
+            && agent.activity() == Some(Activity::ToolCall) =>
         {
-            format!("{} · tool call", agent.normalized.status.as_str())
+            format!("{} · tool call", agent.normalized().status.as_str())
         }
-        None if agent.normalized.status == NormalizedStatus::Working
-            && agent.activity == Some(Activity::Compacting) =>
+        None if agent.normalized().status == NormalizedStatus::Working
+            && agent.activity() == Some(Activity::Compacting) =>
         {
-            format!("{} · compacting", agent.normalized.status.as_str())
+            format!("{} · compacting", agent.normalized().status.as_str())
         }
-        None => agent.normalized.status.as_str().to_string(),
+        None => agent.normalized().status.as_str().to_string(),
     }
 }
 
@@ -61,9 +65,9 @@ pub fn visible_agent_indices(agents: &[Agent], overview: &OverviewState) -> Vec<
         .iter()
         .enumerate()
         .filter(|(_, agent)| {
-            !(agent.id.tool() == crate::domain::agents::ids::AgentTool::Codex
-                && agent.id.is_session()
-                && agent.pid.is_none())
+            !(agent.id().tool() == crate::domain::agents::ids::AgentTool::Codex
+                && agent.id().is_session()
+                && agent.pid().is_none())
         })
         .map(|(idx, _)| idx)
         .collect();
@@ -77,7 +81,7 @@ pub fn visible_agent_indices(agents: &[Agent], overview: &OverviewState) -> Vec<
         SortMode::Urgency => {
             indices.sort_by_key(|&idx| {
                 let agent = &agents[idx];
-                (std::cmp::Reverse(agent.normalized.status), agent.status)
+                (std::cmp::Reverse(agent.normalized().status), agent.status())
             });
         }
         SortMode::Name => {
@@ -86,12 +90,14 @@ pub fn visible_agent_indices(agents: &[Agent], overview: &OverviewState) -> Vec<
                 let b = &agents[right];
                 a.display_name()
                     .cmp(b.display_name())
-                    .then_with(|| a.pid.cmp(&b.pid))
-                    .then_with(|| a.id.session_id().cmp(&b.id.session_id()))
+                    .then_with(|| a.pid().cmp(&b.pid()))
+                    .then_with(|| a.id().session_id().cmp(&b.id().session_id()))
             });
         }
         SortMode::Elapsed => {
-            indices.sort_by(|&left, &right| agents[left].started_at.cmp(&agents[right].started_at));
+            indices.sort_by(|&left, &right| {
+                agents[left].started_at().cmp(&agents[right].started_at())
+            });
         }
     }
 
@@ -111,40 +117,38 @@ pub fn selected_agent_id(
 ) -> Option<crate::domain::agents::ids::AgentId> {
     let visible_idx = overview.selected_index()?;
     let real_idx = *visible_agent_indices(agents, overview).get(visible_idx)?;
-    Some(agents[real_idx].id.clone())
+    Some(agents[real_idx].id().clone())
 }
 
 #[cfg(test)]
 pub fn count_by_status(agents: &[Agent], overview: &OverviewState, status: PrimaryStatus) -> usize {
     visible_agents(agents, overview)
         .into_iter()
-        .filter(|agent| agent.status == status)
+        .filter(|agent| agent.status() == status)
         .count()
 }
 
 fn agent_matches_filter(agent: &Agent, filter: &str) -> bool {
     agent.display_name().to_lowercase().contains(filter)
-        || agent.status.as_str().to_lowercase().contains(filter)
+        || agent.status().as_str().to_lowercase().contains(filter)
         || agent
-            .normalized
+            .normalized()
             .status
             .as_str()
             .to_lowercase()
             .contains(filter)
         || agent
-            .normalized
+            .normalized()
             .reason
             .as_ref()
             .map(|reason| reason.as_str().to_lowercase().contains(filter))
             .unwrap_or(false)
         || agent
-            .cwd
-            .as_deref()
+            .cwd()
             .map(|cwd| cwd.to_string_lossy().to_lowercase().contains(filter))
             .unwrap_or(false)
         || agent
-            .branch
-            .as_deref()
+            .branch()
             .map(|branch| branch.to_lowercase().contains(filter))
             .unwrap_or(false)
 }
@@ -257,16 +261,16 @@ mod tests {
             ),
         });
 
-        let agents_before: Vec<_> = state.agents().iter().map(|a| a.id.clone()).collect();
+        let agents_before: Vec<_> = state.agents().iter().map(|a| a.id().clone()).collect();
         let views = project_visible_agents(state.agents(), state.root().overview());
-        let agents_after: Vec<_> = state.agents().iter().map(|a| a.id.clone()).collect();
+        let agents_after: Vec<_> = state.agents().iter().map(|a| a.id().clone()).collect();
 
         // Store order unchanged
         assert_eq!(agents_before, agents_after);
         // Both agents visible, views are sorted projections
         assert_eq!(views.len(), 2);
         // NeedsInput (4) has highest urgency value, Reverse sort puts it first
-        let tools: Vec<_> = views.iter().map(|v| v.agent.id.tool()).collect();
+        let tools: Vec<_> = views.iter().map(|v| v.agent.id().tool()).collect();
         assert!(
             tools.contains(&AgentTool::Claude) && tools.contains(&AgentTool::OpenCode),
             "both agents visible in projection"

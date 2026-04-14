@@ -213,11 +213,11 @@ mod tests {
 
         state.root.overview.filter = Some("claude".to_string());
         assert_eq!(state.visible_agents().len(), 1);
-        assert_eq!(state.visible_agents()[0].pid, Some(1));
+        assert_eq!(state.visible_agents()[0].pid(), Some(1));
 
         state.root.overview.filter = Some("opencode".to_string());
         assert_eq!(state.visible_agents().len(), 1);
-        assert_eq!(state.visible_agents()[0].pid, Some(2));
+        assert_eq!(state.visible_agents()[0].pid(), Some(2));
     }
 
     #[test]
@@ -226,10 +226,10 @@ mod tests {
         state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
         state.handle_event(discovered(AgentTool::Claude, 1, "/tmp/claude"));
 
-        assert_eq!(state.visible_agents()[0].pid, Some(1));
+        assert_eq!(state.visible_agents()[0].pid(), Some(1));
 
         state.root.overview.sort_mode = SortMode::Elapsed;
-        assert_eq!(state.visible_agents()[0].pid, Some(2));
+        assert_eq!(state.visible_agents()[0].pid(), Some(2));
 
         state.handle_event(AgentEvent::StatusChanged {
             id: AgentId::new(AgentTool::OpenCode, 2),
@@ -238,7 +238,7 @@ mod tests {
             new: PrimaryStatus::Waiting,
         });
         state.root.overview.sort_mode = SortMode::Urgency;
-        assert_eq!(state.visible_agents()[0].pid, Some(2));
+        assert_eq!(state.visible_agents()[0].pid(), Some(2));
     }
 
     #[test]
@@ -247,45 +247,57 @@ mod tests {
         let now = chrono::Local::now();
         state.agents = vec![
             Agent {
-                id: AgentId::new(AgentTool::OpenCode, 2),
-                pid: Some(2),
-                status: PrimaryStatus::Running,
-                normalized: NormalizedState::new(NormalizedStatus::Working, None),
-                activity: None,
-                cwd: Some(PathBuf::from("/tmp/opencode")),
-                branch: Some("main".into()),
-                is_worktree: false,
-                started_at: now,
-                last_activity: now,
-                subagents: Vec::new(),
-                recent_events: std::collections::VecDeque::new(),
-                session_id: None,
-                alias: None,
-                todos: Vec::new(),
+                ident: AgentIdent {
+                    id: AgentId::new(AgentTool::OpenCode, 2),
+                    pid: Some(2),
+                    session_id: None,
+                    alias: None,
+                    cwd: Some(PathBuf::from("/tmp/opencode")),
+                    branch: Some("main".into()),
+                    is_worktree: false,
+                    started_at: now,
+                },
+                lifecycle: AgentLifecycle {
+                    status: PrimaryStatus::Running,
+                    normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                    activity: None,
+                    last_activity: now,
+                },
+                detail: AgentDetail {
+                    subagents: Vec::new(),
+                    recent_events: std::collections::VecDeque::new(),
+                    todos: Vec::new(),
+                },
             },
             Agent {
-                id: AgentId::new(AgentTool::Claude, 1),
-                pid: Some(1),
-                status: PrimaryStatus::Running,
-                normalized: NormalizedState::new(NormalizedStatus::Working, None),
-                activity: None,
-                cwd: Some(PathBuf::from("/tmp/claude")),
-                branch: Some("main".into()),
-                is_worktree: false,
-                started_at: now,
-                last_activity: now,
-                subagents: Vec::new(),
-                recent_events: std::collections::VecDeque::new(),
-                session_id: None,
-                alias: None,
-                todos: Vec::new(),
+                ident: AgentIdent {
+                    id: AgentId::new(AgentTool::Claude, 1),
+                    pid: Some(1),
+                    session_id: None,
+                    alias: None,
+                    cwd: Some(PathBuf::from("/tmp/claude")),
+                    branch: Some("main".into()),
+                    is_worktree: false,
+                    started_at: now,
+                },
+                lifecycle: AgentLifecycle {
+                    status: PrimaryStatus::Running,
+                    normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                    activity: None,
+                    last_activity: now,
+                },
+                detail: AgentDetail {
+                    subagents: Vec::new(),
+                    recent_events: std::collections::VecDeque::new(),
+                    todos: Vec::new(),
+                },
             },
         ];
 
         let visible = state.visible_agents();
         assert_eq!(visible.len(), 2);
-        assert_eq!(visible[0].id, AgentId::new(AgentTool::Claude, 1));
-        assert_eq!(visible[1].id, AgentId::new(AgentTool::OpenCode, 2));
+        assert_eq!(*visible[0].id(), AgentId::new(AgentTool::Claude, 1));
+        assert_eq!(*visible[1].id(), AgentId::new(AgentTool::OpenCode, 2));
     }
 
     #[test]
@@ -294,58 +306,70 @@ mod tests {
         let now = chrono::Local::now();
         state.agents = vec![
             Agent {
-                id: AgentId::new(AgentTool::Claude, 1),
-                pid: Some(1),
-                status: PrimaryStatus::Running,
-                normalized: NormalizedState::new(NormalizedStatus::Working, None),
-                activity: None,
-                cwd: Some(PathBuf::from("/tmp/claude")),
-                branch: Some("main".into()),
-                is_worktree: false,
-                started_at: now,
-                last_activity: now,
-                subagents: Vec::new(),
-                recent_events: std::collections::VecDeque::new(),
-                session_id: None,
-                alias: Some("code-review".into()),
-                todos: Vec::new(),
+                ident: AgentIdent {
+                    id: AgentId::new(AgentTool::Claude, 1),
+                    pid: Some(1),
+                    session_id: None,
+                    alias: Some("code-review".into()),
+                    cwd: Some(PathBuf::from("/tmp/claude")),
+                    branch: Some("main".into()),
+                    is_worktree: false,
+                    started_at: now,
+                },
+                lifecycle: AgentLifecycle {
+                    status: PrimaryStatus::Running,
+                    normalized: NormalizedState::new(NormalizedStatus::Working, None),
+                    activity: None,
+                    last_activity: now,
+                },
+                detail: AgentDetail {
+                    subagents: Vec::new(),
+                    recent_events: std::collections::VecDeque::new(),
+                    todos: Vec::new(),
+                },
             },
             Agent {
-                id: AgentId::new(AgentTool::OpenCode, 2),
-                pid: Some(2),
-                status: PrimaryStatus::Running,
-                normalized: NormalizedState::new(NormalizedStatus::NeedsInput, None),
-                activity: None,
-                cwd: Some(PathBuf::from("/tmp/opencode")),
-                branch: Some("feature".into()),
-                is_worktree: false,
-                started_at: now,
-                last_activity: now,
-                subagents: Vec::new(),
-                recent_events: std::collections::VecDeque::new(),
-                session_id: None,
-                alias: None,
-                todos: Vec::new(),
+                ident: AgentIdent {
+                    id: AgentId::new(AgentTool::OpenCode, 2),
+                    pid: Some(2),
+                    session_id: None,
+                    alias: None,
+                    cwd: Some(PathBuf::from("/tmp/opencode")),
+                    branch: Some("feature".into()),
+                    is_worktree: false,
+                    started_at: now,
+                },
+                lifecycle: AgentLifecycle {
+                    status: PrimaryStatus::Running,
+                    normalized: NormalizedState::new(NormalizedStatus::NeedsInput, None),
+                    activity: None,
+                    last_activity: now,
+                },
+                detail: AgentDetail {
+                    subagents: Vec::new(),
+                    recent_events: std::collections::VecDeque::new(),
+                    todos: Vec::new(),
+                },
             },
         ];
         state.root.overview.filter = Some("review".into());
 
         let visible = state.visible_agents();
         assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].id, AgentId::new(AgentTool::Claude, 1));
+        assert_eq!(*visible[0].id(), AgentId::new(AgentTool::Claude, 1));
     }
 
     /// Checks overview invariants: visible_agents is a subset of agents, selected index in bounds.
     fn assert_overview_invariants(state: &AppState) {
         let visible = state.visible_agents();
-        let all_ids: std::collections::HashSet<_> = state.agents.iter().map(|a| &a.id).collect();
+        let all_ids: std::collections::HashSet<_> = state.agents.iter().map(|a| a.id()).collect();
 
         // Every visible agent must exist in the authoritative agent list
         for agent in &visible {
             assert!(
-                all_ids.contains(&agent.id),
+                all_ids.contains(agent.id()),
                 "visible agent {:?} not found in agents list",
-                agent.id
+                agent.id()
             );
         }
 

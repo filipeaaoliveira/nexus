@@ -44,14 +44,14 @@ impl<'a> RenderData<'a> {
         let count_visible_with_normalized_status = |status| {
             visible_agents
                 .iter()
-                .filter(|view| view.agent.normalized.status == status)
+                .filter(|view| view.agent.normalized().status == status)
                 .count()
         };
         let error_count = visible_agents
             .iter()
             .filter(|view| {
                 matches!(
-                    view.agent.normalized.status,
+                    view.agent.normalized().status,
                     NormalizedStatus::Blocked | NormalizedStatus::Unknown
                 )
             })
@@ -65,7 +65,7 @@ impl<'a> RenderData<'a> {
             done: count_visible_with_normalized_status(NormalizedStatus::Done),
             subagent_count: visible_agents
                 .iter()
-                .map(|view| view.agent.subagents.len())
+                .map(|view| view.agent.subagents().len())
                 .sum(),
         };
 

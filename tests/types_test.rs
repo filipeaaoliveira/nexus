@@ -6,8 +6,8 @@ use nexus::codex_profiles::quota::{
     parse_legacy_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
 };
 use nexus::domain::agents::{
-    Activity, Agent, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
-    PrimaryStatus, SortMode, TodoItem, TodoPriority, TodoStatus,
+    Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, NormalizedReason,
+    NormalizedState, NormalizedStatus, PrimaryStatus, SortMode, TodoItem, TodoPriority, TodoStatus,
 };
 use nexus::domain::shared::{from_epoch_millis, from_epoch_secs, from_rfc3339};
 use serde_json::json;
@@ -125,21 +125,27 @@ fn test_agent_id_process_and_session_are_distinct() {
 #[test]
 fn test_agent_elapsed_time() {
     let agent = Agent {
-        id: AgentId::new(AgentTool::Claude, 1000),
-        pid: Some(1000),
-        status: PrimaryStatus::Running,
-        normalized: NormalizedState::new(NormalizedStatus::Working, None),
-        activity: Some(Activity::Generating),
-        cwd: Some(std::path::PathBuf::from("/tmp/test")),
-        branch: Some("main".to_string()),
-        is_worktree: false,
-        started_at: chrono::Local::now() - chrono::Duration::minutes(5),
-        last_activity: chrono::Local::now(),
-        subagents: vec![],
-        recent_events: std::collections::VecDeque::new(),
-        session_id: None,
-        alias: None,
-        todos: Vec::new(),
+        ident: AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 1000),
+            pid: Some(1000),
+            session_id: None,
+            alias: None,
+            cwd: Some(std::path::PathBuf::from("/tmp/test")),
+            branch: Some("main".to_string()),
+            is_worktree: false,
+            started_at: chrono::Local::now() - chrono::Duration::minutes(5),
+        },
+        lifecycle: AgentLifecycle {
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(NormalizedStatus::Working, None),
+            activity: Some(Activity::Generating),
+            last_activity: chrono::Local::now(),
+        },
+        detail: AgentDetail {
+            subagents: vec![],
+            recent_events: std::collections::VecDeque::new(),
+            todos: Vec::new(),
+        },
     };
     let elapsed = agent.elapsed();
     assert!(elapsed >= chrono::Duration::minutes(4));
@@ -200,21 +206,27 @@ fn test_activity_compacting_as_str() {
 #[test]
 fn test_display_name_without_alias() {
     let agent = Agent {
-        id: AgentId::new(AgentTool::Claude, 100),
-        pid: Some(100),
-        status: PrimaryStatus::Running,
-        normalized: NormalizedState::new(NormalizedStatus::Working, None),
-        activity: None,
-        cwd: Some(std::path::PathBuf::from("/tmp")),
-        branch: None,
-        is_worktree: false,
-        started_at: chrono::Local::now(),
-        last_activity: chrono::Local::now(),
-        subagents: Vec::new(),
-        recent_events: std::collections::VecDeque::new(),
-        session_id: None,
-        alias: None,
-        todos: Vec::new(),
+        ident: AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 100),
+            pid: Some(100),
+            session_id: None,
+            alias: None,
+            cwd: Some(std::path::PathBuf::from("/tmp")),
+            branch: None,
+            is_worktree: false,
+            started_at: chrono::Local::now(),
+        },
+        lifecycle: AgentLifecycle {
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(NormalizedStatus::Working, None),
+            activity: None,
+            last_activity: chrono::Local::now(),
+        },
+        detail: AgentDetail {
+            subagents: Vec::new(),
+            recent_events: std::collections::VecDeque::new(),
+            todos: Vec::new(),
+        },
     };
     assert_eq!(agent.display_name(), "claude");
 }
@@ -222,21 +234,27 @@ fn test_display_name_without_alias() {
 #[test]
 fn test_display_name_with_alias() {
     let agent = Agent {
-        id: AgentId::new(AgentTool::OpenCode, 200),
-        pid: Some(200),
-        status: PrimaryStatus::Running,
-        normalized: NormalizedState::new(NormalizedStatus::Working, None),
-        activity: None,
-        cwd: Some(std::path::PathBuf::from("/tmp")),
-        branch: None,
-        is_worktree: false,
-        started_at: chrono::Local::now(),
-        last_activity: chrono::Local::now(),
-        subagents: Vec::new(),
-        recent_events: std::collections::VecDeque::new(),
-        session_id: None,
-        alias: Some("my-agent".to_string()),
-        todos: Vec::new(),
+        ident: AgentIdent {
+            id: AgentId::new(AgentTool::OpenCode, 200),
+            pid: Some(200),
+            session_id: None,
+            alias: Some("my-agent".to_string()),
+            cwd: Some(std::path::PathBuf::from("/tmp")),
+            branch: None,
+            is_worktree: false,
+            started_at: chrono::Local::now(),
+        },
+        lifecycle: AgentLifecycle {
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(NormalizedStatus::Working, None),
+            activity: None,
+            last_activity: chrono::Local::now(),
+        },
+        detail: AgentDetail {
+            subagents: Vec::new(),
+            recent_events: std::collections::VecDeque::new(),
+            todos: Vec::new(),
+        },
     };
     assert_eq!(agent.display_name(), "my-agent");
 }

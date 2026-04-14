@@ -29,7 +29,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
         Some(view) => {
             let agent = view.agent;
             let mut lines = Vec::new();
-            let (status_label, activity_label) = if agent.id.tool() == AgentTool::Claude {
+            let (status_label, activity_label) = if agent.id().tool() == AgentTool::Claude {
                 ("  observed status: ", "  observed activity: ")
             } else {
                 ("  runtime status: ", "  runtime activity: ")
@@ -41,13 +41,13 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
                 Span::styled("  ", Style::default()),
                 Span::styled(
                     format!(" {} ", normalized_text),
-                    normalized_status_badge_style(agent.normalized.status),
+                    normalized_status_badge_style(agent.normalized().status),
                 ),
                 Span::styled(
                     format!(
                         "  PID: {}",
                         agent
-                            .pid
+                            .pid()
                             .map(|pid| pid.to_string())
                             .unwrap_or_else(|| "-".to_string())
                     ),
@@ -59,13 +59,13 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled(status_label, Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    agent.status.as_str().to_string(),
-                    Style::default().fg(theme::status_color(agent.status)),
+                    agent.status().as_str().to_string(),
+                    Style::default().fg(theme::status_color(agent.status())),
                 ),
                 Span::styled(activity_label, Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
                     agent
-                        .activity
+                        .activity()
                         .map(|activity| activity.as_str().to_string())
                         .unwrap_or_else(|| "idle".to_string()),
                     Style::default().fg(theme::FG_DEFAULT),
@@ -73,7 +73,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             ]));
 
             // CWD
-            if let Some(ref cwd) = agent.cwd {
+            if let Some(cwd) = agent.cwd() {
                 lines.push(Line::from(vec![
                     Span::styled("  cwd: ", Style::default().fg(theme::FG_COMMENT)),
                     Span::styled(
@@ -84,8 +84,12 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             }
 
             // Branch
-            if let Some(ref branch) = agent.branch {
-                let wt = if agent.is_worktree { " (worktree)" } else { "" };
+            if let Some(branch) = agent.branch() {
+                let wt = if agent.is_worktree() {
+                    " (worktree)"
+                } else {
+                    ""
+                };
                 lines.push(Line::from(vec![
                     Span::styled("  branch: ", Style::default().fg(theme::FG_COMMENT)),
                     Span::styled(
@@ -99,7 +103,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled("  started: ", Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    agent.started_at.format("%H:%M:%S").to_string(),
+                    agent.started_at().format("%H:%M:%S").to_string(),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
                 Span::styled("  idle: ", Style::default().fg(theme::FG_COMMENT)),
@@ -110,24 +114,24 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             ]));
 
             // Todos section
-            if !agent.todos.is_empty() {
+            if !agent.todos().is_empty() {
                 // Blank separator line
                 lines.push(Line::from(""));
 
                 // Progress header: "Todos (completed/total)"
                 let completed = agent
-                    .todos
+                    .todos()
                     .iter()
                     .filter(|t| t.status == TodoStatus::Completed)
                     .count();
-                let total = agent.todos.len();
+                let total = agent.todos().len();
                 lines.push(Line::from(Span::styled(
                     format!("  Todos ({completed}/{total})"),
                     Style::default().fg(theme::COLOR_TODO_HEADER),
                 )));
 
                 // Individual todo items
-                for todo in &agent.todos {
+                for todo in agent.todos() {
                     let (symbol, symbol_color, content_color) = match todo.status {
                         TodoStatus::InProgress => {
                             ("\u{25CF}", theme::COLOR_TODO_IN_PROGRESS, theme::FG_DEFAULT)

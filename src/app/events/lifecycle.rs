@@ -9,7 +9,7 @@ impl AppState {
     ) {
         if (id.tool() == AgentTool::Claude || id.tool() == AgentTool::OpenCode) && id.is_process() {
             let pid = pid.or_else(|| id.pid());
-            if let Some(idx) = self.agents.iter().position(|a| a.id == id) {
+            if let Some(idx) = self.agents.iter().position(|a| *a.id() == id) {
                 self.agents.remove(idx);
                 self.mark_agents_dirty();
                 self.clamp_selection();
@@ -20,7 +20,7 @@ impl AppState {
                     .agents
                     .iter()
                     .enumerate()
-                    .filter(|(_, a)| a.id.tool() == id.tool() && a.pid == Some(pid))
+                    .filter(|(_, a)| a.id().tool() == id.tool() && a.pid() == Some(pid))
                     .map(|(idx, _)| idx)
                     .collect();
                 for idx in indices.into_iter().rev() {
@@ -40,21 +40,21 @@ impl AppState {
                     .agents
                     .iter()
                     .enumerate()
-                    .filter(|(_, a)| a.id.tool() == AgentTool::Codex && a.pid == Some(pid))
+                    .filter(|(_, a)| a.id().tool() == AgentTool::Codex && a.pid() == Some(pid))
                     .map(|(idx, _)| idx)
                     .collect();
 
                 if !matching_indices.is_empty() {
                     for agent_idx in matching_indices.into_iter().rev() {
-                        if self.agents[agent_idx].id.is_process() {
+                        if self.agents[agent_idx].id().is_process() {
                             self.agents.remove(agent_idx);
                         } else {
                             let agent = &mut self.agents[agent_idx];
-                            agent.status = PrimaryStatus::Exited;
-                            agent.activity = None;
-                            agent.last_activity = now;
+                            agent.lifecycle.status = PrimaryStatus::Exited;
+                            agent.lifecycle.activity = None;
+                            agent.lifecycle.last_activity = now;
                             push_event(
-                                &mut agent.recent_events,
+                                &mut agent.detail.recent_events,
                                 ActivityEventKind::StatusChanged,
                                 "Process exited".to_string(),
                                 now,
@@ -77,7 +77,7 @@ impl AppState {
                     .agents
                     .iter()
                     .enumerate()
-                    .filter(|(_, a)| a.id.tool() == id.tool() && a.pid == Some(pid))
+                    .filter(|(_, a)| a.id().tool() == id.tool() && a.pid() == Some(pid))
                     .map(|(idx, _)| idx)
                     .collect();
 

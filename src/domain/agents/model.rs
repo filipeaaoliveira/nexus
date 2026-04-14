@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
 
@@ -7,24 +7,11 @@ use super::activity::{Activity, ActivityEvent, Subagent, TodoItem};
 use super::ids::AgentId;
 use super::status::{NormalizedState, PrimaryStatus};
 
-/// The authoritative representation of a detected coding agent.
-///
-/// # Field groups
-///
-/// **Identity** — stable across the agent's lifetime:
-///   `id`, `pid`, `session_id`, `alias`, `cwd`, `branch`, `is_worktree`, `started_at`
-///
-/// **Lifecycle state** — changes as the agent progresses:
-///   `status`, `normalized`, `activity`, `last_activity`
-///
-/// **Detail / UI-facing** — collected for the detail view, not used in domain logic:
-///   `subagents`, `recent_events`, `todos`
-///
-/// Display formatting lives in [`super::super::app::projection::AgentView`],
-/// not here.
+// ── Sub-structs ──────────────────────────────────────────────
+
+/// Stable identity fields that remain constant across the agent's lifetime.
 #[derive(Debug, Clone)]
-pub struct Agent {
-    // ── Identity ──────────────────────────────────────────────
+pub struct AgentIdent {
     pub id: AgentId,
     pub pid: Option<u32>,
     pub session_id: Option<String>,
@@ -33,32 +20,135 @@ pub struct Agent {
     pub branch: Option<String>,
     pub is_worktree: bool,
     pub started_at: DateTime<Local>,
+}
 
-    // ── Lifecycle state ──────────────────────────────────────
+/// Mutable lifecycle state that changes as the agent progresses.
+#[derive(Debug, Clone)]
+pub struct AgentLifecycle {
     pub status: PrimaryStatus,
     pub normalized: NormalizedState,
     pub activity: Option<Activity>,
     pub last_activity: DateTime<Local>,
+}
 
-    // ── Detail / UI-facing ───────────────────────────────────
+/// Detail fields collected for the UI detail view, not used in domain logic.
+#[derive(Debug, Clone)]
+pub struct AgentDetail {
     pub subagents: Vec<Subagent>,
     pub recent_events: VecDeque<ActivityEvent>,
     pub todos: Vec<TodoItem>,
 }
 
+// ── Agent (composed) ─────────────────────────────────────────
+
+/// The authoritative representation of a detected coding agent.
+///
+/// Composed of three sub-structs:
+/// - [`AgentIdent`] — stable identity fields
+/// - [`AgentLifecycle`] — mutable lifecycle state
+/// - [`AgentDetail`] — UI-facing detail
+///
+/// Delegation methods forward to the sub-struct fields so callers
+/// don't need to reach through the composition.
+#[derive(Debug, Clone)]
+pub struct Agent {
+    pub ident: AgentIdent,
+    pub lifecycle: AgentLifecycle,
+    pub detail: AgentDetail,
+}
+
+// ── Delegation: identity ─────────────────────────────────────
+
+impl Agent {
+    pub fn id(&self) -> &AgentId {
+        &self.ident.id
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.ident.pid
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.ident.session_id.as_deref()
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.ident.alias.as_deref()
+    }
+
+    pub fn cwd(&self) -> Option<&Path> {
+        self.ident.cwd.as_deref()
+    }
+
+    pub fn branch(&self) -> Option<&str> {
+        self.ident.branch.as_deref()
+    }
+
+    pub fn is_worktree(&self) -> bool {
+        self.ident.is_worktree
+    }
+
+    pub fn started_at(&self) -> DateTime<Local> {
+        self.ident.started_at
+    }
+}
+
+// ── Delegation: lifecycle ────────────────────────────────────
+
+impl Agent {
+    pub fn status(&self) -> PrimaryStatus {
+        self.lifecycle.status
+    }
+
+    pub fn normalized(&self) -> &NormalizedState {
+        &self.lifecycle.normalized
+    }
+
+    pub fn activity(&self) -> Option<Activity> {
+        self.lifecycle.activity
+    }
+
+    pub fn last_activity(&self) -> DateTime<Local> {
+        self.lifecycle.last_activity
+    }
+}
+
+// ── Delegation: detail ───────────────────────────────────────
+
+impl Agent {
+    pub fn subagents(&self) -> &[Subagent] {
+        &self.detail.subagents
+    }
+
+    pub fn recent_events(&self) -> &VecDeque<ActivityEvent> {
+        &self.detail.recent_events
+    }
+
+    pub fn todos(&self) -> &[TodoItem] {
+        &self.detail.todos
+    }
+}
+
+// ── Derived helpers ──────────────────────────────────────────
+
 impl Agent {
     pub fn elapsed(&self) -> chrono::Duration {
-        Local::now() - self.started_at
+        Local::now() - self.ident.started_at
     }
 
     pub fn idle_duration(&self) -> chrono::Duration {
-        Local::now() - self.last_activity
+        Local::now() - self.lifecycle.last_activity
     }
 
     pub fn display_name(&self) -> &str {
-        self.alias.as_deref().unwrap_or(self.id.tool().as_str())
+        self.ident
+            .alias
+            .as_deref()
+            .unwrap_or(self.ident.id.tool().as_str())
     }
 }
+
+// ── SortMode ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortMode {

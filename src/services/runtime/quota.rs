@@ -1,7 +1,7 @@
 use crate::app::dispatch::effects::dispatch_effect;
-use crate::domain::accounts::ProfileId;
 use crate::app::{Effect, EffectResult, RefreshOrigin};
 use crate::config::Config;
+use crate::domain::accounts::ProfileId;
 
 use super::RuntimeSession;
 

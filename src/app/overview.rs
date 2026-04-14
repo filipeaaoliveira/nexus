@@ -106,7 +106,7 @@ impl AppState {
                 if self
                     .visible_agents()
                     .iter()
-                    .any(|agent| agent.id == agent_id)
+                    .any(|agent| *agent.id() == agent_id)
                 {
                     self.root.overview.mode = OverviewMode::Renaming {
                         agent_id,
@@ -124,22 +124,24 @@ impl AppState {
             }
             OverviewAction::DismissExited => {
                 self.agents
-                    .retain(|agent| agent.status != PrimaryStatus::Exited);
+                    .retain(|agent| agent.status() != PrimaryStatus::Exited);
                 self.clamp_selection();
             }
             OverviewAction::DismissSelected => {
                 if let Some(selected_id) = self.selected_visible_agent_id() {
-                    self.agents.retain(|agent| agent.id != selected_id);
+                    self.agents.retain(|agent| *agent.id() != selected_id);
                     self.clamp_selection();
                 }
             }
             OverviewAction::ConfirmRename => {
                 if let OverviewMode::Renaming { agent_id, input } = &self.root.overview.mode {
                     if !input.is_empty() {
-                        if let Some(agent) =
-                            self.agents.iter_mut().find(|agent| agent.id == *agent_id)
+                        if let Some(agent) = self
+                            .agents
+                            .iter_mut()
+                            .find(|agent| *agent.id() == *agent_id)
                         {
-                            agent.alias = Some(input.clone());
+                            agent.ident.alias = Some(input.clone());
                         }
                     }
                 }

@@ -7,5 +7,5 @@ pub use activity::{
     Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem, TodoPriority, TodoStatus,
 };
 pub use ids::{AgentId, AgentIdentity, AgentTool};
-pub use model::{Agent, SortMode};
+pub use model::{Agent, AgentDetail, AgentIdent, AgentLifecycle, SortMode};
 pub use status::{NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus};

@@ -33,11 +33,14 @@ fn discovered_then_session_info_produces_one_logical_agent() {
     let visible = app.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(
-        visible[0].id,
+        *visible[0].id(),
         AgentId::session(AgentTool::Codex, "thread-1")
     );
-    assert_eq!(visible[0].pid, Some(44));
-    assert_eq!(visible[0].cwd.as_deref(), Some(Path::new("/tmp/repo")));
+    assert_eq!(visible[0].pid(), Some(44));
+    assert_eq!(
+        visible[0].cwd(),
+        Some(Path::new("/tmp/repo"))
+    );
 }
 
 #[test]
@@ -50,12 +53,15 @@ fn session_info_then_discovered_merges_into_existing_session_row() {
     let visible = app.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(
-        visible[0].id,
+        *visible[0].id(),
         AgentId::session(AgentTool::Codex, "thread-1")
     );
-    assert_eq!(visible[0].pid, Some(44));
-    assert_eq!(visible[0].session_id.as_deref(), Some("thread-1"));
-    assert_eq!(visible[0].cwd.as_deref(), Some(Path::new("/tmp/repo")));
+    assert_eq!(visible[0].pid(), Some(44));
+    assert_eq!(visible[0].session_id(), Some("thread-1"));
+    assert_eq!(
+        visible[0].cwd(),
+        Some(Path::new("/tmp/repo"))
+    );
 }
 
 #[test]
@@ -68,7 +74,7 @@ fn pidless_session_then_discovery_then_session_info_resolves_without_duplicate_r
     app.handle_event(discovered(44, "/tmp/repo"));
     assert_eq!(app.visible_agents().len(), 1);
     assert_eq!(
-        app.visible_agents()[0].id,
+        *app.visible_agents()[0].id(),
         AgentId::new(AgentTool::Codex, 44)
     );
 
@@ -77,10 +83,10 @@ fn pidless_session_then_discovery_then_session_info_resolves_without_duplicate_r
     let visible = app.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(
-        visible[0].id,
+        *visible[0].id(),
         AgentId::session(AgentTool::Codex, "thread-1")
     );
-    assert_eq!(visible[0].pid, Some(44));
+    assert_eq!(visible[0].pid(), Some(44));
 }
 
 #[test]
@@ -113,9 +119,9 @@ fn process_exit_marks_session_bound_codex_agent_exited_without_creating_new_row(
     let visible = app.visible_agents();
     assert_eq!(visible.len(), 1);
     assert_eq!(
-        visible[0].id,
+        *visible[0].id(),
         AgentId::session(AgentTool::Codex, "thread-9")
     );
-    assert_eq!(visible[0].pid, Some(91));
-    assert_eq!(visible[0].status.as_str(), "EXITED");
+    assert_eq!(visible[0].pid(), Some(91));
+    assert_eq!(visible[0].status().as_str(), "EXITED");
 }

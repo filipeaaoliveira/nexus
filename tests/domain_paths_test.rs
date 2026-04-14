@@ -6,7 +6,7 @@ use nexus::codex_profiles::profile::ProfileMetadata;
 use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
 use nexus::domain::agents::activity::Activity;
 use nexus::domain::agents::ids::{AgentId, AgentTool};
-use nexus::domain::agents::model::Agent;
+use nexus::domain::agents::model::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 use nexus::domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
@@ -37,29 +37,35 @@ fn agent_identity_semantics_distinguish_process_and_session_rows() {
 fn agent_model_preserves_alias_elapsed_and_runtime_state() {
     let started_at = chrono::Local::now() - chrono::Duration::minutes(5);
     let agent = Agent {
-        id: AgentId::new(AgentTool::Claude, 100),
-        pid: Some(100),
-        status: PrimaryStatus::Running,
-        normalized: NormalizedState::new(
-            NormalizedStatus::NeedsInput,
-            Some(NormalizedReason::Review),
-        ),
-        activity: Some(Activity::Generating),
-        cwd: Some(PathBuf::from("/tmp/repo")),
-        branch: Some("main".into()),
-        is_worktree: false,
-        started_at,
-        last_activity: chrono::Local::now(),
-        subagents: Vec::new(),
-        recent_events: VecDeque::new(),
-        session_id: Some("thread-1".into()),
-        alias: Some("review-me".into()),
-        todos: Vec::new(),
+        ident: AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 100),
+            pid: Some(100),
+            session_id: Some("thread-1".into()),
+            alias: Some("review-me".into()),
+            cwd: Some(PathBuf::from("/tmp/repo")),
+            branch: Some("main".into()),
+            is_worktree: false,
+            started_at,
+        },
+        lifecycle: AgentLifecycle {
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Review),
+            ),
+            activity: Some(Activity::Generating),
+            last_activity: chrono::Local::now(),
+        },
+        detail: AgentDetail {
+            subagents: Vec::new(),
+            recent_events: VecDeque::new(),
+            todos: Vec::new(),
+        },
     };
 
     assert_eq!(agent.display_name(), "review-me");
-    assert_eq!(agent.status.as_str(), "RUNNING");
-    assert_eq!(agent.normalized.reason, Some(NormalizedReason::Review));
+    assert_eq!(agent.status().as_str(), "RUNNING");
+    assert_eq!(agent.normalized().reason, Some(NormalizedReason::Review));
     assert!(agent.elapsed() >= chrono::Duration::minutes(4));
 }
 

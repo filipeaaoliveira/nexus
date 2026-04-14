@@ -66,16 +66,16 @@ pub fn empty_state_message(state: &RuntimeSession) -> String {
 fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static> {
     let agent = view.agent;
     let elapsed = format_duration(agent.elapsed());
-    let subagent_count = agent.subagents.len();
+    let subagent_count = agent.subagents().len();
 
     let line1 = Line::from(vec![
         Span::styled(
             " ▎",
-            Style::default().fg(normalized_status_color(agent.normalized.status)),
+            Style::default().fg(normalized_status_color(agent.normalized().status)),
         ),
         Span::styled(
-            format!("{} ", normalized_status_dot(agent.normalized.status)),
-            normalized_status_dot_style(agent.normalized.status),
+            format!("{} ", normalized_status_dot(agent.normalized().status)),
+            normalized_status_dot_style(agent.normalized().status),
         ),
         Span::styled(
             format!("{} ", view.display_name),
@@ -83,7 +83,7 @@ fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static>
         ),
         Span::styled(
             format!("{} ", view.status_label),
-            Style::default().fg(normalized_status_color(agent.normalized.status)),
+            Style::default().fg(normalized_status_color(agent.normalized().status)),
         ),
         Span::styled(
             format!("  {elapsed}"),
@@ -91,7 +91,7 @@ fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static>
         ),
     ]);
 
-    let branch_text = agent.branch.as_deref().unwrap_or("—");
+    let branch_text = agent.branch().unwrap_or("—");
     let sub_text = if subagent_count > 0 {
         format!("  [{subagent_count} sub]")
     } else {

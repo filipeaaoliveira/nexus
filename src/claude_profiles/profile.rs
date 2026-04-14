@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::claude_profiles::auth::ClaudeAuth;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ClaudeProfile {
+pub struct StoredClaudeProfile {
     pub id: String,
     pub label: String,
     pub email: Option<String>,
@@ -53,8 +53,8 @@ impl Default for ClaudeProfileMetadata {
     }
 }
 
-impl From<ClaudeProfile> for crate::domain::accounts::DomainProfile {
-    fn from(p: ClaudeProfile) -> Self {
+impl From<StoredClaudeProfile> for crate::domain::accounts::DomainProfile {
+    fn from(p: StoredClaudeProfile) -> Self {
         Self {
             id: crate::domain::accounts::ProfileId::new(p.id),
             provider: crate::domain::accounts::Provider::Claude,
@@ -69,7 +69,7 @@ impl From<ClaudeProfile> for crate::domain::accounts::DomainProfile {
     }
 }
 
-impl ClaudeProfile {
+impl StoredClaudeProfile {
     pub fn import_from_credentials(
         id: &str,
         label: &str,
@@ -188,7 +188,7 @@ mod tests {
         .unwrap();
 
         let profile_dir = tmp.path().join("profiles").join("profile-01");
-        let profile = ClaudeProfile::import_from_credentials(
+        let profile = StoredClaudeProfile::import_from_credentials(
             "profile-01",
             "My Claude",
             profile_dir.clone(),
@@ -206,7 +206,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("c.json");
         fs::write(&source, r#"{}"#).unwrap();
-        let result = ClaudeProfile::import_from_credentials(
+        let result = StoredClaudeProfile::import_from_credentials(
             "   ",
             "label",
             tmp.path().to_path_buf(),

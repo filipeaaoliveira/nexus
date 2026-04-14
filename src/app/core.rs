@@ -154,7 +154,7 @@ mod tests {
     use super::*;
     use crate::app::state::AccountsState;
     use crate::codex_profiles::profile::{
-        load_profile_metadata, save_profile_metadata, CodexProfile, ProfileMetadata,
+        load_profile_metadata, save_profile_metadata, ProfileMetadata, StoredCodexProfile,
     };
     use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::domain::agents::model::SortMode;
@@ -453,7 +453,7 @@ mod tests {
 
         let profile_id = "profile-01";
         let profile_dir = profiles_dir.join(profile_id);
-        let profile = CodexProfile::import_from_auth(
+        let profile = StoredCodexProfile::import_from_auth(
             profile_id,
             profile_id,
             profile_dir.clone(),

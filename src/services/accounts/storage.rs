@@ -7,12 +7,12 @@ use serde_json::Value;
 
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::profile::{
-    load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfile,
-    ClaudeProfileMetadata,
+    load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfileMetadata,
+    StoredClaudeProfile,
 };
 use crate::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, AuthMetadata,
-    CodexProfile, ProfileMetadata,
+    ProfileMetadata, StoredCodexProfile,
 };
 
 pub fn next_profile_id(profiles_dir: &Path) -> String {
@@ -43,7 +43,7 @@ pub fn scan_claude_profile_ids(profiles_dir: &Path) -> Vec<String> {
     scan_profile_ids(profiles_dir, ".credentials.json")
 }
 
-pub fn load_codex_profile(profile_dir: &Path) -> Result<CodexProfile> {
+pub fn load_codex_profile(profile_dir: &Path) -> Result<StoredCodexProfile> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join("auth.json");
     let auth_metadata = load_codex_auth_metadata(&auth_path);
@@ -60,7 +60,7 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<CodexProfile> {
     };
     let now = Utc::now();
 
-    Ok(CodexProfile {
+    Ok(StoredCodexProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: auth_metadata.email.or(metadata.email),
@@ -92,7 +92,7 @@ fn load_codex_auth_metadata(auth_path: &Path) -> AuthMetadata {
     }
 }
 
-pub fn load_claude_profile(profile_dir: &Path) -> Result<ClaudeProfile> {
+pub fn load_claude_profile(profile_dir: &Path) -> Result<StoredClaudeProfile> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join(".credentials.json");
     let auth = match ClaudeAuth::load(&auth_path) {
@@ -109,7 +109,7 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<ClaudeProfile> {
     let metadata = load_claude_profile_metadata(profile_dir)?;
     let now = Utc::now();
 
-    Ok(ClaudeProfile {
+    Ok(StoredClaudeProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: metadata.email,

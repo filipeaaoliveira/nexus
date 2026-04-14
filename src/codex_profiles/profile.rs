@@ -12,7 +12,7 @@ pub struct AuthMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CodexProfile {
+pub struct StoredCodexProfile {
     pub id: String,
     pub label: String,
     pub email: Option<String>,
@@ -58,8 +58,8 @@ impl Default for ProfileMetadata {
     }
 }
 
-impl From<CodexProfile> for crate::domain::accounts::DomainProfile {
-    fn from(p: CodexProfile) -> Self {
+impl From<StoredCodexProfile> for crate::domain::accounts::DomainProfile {
+    fn from(p: StoredCodexProfile) -> Self {
         Self {
             id: crate::domain::accounts::ProfileId::new(p.id),
             provider: crate::domain::accounts::Provider::Codex,
@@ -74,7 +74,7 @@ impl From<CodexProfile> for crate::domain::accounts::DomainProfile {
     }
 }
 
-impl CodexProfile {
+impl StoredCodexProfile {
     pub fn import_from_auth(
         id: &str,
         label: &str,

@@ -3,11 +3,14 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::codex_profiles::profile::{save_profile_metadata, CodexProfile, ProfileMetadata};
+use crate::codex_profiles::profile::{save_profile_metadata, ProfileMetadata, StoredCodexProfile};
 
 use super::storage;
 
-pub fn import_profile_from_home(profiles_dir: &Path, home_dir: &Path) -> Result<CodexProfile> {
+pub fn import_profile_from_home(
+    profiles_dir: &Path,
+    home_dir: &Path,
+) -> Result<StoredCodexProfile> {
     let auth_source = home_dir.join(".codex").join("auth.json");
     if !auth_source.is_file() {
         bail!("{} does not exist", auth_source.display());
@@ -15,14 +18,17 @@ pub fn import_profile_from_home(profiles_dir: &Path, home_dir: &Path) -> Result<
     import_profile_from_auth(profiles_dir, &auth_source)
 }
 
-pub fn import_profile_from_auth(profiles_dir: &Path, auth_source: &Path) -> Result<CodexProfile> {
+pub fn import_profile_from_auth(
+    profiles_dir: &Path,
+    auth_source: &Path,
+) -> Result<StoredCodexProfile> {
     fs::create_dir_all(profiles_dir)
         .with_context(|| format!("failed to create {}", profiles_dir.display()))?;
 
     let profile_id = storage::next_profile_id(profiles_dir);
     let profile_dir = profiles_dir.join(&profile_id);
     let profile =
-        CodexProfile::import_from_auth(&profile_id, &profile_id, profile_dir, auth_source)?;
+        StoredCodexProfile::import_from_auth(&profile_id, &profile_id, profile_dir, auth_source)?;
 
     let metadata = ProfileMetadata {
         id: profile.id.clone(),

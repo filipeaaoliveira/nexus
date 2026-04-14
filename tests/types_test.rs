@@ -1,6 +1,6 @@
 use nexus::codex_profiles::profile::{
-    extract_auth_metadata, load_profile_metadata, save_profile_metadata, CodexProfile,
-    ProfileMetadata,
+    extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
+    StoredCodexProfile,
 };
 use nexus::codex_profiles::quota::{
     parse_legacy_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
@@ -341,7 +341,7 @@ fn codex_profile_imports_auth_and_sets_defaults() {
     fs::write(&source, auth_json).unwrap();
 
     let profile =
-        CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source)
+        StoredCodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source)
             .unwrap();
 
     assert_eq!(profile.id, "profile-1");
@@ -367,7 +367,7 @@ fn codex_profile_import_rejects_invalid_auth_without_partial_state() {
     fs::write(&source, "{invalid json").unwrap();
 
     let result =
-        CodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source);
+        StoredCodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source);
 
     assert!(result.is_err());
     assert!(!profile_dir.exists());
@@ -381,9 +381,10 @@ fn codex_profile_import_rejects_blank_id_or_label() {
 
     fs::write(&source, r#"{"email":"dev@example.com"}"#).unwrap();
 
-    let blank_id = CodexProfile::import_from_auth("   ", "Primary", profile_dir.clone(), &source);
+    let blank_id =
+        StoredCodexProfile::import_from_auth("   ", "Primary", profile_dir.clone(), &source);
     let blank_label =
-        CodexProfile::import_from_auth("profile-1", "\n\t", profile_dir.clone(), &source);
+        StoredCodexProfile::import_from_auth("profile-1", "\n\t", profile_dir.clone(), &source);
 
     assert!(blank_id.is_err());
     assert!(blank_label.is_err());

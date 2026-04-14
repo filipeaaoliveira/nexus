@@ -316,17 +316,17 @@ mod tests {
     use super::*;
     use crate::app::effect::{AppError, ProfileId, RefreshOrigin};
     use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
-    use crate::claude_profiles::profile::ClaudeProfile;
-    use crate::codex_profiles::profile::CodexProfile;
+    use crate::claude_profiles::profile::StoredClaudeProfile;
+    use crate::codex_profiles::profile::StoredCodexProfile;
     use crate::domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
     use chrono::Utc;
     use std::path::PathBuf;
 
     // ── helpers ──────────────────────────────────────────────────────
 
-    fn codex_profile(id: &str) -> CodexProfile {
+    fn codex_profile(id: &str) -> StoredCodexProfile {
         let now = Utc::now();
-        CodexProfile {
+        StoredCodexProfile {
             id: id.to_string(),
             label: format!("Codex {id}"),
             email: Some(format!("{id}@example.com")),
@@ -341,9 +341,9 @@ mod tests {
         }
     }
 
-    fn claude_profile(id: &str) -> ClaudeProfile {
+    fn claude_profile(id: &str) -> StoredClaudeProfile {
         let now = Utc::now();
-        ClaudeProfile {
+        StoredClaudeProfile {
             id: id.to_string(),
             label: format!("Claude {id}"),
             email: Some(format!("{id}@example.com")),

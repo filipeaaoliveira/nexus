@@ -5,13 +5,16 @@ use anyhow::{bail, Context, Result};
 use tempfile::TempPath;
 
 use crate::claude_profiles::profile::{
-    save_claude_profile_metadata, ClaudeProfile, ClaudeProfileMetadata,
+    save_claude_profile_metadata, ClaudeProfileMetadata, StoredClaudeProfile,
 };
 use crate::runtime_support::run_blocking_compatible;
 
 use super::storage;
 
-pub fn import_profile_from_home(profiles_dir: &Path, home_dir: &Path) -> Result<ClaudeProfile> {
+pub fn import_profile_from_home(
+    profiles_dir: &Path,
+    home_dir: &Path,
+) -> Result<StoredClaudeProfile> {
     let (credentials_source, _temp_path) = credentials_source_from_home(home_dir)?;
     import_profile_from_credentials(profiles_dir, &credentials_source)
 }
@@ -19,13 +22,13 @@ pub fn import_profile_from_home(profiles_dir: &Path, home_dir: &Path) -> Result<
 pub fn import_profile_from_credentials(
     profiles_dir: &Path,
     credentials_source: &Path,
-) -> Result<ClaudeProfile> {
+) -> Result<StoredClaudeProfile> {
     fs::create_dir_all(profiles_dir)
         .with_context(|| format!("failed to create {}", profiles_dir.display()))?;
 
     let profile_id = storage::next_profile_id(profiles_dir);
     let profile_dir = profiles_dir.join(&profile_id);
-    let profile = ClaudeProfile::import_from_credentials(
+    let profile = StoredClaudeProfile::import_from_credentials(
         &profile_id,
         &profile_id,
         profile_dir,

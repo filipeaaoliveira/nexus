@@ -37,10 +37,7 @@ fn discovered_then_session_info_produces_one_logical_agent() {
         AgentId::session(AgentTool::Codex, "thread-1")
     );
     assert_eq!(visible[0].pid(), Some(44));
-    assert_eq!(
-        visible[0].cwd(),
-        Some(Path::new("/tmp/repo"))
-    );
+    assert_eq!(visible[0].cwd(), Some(Path::new("/tmp/repo")));
 }
 
 #[test]
@@ -58,10 +55,7 @@ fn session_info_then_discovered_merges_into_existing_session_row() {
     );
     assert_eq!(visible[0].pid(), Some(44));
     assert_eq!(visible[0].session_id(), Some("thread-1"));
-    assert_eq!(
-        visible[0].cwd(),
-        Some(Path::new("/tmp/repo"))
-    );
+    assert_eq!(visible[0].cwd(), Some(Path::new("/tmp/repo")));
 }
 
 #[test]

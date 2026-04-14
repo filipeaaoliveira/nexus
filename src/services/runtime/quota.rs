@@ -58,6 +58,7 @@ pub(super) async fn poll_quota_loop<F, Fut>(
     profiles_dir: std::path::PathBuf,
     tx: tokio::sync::mpsc::Sender<EffectResult>,
     fetch_profile: F,
+    token: tokio_util::sync::CancellationToken,
 ) where
     F: Fn(String, std::path::PathBuf) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = EffectResult> + Send + 'static,
@@ -65,8 +66,14 @@ pub(super) async fn poll_quota_loop<F, Fut>(
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
     loop {
-        interval.tick().await;
-        refresh_all_profiles_once(&profiles_dir, &tx, &fetch_profile).await;
+        tokio::select! {
+            biased;
+
+            _ = token.cancelled() => break,
+            _ = interval.tick() => {
+                refresh_all_profiles_once(&profiles_dir, &tx, &fetch_profile).await;
+            }
+        }
     }
 }
 
@@ -110,6 +117,7 @@ mod tests {
     use super::poll_quota_loop;
     use crate::app::{Effect, EffectResult, RefreshOrigin};
     use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
+    use tokio_util::sync::CancellationToken;
 
     fn test_snapshot() -> QuotaSnapshot {
         QuotaSnapshot::legacy_fallback(
@@ -131,6 +139,7 @@ mod tests {
         let profile_dir = temp.path().join("profile-01");
         fs::create_dir_all(&profile_dir).expect("profile dir");
 
+        let token = CancellationToken::new();
         let (tx, mut rx) = mpsc::channel(4);
         let handle = tokio::spawn(poll_quota_loop(
             temp.path().to_path_buf(),
@@ -142,6 +151,7 @@ mod tests {
                     origin: RefreshOrigin::Background,
                 }
             },
+            token.clone(),
         ));
 
         let result = tokio::time::timeout(Duration::from_millis(100), rx.recv())
@@ -162,7 +172,8 @@ mod tests {
             other => panic!("unexpected result: {other:?}"),
         }
 
-        handle.abort();
+        token.cancel();
+        handle.await.expect("task should exit gracefully");
     }
 
     #[tokio::test]
@@ -171,6 +182,7 @@ mod tests {
         let profile_dir = temp.path().join("profile-01");
         fs::create_dir_all(&profile_dir).expect("profile dir");
 
+        let token = CancellationToken::new();
         let (tx, mut rx) = mpsc::channel(4);
         let handle = tokio::spawn(poll_quota_loop(
             temp.path().to_path_buf(),
@@ -186,6 +198,7 @@ mod tests {
                     },
                 }
             },
+            token.clone(),
         ));
 
         let result = tokio::time::timeout(Duration::from_millis(100), rx.recv())
@@ -204,6 +217,38 @@ mod tests {
             other => panic!("unexpected result: {other:?}"),
         }
 
-        handle.abort();
+        token.cancel();
+        handle.await.expect("task should exit gracefully");
+    }
+
+    #[tokio::test]
+    async fn poll_quota_loop_exits_promptly_on_cancellation() {
+        let temp = tempdir().expect("tempdir");
+        let profile_dir = temp.path().join("profile-01");
+        fs::create_dir_all(&profile_dir).expect("profile dir");
+
+        let token = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel(4);
+        let handle = tokio::spawn(poll_quota_loop(
+            temp.path().to_path_buf(),
+            tx,
+            |pid, _| async move {
+                EffectResult::CodexQuotaRefreshed {
+                    profile_id: pid.into(),
+                    quota: test_snapshot(),
+                    origin: RefreshOrigin::Background,
+                }
+            },
+            token.clone(),
+        ));
+
+        // Wait for first refresh to confirm the loop is running.
+        rx.recv().await.expect("first refresh");
+
+        token.cancel();
+        tokio::time::timeout(Duration::from_secs(1), handle)
+            .await
+            .expect("task should complete within 1 second")
+            .expect("task should exit without panic");
     }
 }

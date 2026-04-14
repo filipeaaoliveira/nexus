@@ -1,13 +1,9 @@
-use std::time::Duration;
-
-use crossterm::event::{self, Event};
-
 use crate::app::{
     AccountsEditField, AccountsMode, Action as SemanticAction, EditableProfile, Workspace,
 };
 use crate::domain::accounts::ProviderFilter;
 
-mod keymap;
+pub(crate) mod keymap;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
@@ -54,17 +50,6 @@ pub enum Mode {
         field: AccountsEditField,
     },
     AccountsConfirm,
-}
-
-pub fn poll_action(timeout: Duration, context: &Context) -> anyhow::Result<Option<Action>> {
-    if event::poll(timeout)? {
-        match event::read()? {
-            Event::Key(key) => return Ok(keymap::action_for_key(key, context)),
-            Event::Resize(_, _) => {}
-            _ => {}
-        }
-    }
-    Ok(None)
 }
 
 impl Context {

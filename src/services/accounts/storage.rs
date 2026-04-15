@@ -1,10 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-use anyhow::{Context, Result};
-use chrono::Utc;
-use serde_json::Value;
-
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::profile::{
     load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfileMetadata,
@@ -14,6 +10,42 @@ use crate::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, AuthMetadata,
     ProfileMetadata, StoredCodexProfile,
 };
+use anyhow::{Context, Result};
+use chrono::Utc;
+
+/// Result of loading a profile from disk.
+///
+/// `Clean` means all files parsed without error.
+/// `Degraded` means the profile was loaded but some files were corrupted
+/// and defaults were substituted. The `warnings` list describes what was wrong.
+#[derive(Debug)]
+pub enum LoadOutcome<T> {
+    Clean(T),
+    Degraded { value: T, warnings: Vec<String> },
+}
+
+impl<T> LoadOutcome<T> {
+    #[allow(dead_code)]
+    pub fn value(&self) -> &T {
+        match self {
+            Self::Clean(v) | Self::Degraded { value: v, .. } => v,
+        }
+    }
+
+    pub fn into_value(self) -> T {
+        match self {
+            Self::Clean(v) | Self::Degraded { value: v, .. } => v,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn warnings(&self) -> &[String] {
+        match self {
+            Self::Clean(_) => &[],
+            Self::Degraded { warnings, .. } => warnings,
+        }
+    }
+}
 
 pub fn next_profile_id(profiles_dir: &Path) -> String {
     let used: std::collections::BTreeSet<u32> = fs::read_dir(profiles_dir)
@@ -43,24 +75,29 @@ pub fn scan_claude_profile_ids(profiles_dir: &Path) -> Vec<String> {
     scan_profile_ids(profiles_dir, ".credentials.json")
 }
 
-pub fn load_codex_profile(profile_dir: &Path) -> Result<StoredCodexProfile> {
+pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredCodexProfile>> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join("auth.json");
-    let auth_metadata = load_codex_auth_metadata(&auth_path);
+    let mut warnings = Vec::new();
+
+    let auth_metadata = match load_codex_auth_metadata_strict(&auth_path) {
+        Ok(m) => m,
+        Err(error) => {
+            warnings.push(format!("corrupted auth.json: {error}"));
+            AuthMetadata::default()
+        }
+    };
+
     let metadata = match load_profile_metadata(profile_dir) {
         Ok(m) => m,
         Err(error) => {
-            tracing::warn!(
-                profile_dir = %profile_dir.display(),
-                error = %error,
-                "corrupted profile.json, falling back to defaults"
-            );
+            warnings.push(format!("corrupted profile.json: {error}"));
             ProfileMetadata::default()
         }
     };
-    let now = Utc::now();
 
-    Ok(StoredCodexProfile {
+    let now = Utc::now();
+    let profile = StoredCodexProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: auth_metadata.email.or(metadata.email),
@@ -72,44 +109,57 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<StoredCodexProfile> {
         updated_at: metadata.updated_at.unwrap_or(now),
         profile_dir: profile_dir.to_path_buf(),
         auth_path,
-    })
-}
-
-fn load_codex_auth_metadata(auth_path: &Path) -> AuthMetadata {
-    let Ok(auth_content) = fs::read_to_string(auth_path) else {
-        return AuthMetadata::default();
     };
-    match serde_json::from_str::<Value>(&auth_content) {
-        Ok(auth_json) => extract_auth_metadata(&auth_json),
-        Err(error) => {
-            tracing::warn!(
-                auth_path = %auth_path.display(),
-                error = %error,
-                "corrupted auth.json, falling back to empty metadata"
-            );
-            AuthMetadata::default()
+
+    if warnings.is_empty() {
+        Ok(LoadOutcome::Clean(profile))
+    } else {
+        for w in &warnings {
+            tracing::warn!(profile_dir = %profile_dir.display(), "{w}");
         }
+        Ok(LoadOutcome::Degraded {
+            value: profile,
+            warnings,
+        })
     }
 }
 
-pub fn load_claude_profile(profile_dir: &Path) -> Result<StoredClaudeProfile> {
+fn load_codex_auth_metadata_strict(auth_path: &Path) -> Result<AuthMetadata> {
+    let content = match fs::read_to_string(auth_path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AuthMetadata::default());
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let auth_json: serde_json::Value =
+        serde_json::from_str(&content).context("invalid JSON in auth.json")?;
+    Ok(extract_auth_metadata(&auth_json))
+}
+
+pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredClaudeProfile>> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join(".credentials.json");
+    let mut warnings = Vec::new();
+
     let auth = match ClaudeAuth::load(&auth_path) {
         Ok(a) => a,
         Err(error) => {
-            tracing::warn!(
-                auth_path = %auth_path.display(),
-                error = %error,
-                "corrupted .credentials.json, falling back to empty auth"
-            );
+            warnings.push(format!("corrupted .credentials.json: {error}"));
             ClaudeAuth::default()
         }
     };
-    let metadata = load_claude_profile_metadata(profile_dir)?;
-    let now = Utc::now();
 
-    Ok(StoredClaudeProfile {
+    let metadata = match load_claude_profile_metadata(profile_dir) {
+        Ok(m) => m,
+        Err(error) => {
+            warnings.push(format!("corrupted profile.json: {error}"));
+            ClaudeProfileMetadata::default()
+        }
+    };
+
+    let now = Utc::now();
+    let profile = StoredClaudeProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: metadata.email,
@@ -123,7 +173,19 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<StoredClaudeProfile> {
         updated_at: metadata.updated_at.unwrap_or(now),
         profile_dir: profile_dir.to_path_buf(),
         auth_path,
-    })
+    };
+
+    if warnings.is_empty() {
+        Ok(LoadOutcome::Clean(profile))
+    } else {
+        for w in &warnings {
+            tracing::warn!(profile_dir = %profile_dir.display(), "{w}");
+        }
+        Ok(LoadOutcome::Degraded {
+            value: profile,
+            warnings,
+        })
+    }
 }
 
 pub fn save_codex_profile_metadata(
@@ -217,7 +279,7 @@ mod tests {
 
     use crate::services::accounts::storage::{
         delete_profile_dir, load_claude_profile, load_codex_profile, next_profile_id,
-        save_claude_profile_edits, save_codex_profile_metadata,
+        save_claude_profile_edits, save_codex_profile_metadata, LoadOutcome,
     };
 
     #[test]
@@ -240,7 +302,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = load_codex_profile(&profile_dir).unwrap();
+        let profile = load_codex_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.id, "profile-01");
         assert_eq!(profile.label, "Main Profile");
@@ -261,7 +323,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = load_codex_profile(&profile_dir).unwrap();
+        let profile = load_codex_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.id, "profile-07");
         assert_eq!(profile.label, "profile-07");
@@ -287,7 +349,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = load_codex_profile(&profile_dir).unwrap();
+        let profile = load_codex_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.id, "profile-08");
         assert_eq!(profile.label, "Saved Label");
@@ -318,7 +380,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = load_codex_profile(&profile_dir).unwrap();
+        let profile = load_codex_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.label, "Current Label");
         assert_eq!(profile.email.as_deref(), Some("current@example.com"));
@@ -346,7 +408,7 @@ mod tests {
         )
         .unwrap();
 
-        let profile = load_claude_profile(&profile_dir).unwrap();
+        let profile = load_claude_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.label, "Edited Claude");
         assert_eq!(profile.notes.as_deref(), Some("saved notes"));
@@ -378,5 +440,74 @@ mod tests {
         fs::create_dir_all(temp.path().join("profile-03")).unwrap();
 
         assert_eq!(next_profile_id(temp.path()), "profile-02");
+    }
+
+    #[test]
+    fn load_codex_profile_returns_clean_for_valid_data() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-10");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(
+            profile_dir.join("auth.json"),
+            r#"{"email":"clean@example.com","plan":"pro"}"#,
+        )
+        .unwrap();
+
+        let outcome = load_codex_profile(&profile_dir).unwrap();
+        assert!(matches!(outcome, LoadOutcome::Clean(_)));
+        assert_eq!(outcome.value().email.as_deref(), Some("clean@example.com"));
+    }
+
+    #[test]
+    fn load_codex_profile_returns_degraded_for_corrupted_auth() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-11");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(profile_dir.join("auth.json"), "{not-valid-json").unwrap();
+
+        let outcome = load_codex_profile(&profile_dir).unwrap();
+        match &outcome {
+            LoadOutcome::Degraded { warnings, .. } => {
+                assert!(warnings.iter().any(|w| w.contains("auth.json")));
+            }
+            _ => panic!("expected Degraded outcome"),
+        }
+    }
+
+    #[test]
+    fn load_codex_profile_returns_degraded_for_corrupted_profile_metadata() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-12");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(
+            profile_dir.join("auth.json"),
+            r#"{"email":"ok@example.com"}"#,
+        )
+        .unwrap();
+        fs::write(profile_dir.join("profile.json"), "{bad json}").unwrap();
+
+        let outcome = load_codex_profile(&profile_dir).unwrap();
+        match &outcome {
+            LoadOutcome::Degraded { warnings, .. } => {
+                assert!(warnings.iter().any(|w| w.contains("profile.json")));
+            }
+            _ => panic!("expected Degraded outcome"),
+        }
+    }
+
+    #[test]
+    fn load_claude_profile_returns_degraded_for_corrupted_credentials() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-13");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(profile_dir.join(".credentials.json"), "{bad}").unwrap();
+
+        let outcome = load_claude_profile(&profile_dir).unwrap();
+        match &outcome {
+            LoadOutcome::Degraded { warnings, .. } => {
+                assert!(warnings.iter().any(|w| w.contains(".credentials.json")));
+            }
+            _ => panic!("expected Degraded outcome"),
+        }
     }
 }

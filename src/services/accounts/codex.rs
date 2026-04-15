@@ -87,7 +87,9 @@ mod tests {
         .unwrap();
 
         let profile = import_profile_from_auth(&profiles_dir, &auth_source).unwrap();
-        let loaded = load_codex_profile(&profile.profile_dir).unwrap();
+        let loaded = load_codex_profile(&profile.profile_dir)
+            .unwrap()
+            .into_value();
 
         assert_eq!(profile.id, "profile-01");
         assert!(profile.profile_dir.join("auth.json").is_file());

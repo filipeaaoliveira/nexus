@@ -85,12 +85,12 @@ async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
         for profile_id in storage_service::scan_codex_profile_ids(&codex_profiles_dir) {
             let profile_dir = codex_profiles_dir.join(&profile_id);
             match storage_service::load_codex_profile(&profile_dir) {
-                Ok(profile) => {
+                Ok(outcome) => {
                     entries.push(AccountEntry {
                         provider: Provider::Codex,
                         profile_id: profile_id.clone().into(),
                     });
-                    profiles.push(DomainProfile::from(profile));
+                    profiles.push(DomainProfile::from(outcome.into_value()));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -106,12 +106,12 @@ async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
         for profile_id in storage_service::scan_claude_profile_ids(&claude_profiles_dir) {
             let profile_dir = claude_profiles_dir.join(&profile_id);
             match storage_service::load_claude_profile(&profile_dir) {
-                Ok(profile) => {
+                Ok(outcome) => {
                     entries.push(AccountEntry {
                         provider: Provider::Claude,
                         profile_id: profile_id.clone().into(),
                     });
-                    profiles.push(DomainProfile::from(profile));
+                    profiles.push(DomainProfile::from(outcome.into_value()));
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -143,10 +143,13 @@ async fn load_profile_draft(
         Provider::Codex => {
             let profile_dir = config.codex_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
-                storage_service::load_codex_profile(&profile_dir).map(|profile| EditableProfile {
-                    label: profile.label,
-                    notes: profile.notes.unwrap_or_default(),
-                    enabled: profile.enabled,
+                storage_service::load_codex_profile(&profile_dir).map(|outcome| {
+                    let profile = outcome.into_value();
+                    EditableProfile {
+                        label: profile.label,
+                        notes: profile.notes.unwrap_or_default(),
+                        enabled: profile.enabled,
+                    }
                 })
             })
             .await
@@ -156,10 +159,13 @@ async fn load_profile_draft(
         Provider::Claude => {
             let profile_dir = config.claude_profiles_dir.join(&profile_id);
             tokio::task::spawn_blocking(move || {
-                storage_service::load_claude_profile(&profile_dir).map(|profile| EditableProfile {
-                    label: profile.label,
-                    notes: profile.notes.unwrap_or_default(),
-                    enabled: profile.enabled,
+                storage_service::load_claude_profile(&profile_dir).map(|outcome| {
+                    let profile = outcome.into_value();
+                    EditableProfile {
+                        label: profile.label,
+                        notes: profile.notes.unwrap_or_default(),
+                        enabled: profile.enabled,
+                    }
                 })
             })
             .await
@@ -271,7 +277,8 @@ async fn save_profile_edits(
                     notes_option(&draft.notes),
                     draft.enabled,
                 )?;
-                storage_service::load_codex_profile(&profile_dir).map(DomainProfile::from)
+                storage_service::load_codex_profile(&profile_dir)
+                    .map(|outcome| DomainProfile::from(outcome.into_value()))
             })
             .await
             .map_err(storage_io)?
@@ -287,7 +294,8 @@ async fn save_profile_edits(
                     notes_option(&draft.notes),
                     draft.enabled,
                 )?;
-                storage_service::load_claude_profile(&profile_dir).map(DomainProfile::from)
+                storage_service::load_claude_profile(&profile_dir)
+                    .map(|outcome| DomainProfile::from(outcome.into_value()))
             })
             .await
             .map_err(storage_io)?

@@ -1,9 +1,6 @@
-use crate::domain::accounts::{AccountEntry, DomainProfile, Provider, QuotaSnapshot};
+use crate::domain::accounts::{AccountEntry, DomainProfile, ProfileId, Provider, QuotaSnapshot};
 
 use super::state::EditableProfile;
-
-// ProfileId is defined in the domain layer; re-exported here for backward compatibility.
-pub use crate::domain::accounts::ProfileId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshOrigin {

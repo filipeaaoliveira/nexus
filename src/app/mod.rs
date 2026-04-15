@@ -27,7 +27,6 @@ mod system;
 pub use action::{AccountsAction, Action, OverviewAction, SystemAction, WorkspaceAction};
 pub use core::AppState;
 pub use effect::{Effect, EffectResult, RefreshOrigin};
-pub use state::Workspace as ActiveTab;
 pub use state::{
     AccountsConfirmAction, AccountsEditField, AccountsMode, EditableProfile, Overlay, OverviewMode,
     RootState, Workspace,

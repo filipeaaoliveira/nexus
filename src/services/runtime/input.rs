@@ -1,4 +1,4 @@
-use crate::app::{AccountsAction, AccountsConfirmAction, ActiveTab, Effect};
+use crate::app::{AccountsAction, AccountsConfirmAction, Effect, Workspace};
 use crate::input::{self, Context, RuntimeAction};
 
 use super::quota;
@@ -8,7 +8,7 @@ pub(super) fn input_context(session: &RuntimeSession) -> Context {
     let workspace = session.active_tab();
     let mode = if session.show_help() {
         input::Mode::Help
-    } else if workspace == ActiveTab::Overview {
+    } else if workspace == Workspace::Overview {
         match session.root().overview().mode() {
             crate::app::OverviewMode::Renaming { input, .. } => input::Mode::OverviewRename {
                 input: input.clone(),
@@ -18,7 +18,7 @@ pub(super) fn input_context(session: &RuntimeSession) -> Context {
             },
             crate::app::OverviewMode::Normal => input::Mode::Normal,
         }
-    } else if workspace == ActiveTab::Accounts {
+    } else if workspace == Workspace::Accounts {
         match session.root().accounts().mode() {
             crate::app::AccountsMode::Filtering { input } => input::Mode::AccountsFilter {
                 input: input.clone(),
@@ -56,12 +56,12 @@ pub(super) async fn handle_runtime_input_action(
     match action {
         RuntimeAction::ToggleHelp => session.toggle_help(),
         RuntimeAction::DismissCurrentMode => match session.active_tab() {
-            ActiveTab::Overview => session.dismiss_overlay(),
-            ActiveTab::Accounts => session.dismiss_accounts_overlay(),
+            Workspace::Overview => session.dismiss_overlay(),
+            Workspace::Accounts => session.dismiss_accounts_overlay(),
         },
         RuntimeAction::DismissSelectedAgent => match session.active_tab() {
-            ActiveTab::Overview => session.remove_selected(),
-            ActiveTab::Accounts => {
+            Workspace::Overview => session.remove_selected(),
+            Workspace::Accounts => {
                 if session.selected_account().is_some() {
                     session
                         .run_accounts_reducer_action(AccountsAction::RequestConfirmation(
@@ -72,31 +72,31 @@ pub(super) async fn handle_runtime_input_action(
             }
         },
         RuntimeAction::DismissExitedAgents => {
-            if session.active_tab() == ActiveTab::Overview {
+            if session.active_tab() == Workspace::Overview {
                 session.remove_exited();
             }
         }
         RuntimeAction::StartOverviewRename => {
-            if session.active_tab() == ActiveTab::Overview {
+            if session.active_tab() == Workspace::Overview {
                 session.start_rename();
             }
         }
         RuntimeAction::ImportCodexProfile => {
-            if session.active_tab() == ActiveTab::Accounts {
+            if session.active_tab() == Workspace::Accounts {
                 session
                     .run_accounts_effect(Effect::ImportCodexProfile)
                     .await;
             }
         }
         RuntimeAction::ImportClaudeProfile => {
-            if session.active_tab() == ActiveTab::Accounts {
+            if session.active_tab() == Workspace::Accounts {
                 session
                     .run_accounts_effect(Effect::ImportClaudeProfile)
                     .await;
             }
         }
         RuntimeAction::RequestWriteProfile => {
-            if session.active_tab() == ActiveTab::Accounts && session.selected_account().is_some() {
+            if session.active_tab() == Workspace::Accounts && session.selected_account().is_some() {
                 session
                     .run_accounts_reducer_action(AccountsAction::RequestConfirmation(
                         AccountsConfirmAction::WriteProfileToHome,
@@ -105,7 +105,7 @@ pub(super) async fn handle_runtime_input_action(
             }
         }
         RuntimeAction::StartAccountsEdit => {
-            if session.active_tab() == ActiveTab::Accounts {
+            if session.active_tab() == Workspace::Accounts {
                 if let Some((provider, profile_id)) = session.selected_account() {
                     session
                         .run_accounts_effect(Effect::LoadEditableProfile {
@@ -117,7 +117,7 @@ pub(super) async fn handle_runtime_input_action(
             }
         }
         RuntimeAction::RefreshSelectedQuota => {
-            if session.active_tab() == ActiveTab::Accounts {
+            if session.active_tab() == Workspace::Accounts {
                 quota::spawn_manual_quota_refresh(session, effect_tx);
             }
         }

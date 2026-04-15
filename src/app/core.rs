@@ -28,7 +28,7 @@ impl AppState {
         }
     }
 
-    pub fn active_tab(&self) -> ActiveTab {
+    pub fn active_tab(&self) -> Workspace {
         self.root.workspace().active()
     }
 

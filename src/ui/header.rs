@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app::ActiveTab;
+use crate::app::Workspace;
 use crate::services::runtime::RuntimeSession;
 
 use super::{theme, RenderData};
@@ -54,7 +54,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderDat
         ),
     ]);
 
-    let right_tab_style = |tab: ActiveTab| {
+    let right_tab_style = |tab: Workspace| {
         if tab == render_data.active_tab {
             theme::bar_style()
                 .fg(theme::FG_DEFAULT)
@@ -66,7 +66,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, render_data: &RenderDat
 
     let mut right_spans = vec![];
 
-    for (index, tab) in ActiveTab::ALL.iter().copied().enumerate() {
+    for (index, tab) in Workspace::ALL.iter().copied().enumerate() {
         if index > 0 {
             right_spans.push(Span::styled(" / ", theme::bar_style().fg(theme::FG_DIMMED)));
         }

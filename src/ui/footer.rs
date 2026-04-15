@@ -60,8 +60,8 @@ pub fn shortcut_text(state: &AppState) -> String {
 
 fn shortcut_line(state: &AppState) -> Line<'static> {
     match state.active_tab() {
-        crate::app::ActiveTab::Overview => overview_shortcut_line(state),
-        crate::app::ActiveTab::Accounts => accounts_shortcut_line(state),
+        crate::app::Workspace::Overview => overview_shortcut_line(state),
+        crate::app::Workspace::Accounts => accounts_shortcut_line(state),
     }
 }
 

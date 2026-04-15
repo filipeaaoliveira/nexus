@@ -12,7 +12,7 @@ pub mod theme;
 use ratatui::Frame;
 
 use crate::app::projection::AgentView;
-use crate::app::{ActiveTab, AppState};
+use crate::app::{AppState, Workspace};
 use crate::domain::agents::status::NormalizedStatus;
 use crate::services::runtime::RuntimeSession;
 
@@ -26,7 +26,7 @@ pub struct HeaderStats {
 }
 
 pub struct RenderData<'a> {
-    pub active_tab: ActiveTab,
+    pub active_tab: Workspace,
     pub visible_agents: Vec<AgentView<'a>>,
     pub selected_agent: Option<AgentView<'a>>,
     pub header: HeaderStats,
@@ -86,11 +86,11 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession) {
     }
 
     match state.active_tab() {
-        ActiveTab::Overview => {
+        Workspace::Overview => {
             let render_data = RenderData::from_state(state);
             overview::render(frame, state, &render_data)
         }
-        ActiveTab::Accounts => accounts::render(frame, state),
+        Workspace::Accounts => accounts::render(frame, state),
     }
 }
 

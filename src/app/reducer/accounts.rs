@@ -314,10 +314,11 @@ fn is_accounts_effect(effect: &Effect) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::effect::{AppError, ProfileId, RefreshOrigin, StorageError};
+    use crate::app::effect::{AppError, RefreshOrigin, StorageError};
     use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
+    use crate::domain::accounts::ProfileId;
     use crate::domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
     use chrono::Utc;
     use std::path::PathBuf;

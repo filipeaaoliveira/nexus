@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 
 use crate::detect::heuristics::looks_like_review_output;
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistrySnapshot;
 use crate::domain::agents::activity::{Activity, Subagent};
 use crate::domain::agents::ids::{AgentId, AgentTool};
 use crate::domain::agents::status::{
@@ -40,18 +40,21 @@ pub(super) fn codex_to_primary(status: CodexInferredStatus) -> PrimaryStatus {
     }
 }
 
-pub(super) fn codex_pid_for_thread(registry: &AgentRegistry, cwd: &Path) -> Option<u32> {
+pub(super) fn codex_pid_for_thread(registry: &RegistrySnapshot, cwd: &Path) -> Option<u32> {
     match registry.find_pids(AgentTool::Codex, cwd).as_slice() {
         [pid] => Some(*pid),
         _ => None,
     }
 }
 
-pub(super) fn codex_pid_for_exact_thread(registry: &AgentRegistry, thread_id: &str) -> Option<u32> {
+pub(super) fn codex_pid_for_exact_thread(
+    registry: &RegistrySnapshot,
+    thread_id: &str,
+) -> Option<u32> {
     registry.find_codex_pid_for_thread(thread_id)
 }
 
-pub(super) fn codex_launch_started_at(registry: &AgentRegistry, pid: u32) -> Option<i64> {
+pub(super) fn codex_launch_started_at(registry: &RegistrySnapshot, pid: u32) -> Option<i64> {
     registry
         .find_codex_launch(pid)
         .and_then(|launch| launch.started_at.map(|started_at| started_at.timestamp()))
@@ -98,7 +101,7 @@ pub(super) fn classify_codex_thread(
 pub fn build_codex_snapshot(
     threads: &[super::types::CodexThread],
     spawn_edges: &[SpawnEdge],
-    registry: &AgentRegistry,
+    registry: &RegistrySnapshot,
 ) -> CodexSnapshot {
     let edge_parent_by_child: HashMap<&str, &str> = spawn_edges
         .iter()
@@ -298,13 +301,13 @@ fn materialize_backend_health(
 }
 
 #[cfg(test)]
-pub fn detect_codex_backend(db_path: &Path, registry: &AgentRegistry) -> CodexDetectionResult {
+pub fn detect_codex_backend(db_path: &Path, registry: &RegistrySnapshot) -> CodexDetectionResult {
     detect_codex_backend_with_history(db_path, registry, false)
 }
 
 pub fn detect_codex_backend_with_history(
     db_path: &Path,
-    registry: &AgentRegistry,
+    registry: &RegistrySnapshot,
     has_previous_state: bool,
 ) -> CodexDetectionResult {
     if !db_path.exists() {

@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistryHandle;
 use crate::domain::agents::activity::TodoItem;
 use crate::domain::agents::ids::{AgentId, AgentTool};
 use crate::domain::agents::status::PrimaryStatus;
@@ -26,7 +26,7 @@ pub async fn run_opencode_detector(
     tx: mpsc::Sender<AgentEvent>,
     opencode_data_dir: PathBuf,
     poll_interval: Duration,
-    registry: AgentRegistry,
+    registry: RegistryHandle,
 ) -> anyhow::Result<()> {
     let db_path = opencode_data_dir.join("opencode.db");
     tracing::info!("OpenCode detector starting, db_path={}", db_path.display());
@@ -40,7 +40,7 @@ pub async fn run_opencode_detector(
             // plus their per-session data (parts, todos, subagents) in a single
             // spawn_blocking call to avoid the repeated open/close overhead.
             let db2 = db_path.clone();
-            let registry2 = registry.clone();
+            let registry_snap = registry.snapshot().await;
             // Sessions where session_info_sent=true are already initialised; new ones
             // need a one-shot query for the most-recent tool part to seed recent_events.
             let known_sessions: HashSet<String> = session_states
@@ -89,14 +89,14 @@ pub async fn run_opencode_detector(
                         session.id,
                         cwd.display()
                     );
-                    let pid = match registry2.find_pid_prefix(AgentTool::OpenCode, &cwd) {
+                    let pid = match registry_snap.find_pid_prefix(AgentTool::OpenCode, &cwd) {
                         Some(p) => p,
                         None => {
                             tracing::debug!("OpenCode: no pid found for cwd={}", cwd.display());
                             continue; // process not yet discovered
                         }
                     };
-                    let process_started_at = registry2
+                    let process_started_at = registry_snap
                         .find_opencode_launch(pid)
                         .and_then(|info| info.started_at);
 

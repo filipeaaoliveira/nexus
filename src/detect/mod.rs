@@ -171,7 +171,7 @@ pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentE
     let (tx, rx) = mpsc::channel::<AgentEvent>(512);
     let poll = Duration::from_secs(config.poll_interval_secs);
     let worktree_cache_ttl = Duration::from_secs(config.worktree_scan_interval_secs);
-    let registry = registry::AgentRegistry::new();
+    let registry = registry::RegistryHandle::spawn();
 
     let forward = tokio::spawn(forward_agent_events(raw_rx, tx.clone(), worktree_cache_ttl));
 

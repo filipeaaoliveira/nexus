@@ -1,5 +1,5 @@
 use crate::detect::codex::*;
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistrySnapshot;
 use crate::domain::agents::{
     Activity, AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoItem,
     TodoPriority, TodoStatus,
@@ -154,7 +154,7 @@ fn test_parse_codex_source_cli() {
 
 #[test]
 fn test_build_codex_snapshot_classifies_top_level_and_child_threads() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let threads = vec![
         CodexThread {
             id: "parent-thread".into(),
@@ -258,7 +258,7 @@ fn test_build_codex_snapshot_classifies_top_level_and_child_threads() {
 
 #[test]
 fn test_build_codex_snapshot_keeps_same_cwd_top_level_threads_distinct() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let threads = vec![
         CodexThread {
             id: "thread-a".into(),
@@ -302,7 +302,7 @@ fn test_build_codex_snapshot_keeps_same_cwd_top_level_threads_distinct() {
 
 #[test]
 fn test_build_codex_snapshot_does_not_bind_pid_for_multiple_top_level_threads_in_same_cwd() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
 
     let threads = vec![
@@ -349,7 +349,7 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_multiple_top_level_threads_in
 
 #[test]
 fn test_build_codex_snapshot_does_not_bind_pid_for_stale_unique_top_level_thread_without_rollout() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
 
     let threads = vec![CodexThread {
@@ -376,7 +376,7 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_stale_unique_top_level_thread
 
 #[test]
 fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
     let now = chrono::Local::now().timestamp();
 
@@ -420,7 +420,7 @@ fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
 
 #[test]
 fn test_build_codex_snapshot_binds_pid_from_exact_thread_mapping_even_when_stale() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
     registry.register_codex_thread("thread-a".to_string(), 15642);
 
@@ -448,7 +448,7 @@ fn test_build_codex_snapshot_binds_pid_from_exact_thread_mapping_even_when_stale
 
 #[test]
 fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
     let now = chrono::Local::now().timestamp();
 
@@ -503,7 +503,7 @@ fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
 
 #[test]
 fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     let cwd = PathBuf::from("/tmp/project");
     let now = chrono::Local::now().timestamp();
     let first_start = now - 40;
@@ -585,7 +585,7 @@ fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
 
 #[test]
 fn test_build_codex_snapshot_does_not_guess_when_same_cwd_pid_count_is_ambiguous() {
-    let registry = AgentRegistry::new();
+    let mut registry = RegistrySnapshot::new();
     let cwd = PathBuf::from("/tmp/project");
     let now = chrono::Local::now().timestamp();
     let first_start = now - 50;
@@ -701,7 +701,7 @@ fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
 
 #[test]
 fn test_detect_codex_backend_missing_db_on_clean_start_is_not_degraded() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -716,7 +716,7 @@ fn test_detect_codex_backend_missing_db_on_clean_start_is_not_degraded() {
 
 #[test]
 fn test_detect_codex_backend_missing_db_stays_healthy_across_repeated_clean_start_polls() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -734,7 +734,7 @@ fn test_detect_codex_backend_missing_db_stays_healthy_across_repeated_clean_star
 
 #[test]
 fn test_detect_codex_backend_reports_degraded_for_missing_db_after_previous_state() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -761,7 +761,7 @@ fn test_detect_codex_backend_reports_degraded_for_missing_db_after_previous_stat
 
 #[test]
 fn test_detect_codex_backend_reports_degraded_for_threads_schema_drift() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -783,7 +783,7 @@ fn test_detect_codex_backend_reports_degraded_for_threads_schema_drift() {
 
 #[test]
 fn test_detect_codex_backend_reports_degraded_explicitly_when_threads_load_but_edges_fail() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -889,7 +889,7 @@ fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
 
 #[test]
 fn test_detect_codex_backend_healthy_snapshot_stays_healthy() {
-    let registry = AgentRegistry::new();
+    let registry = RegistrySnapshot::new();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()

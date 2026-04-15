@@ -1,4 +1,4 @@
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistryHandle;
 use crate::domain::agents::ids::AgentId;
 use crate::domain::agents::ids::AgentTool;
 use crate::domain::system::DetectorKind;
@@ -466,7 +466,7 @@ async fn scan_processes(cwd_cache: &mut CwdCache) -> ScanProcessesResult {
 pub async fn run_process_scanner(
     tx: mpsc::Sender<AgentEvent>,
     poll_interval: Duration,
-    registry: AgentRegistry,
+    registry: RegistryHandle,
 ) -> anyhow::Result<()> {
     let mut known_pids: HashSet<(AgentTool, u32)> = HashSet::new();
     let mut last_health = ScannerHealth::Healthy;

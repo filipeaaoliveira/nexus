@@ -6,7 +6,7 @@ use anyhow::Result;
 use chrono::Local;
 use tokio::sync::mpsc;
 
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistryHandle;
 use crate::domain::agents::activity::Subagent;
 use crate::domain::agents::ids::{AgentId, AgentTool};
 use crate::domain::agents::status::PrimaryStatus;
@@ -41,7 +41,7 @@ pub async fn run_claude_detector(
     tx: mpsc::Sender<AgentEvent>,
     claude_data_dir: PathBuf,
     poll_interval: Duration,
-    registry: AgentRegistry,
+    registry: RegistryHandle,
 ) -> Result<()> {
     let transcripts_dir = claude_data_dir.join("transcripts");
     let projects_dir = claude_data_dir.join("projects");
@@ -213,10 +213,13 @@ pub async fn run_claude_detector(
             // subagent transcript to slip through and overwrite the main agent's
             // normalized state (often with `Unknown` if the subagent had only
             // `LocalCommand` entries from a `/compact` run).
-            let project_file_pids: std::collections::HashSet<u32> = project_file_cwds
-                .iter()
-                .filter_map(|(_, cwd)| registry.find_pid(AgentTool::Claude, cwd))
-                .collect();
+            let mut project_file_pids: std::collections::HashSet<u32> =
+                std::collections::HashSet::new();
+            for (_, cwd) in &project_file_cwds {
+                if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd).await {
+                    project_file_pids.insert(pid);
+                }
+            }
 
             let dir = transcripts_dir.clone();
             // Move the combined file-state map into spawn_blocking; this is an
@@ -322,9 +325,12 @@ pub async fn run_claude_detector(
                         .and_then(|si| si.session_id.as_deref())
                         .and_then(|sid| session_id_to_pid.get(sid).copied());
 
-                    if let Some(pid) =
-                        registry_pid.or_else(|| registry.find_pid(AgentTool::Claude, cwd))
-                    {
+                    let fallback_pid = if registry_pid.is_none() {
+                        registry.find_pid(AgentTool::Claude, cwd).await
+                    } else {
+                        None
+                    };
+                    if let Some(pid) = registry_pid.or(fallback_pid) {
                         matched_pid = Some(pid);
                         matched_session = session_info;
                     }
@@ -332,7 +338,7 @@ pub async fn run_claude_detector(
                     // Transcript file: match by session_id in filename, with
                     // single-process fallback.
                     for (cwd, session_info) in &cwd_to_session {
-                        if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd) {
+                        if let Some(pid) = registry.find_pid(AgentTool::Claude, cwd).await {
                             if let Some(ref sid) = session_info.session_id {
                                 if let Some(fname) = file_path.file_name().and_then(|n| n.to_str())
                                 {
@@ -352,7 +358,7 @@ pub async fn run_claude_detector(
 
                     // If no project session match, try all known Claude PIDs
                     if matched_pid.is_none() {
-                        let claude_agents = registry.agents_for_tool(AgentTool::Claude);
+                        let claude_agents = registry.agents_for_tool(AgentTool::Claude).await;
                         if claude_agents.len() == 1 {
                             matched_pid = Some(claude_agents[0].1);
                         }
@@ -370,7 +376,7 @@ pub async fn run_claude_detector(
                     Some(p) => p,
                     None => continue, // no matching process discovered yet
                 };
-                let launch_info = registry.find_claude_launch(pid);
+                let launch_info = registry.find_claude_launch(pid).await;
                 let resume_launch = is_resume_launch(launch_info.as_ref());
                 let hydrate_session_history =
                     should_hydrate_session_history(launch_info.as_ref(), matched_session);

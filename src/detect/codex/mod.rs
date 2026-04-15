@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use crate::detect::registry::AgentRegistry;
+use crate::detect::registry::RegistryHandle;
 use crate::event::AgentEvent;
 
 #[cfg(test)]
@@ -39,7 +39,7 @@ pub async fn run_codex_detector(
     tx: mpsc::Sender<AgentEvent>,
     codex_data_dir: PathBuf,
     poll_interval: Duration,
-    registry: AgentRegistry,
+    registry: RegistryHandle,
 ) -> anyhow::Result<()> {
     let db_path = codex_data_dir.join("state_5.sqlite");
     let mut previous_snapshot: Option<CodexEventSnapshot> = None;
@@ -47,12 +47,12 @@ pub async fn run_codex_detector(
 
     loop {
         let db = db_path.clone();
-        let registry = registry.clone();
+        let registry_snap = registry.snapshot().await;
         if db_path.exists() {
             has_seen_db = true;
         }
         let result = tokio::task::spawn_blocking(move || {
-            detect_codex_backend_with_history(&db, &registry, has_seen_db)
+            detect_codex_backend_with_history(&db, &registry_snap, has_seen_db)
         })
         .await?;
 
@@ -77,7 +77,7 @@ mod tests {
         CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
         ObservedCodexSubagent, ObservedCodexThread,
     };
-    use crate::detect::registry::AgentRegistry;
+    use crate::detect::registry::RegistrySnapshot;
     use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::domain::agents::status::PrimaryStatus;
     use crate::domain::shared::time::from_epoch_secs;
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn codex_pid_for_thread_returns_single_binding_only() {
-        let registry = AgentRegistry::new();
+        let mut registry = RegistrySnapshot::new();
         let cwd = PathBuf::from("/tmp/project");
 
         assert_eq!(codex_pid_for_thread(&registry, &cwd), None);

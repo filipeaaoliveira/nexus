@@ -2,9 +2,8 @@ use nexus::codex_profiles::profile::{
     extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
     StoredCodexProfile,
 };
-use nexus::codex_profiles::quota::{
-    parse_legacy_status_output, Confidence, LimitState, QuotaCache, QuotaSnapshot,
-};
+use nexus::codex_profiles::quota::parse_legacy_status_output;
+use nexus::domain::accounts::{Confidence, LimitState, QuotaCache, QuotaSnapshot};
 use nexus::domain::agents::{
     Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, NormalizedReason,
     NormalizedState, NormalizedStatus, PrimaryStatus, SortMode, TodoItem, TodoPriority, TodoStatus,

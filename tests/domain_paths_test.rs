@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use nexus::claude_profiles::profile::ClaudeProfileMetadata;
 use nexus::codex_profiles::profile::ProfileMetadata;
-use nexus::codex_profiles::quota::{Confidence, LimitState, QuotaSnapshot};
+use nexus::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 use nexus::domain::agents::activity::Activity;
 use nexus::domain::agents::ids::{AgentId, AgentTool};
 use nexus::domain::agents::model::{Agent, AgentDetail, AgentIdent, AgentLifecycle};

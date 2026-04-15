@@ -5,10 +5,8 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-// Re-export domain-owned types for backward compatibility.
-pub use crate::domain::accounts::quota::{
-    load_quota_cache, save_quota_cache, Confidence, CreditsState, LimitState, QuotaCache,
-    QuotaSnapshot, QuotaWindow,
+use crate::domain::accounts::quota::{
+    Confidence, CreditsState, LimitState, QuotaSnapshot, QuotaWindow,
 };
 
 /// Deprecated compatibility wrapper for legacy `codex status` text parsing.

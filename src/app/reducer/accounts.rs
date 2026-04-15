@@ -152,7 +152,7 @@ pub fn reduce_result(
         }
         EffectResult::Failed { effect, error } => {
             if is_accounts_effect(effect) {
-                state.status_message = Some(error.message().to_string());
+                state.status_message = Some(error.to_string());
                 if !matches!(effect, Effect::SaveProfileEdits { .. }) {
                     state.mode = AccountsMode::Normal;
                 }
@@ -314,7 +314,7 @@ fn is_accounts_effect(effect: &Effect) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::effect::{AppError, ProfileId, RefreshOrigin};
+    use crate::app::effect::{AppError, ProfileId, RefreshOrigin, StorageError};
     use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
@@ -574,13 +574,16 @@ mod tests {
             &mut wf,
             &EffectResult::Failed {
                 effect: Effect::LoadProfiles,
-                error: AppError::Storage {
-                    message: "disk full".into(),
-                },
+                error: AppError::Storage(StorageError::Io {
+                    detail: "disk full".into(),
+                }),
             },
         );
         assert_invariants(&state);
-        assert_eq!(state.status_message.as_deref(), Some("disk full"));
+        assert_eq!(
+            state.status_message.as_deref(),
+            Some("I/O error: disk full")
+        );
     }
 
     // ── multi-step sequence tests ───────────────────────────────────
@@ -896,9 +899,9 @@ mod tests {
             &mut wf,
             &EffectResult::Failed {
                 effect: effects.into_iter().next().unwrap(),
-                error: AppError::Storage {
-                    message: "write failed".into(),
-                },
+                error: AppError::Storage(StorageError::Io {
+                    detail: "write failed".into(),
+                }),
             },
         );
         assert_eq!(wf, Workflow::Idle);

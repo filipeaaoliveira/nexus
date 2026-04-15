@@ -193,9 +193,11 @@ mod tests {
                         profile_id: pid.into(),
                         origin: RefreshOrigin::Background,
                     },
-                    error: crate::app::effect::AppError::QuotaRefresh {
-                        message: "failed refresh".to_string(),
-                    },
+                    error: crate::app::effect::AppError::QuotaRefresh(
+                        crate::app::effect::QuotaRefreshError::ApiFailed {
+                            detail: "failed refresh".to_string(),
+                        },
+                    ),
                 }
             },
             token.clone(),

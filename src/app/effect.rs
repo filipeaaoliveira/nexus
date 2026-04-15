@@ -11,35 +11,68 @@ pub enum RefreshOrigin {
     Background,
 }
 
-/// Categorized error for effect failures.
-///
-/// Preserves structure so the reducer and runtime can branch on category
-/// (e.g. suppress background refresh failures) while still providing a
-/// human-readable message for UI display.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AppError {
-    /// Profile loading, importing, saving, or deletion failed.
-    Storage { message: String },
-    /// Quota refresh failed (network, auth, parsing).
-    QuotaRefresh { message: String },
-    /// Catch-all for failures that don't fit a specific category yet.
+pub enum StorageError {
     #[allow(dead_code)]
-    Other { message: String },
+    NotFound {
+        path: String,
+    },
+    #[allow(dead_code)]
+    CorruptedData {
+        path: String,
+        detail: String,
+    },
+    Io {
+        detail: String,
+    },
 }
 
-impl AppError {
-    pub fn message(&self) -> &str {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuotaRefreshError {
+    AuthMissing {
+        profile_id: String,
+    },
+    #[allow(dead_code)]
+    ApiFailed {
+        detail: String,
+    },
+    ParseFailed {
+        detail: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppError {
+    Storage(StorageError),
+    QuotaRefresh(QuotaRefreshError),
+}
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Storage { message } => message,
-            Self::QuotaRefresh { message } => message,
-            Self::Other { message } => message,
+            Self::NotFound { path } => write!(f, "not found: {path}"),
+            Self::CorruptedData { path, detail } => write!(f, "corrupted {path}: {detail}"),
+            Self::Io { detail } => write!(f, "I/O error: {detail}"),
+        }
+    }
+}
+
+impl std::fmt::Display for QuotaRefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AuthMissing { profile_id } => write!(f, "auth missing for {profile_id}"),
+            Self::ApiFailed { detail } => write!(f, "API request failed: {detail}"),
+            Self::ParseFailed { detail } => write!(f, "quota parse failed: {detail}"),
         }
     }
 }
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message())
+        match self {
+            Self::Storage(e) => write!(f, "{e}"),
+            Self::QuotaRefresh(e) => write!(f, "{e}"),
+        }
     }
 }
 

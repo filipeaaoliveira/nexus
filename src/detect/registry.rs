@@ -45,6 +45,7 @@ pub struct RegistrySnapshot {
     state: RegistryState,
 }
 
+#[allow(dead_code)]
 impl RegistrySnapshot {
     /// Create a new empty snapshot. Primarily useful for tests.
     pub fn new() -> Self {
@@ -153,6 +154,7 @@ impl RegistrySnapshot {
 // ── Commands ─────────────────────────────────────────────────────
 
 /// Messages processed by the registry actor.
+#[allow(dead_code)]
 enum RegistryCommand {
     // Write commands (fire-and-forget)
     Register {
@@ -383,6 +385,7 @@ pub struct RegistryHandle {
     tx: mpsc::Sender<RegistryCommand>,
 }
 
+#[allow(dead_code)]
 impl RegistryHandle {
     /// Spawn the registry actor and return a handle to it.
     pub fn spawn() -> Self {

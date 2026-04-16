@@ -82,16 +82,18 @@ pub async fn refresh_token_if_needed(auth: ClaudeAuth) -> ClaudeAuth {
     updated
 }
 
-pub async fn fetch_claude_quota(auth: &ClaudeAuth) -> Option<QuotaSnapshot> {
-    let access_token = auth.access_token()?;
+pub async fn fetch_claude_quota(auth: &ClaudeAuth) -> Result<QuotaSnapshot, String> {
+    let access_token = auth
+        .access_token()
+        .ok_or("missing access_token in credentials")?;
     fetch_claude_quota_async(access_token).await
 }
 
-async fn fetch_claude_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
+async fn fetch_claude_quota_async(access_token: &str) -> Result<QuotaSnapshot, String> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .ok()?;
+        .map_err(|e| format!("client build failed: {e}"))?;
 
     let response = client
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -99,14 +101,17 @@ async fn fetch_claude_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
         .header("Accept", "application/json")
         .send()
         .await
-        .ok()?;
+        .map_err(|e| format!("request failed: {e}"))?;
 
     if !response.status().is_success() {
-        return None;
+        return Err(format!("HTTP {}", response.status()));
     }
 
-    let usage: ClaudeUsageResponse = response.json().await.ok()?;
-    let rate_limits = usage.rate_limits?;
+    let usage: ClaudeUsageResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("response parse failed: {e}"))?;
+    let rate_limits = usage.rate_limits.ok_or("no rate_limits in response")?;
     let windows = [
         rate_limits
             .primary
@@ -123,7 +128,7 @@ async fn fetch_claude_quota_async(access_token: &str) -> Option<QuotaSnapshot> {
 
     let summary = summarize_windows(&windows);
 
-    Some(QuotaSnapshot::from_windows(
+    Ok(QuotaSnapshot::from_windows(
         chrono::Utc::now(),
         Confidence::Exact,
         windows,

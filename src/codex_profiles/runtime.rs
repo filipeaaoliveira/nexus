@@ -165,6 +165,7 @@ fn create_dir_symlink(target: &Path, link: &Path) -> Result<()> {
         .with_context(|| format!("failed to create symlink {}", link.display()))
 }
 
+#[allow(dead_code)]
 pub fn get_codex_quota(codex_bin: &Path, runtime: &RuntimePlan) -> Result<Option<QuotaSnapshot>> {
     let output = Command::new(codex_bin)
         .arg("-c")

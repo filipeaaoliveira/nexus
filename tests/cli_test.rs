@@ -1,6 +1,5 @@
-use nexus::codex_profiles::runtime::RuntimePlan;
-use nexus::codex_profiles::runtime::{launch_codex, require_codex_binary};
 use nexus::config::Config;
+use nexus::testing::{launch_codex, require_codex_binary, RuntimePlan};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;

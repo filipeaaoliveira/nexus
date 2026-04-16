@@ -1,15 +1,11 @@
 #![deny(unused_must_use)]
 
 mod app;
-#[doc(hidden)]
-pub mod claude_profiles;
-#[doc(hidden)]
-pub mod codex_profiles;
+mod claude_profiles;
+mod codex_profiles;
 pub mod config;
-#[doc(hidden)]
-pub mod detect;
-#[doc(hidden)]
-pub mod domain;
+mod detect;
+mod domain;
 mod event;
 mod infra;
 mod input;
@@ -24,6 +20,47 @@ pub use services::runtime::run;
 
 #[doc(hidden)]
 pub mod testing {
+    // app / event
     pub use crate::app::{AppState, RootState};
     pub use crate::event::AgentEvent;
+
+    // domain::accounts
+    pub use crate::domain::accounts::{
+        Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
+    };
+
+    // domain::agents
+    pub use crate::domain::agents::{
+        Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
+        NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus, SortMode, TodoItem,
+        TodoPriority, TodoStatus,
+    };
+
+    // domain::shared
+    pub use crate::domain::shared::{
+        format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
+    };
+
+    // domain::system
+    pub use crate::domain::system::{CodexBackendHealth, DetectorKind, DetectorNotification};
+
+    // claude_profiles
+    pub use crate::claude_profiles::profile::{
+        load_claude_profile_metadata, ClaudeProfileMetadata,
+    };
+
+    // codex_profiles
+    pub use crate::codex_profiles::profile::{
+        extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
+        StoredCodexProfile,
+    };
+    pub use crate::codex_profiles::quota::{parse_legacy_status_output, parse_quota_from_sessions};
+    pub use crate::codex_profiles::runtime::{
+        canonical_repo_root, launch_codex, repo_runtime_key, require_codex_binary, RuntimePlan,
+    };
+
+    // detect
+    pub use crate::detect::claude::{parse_project_session, parse_transcript};
+    pub use crate::detect::process::{parse_lsof_cwds_multi, parse_ps_output};
+    pub use crate::detect::worktree::parse_worktree_list;
 }

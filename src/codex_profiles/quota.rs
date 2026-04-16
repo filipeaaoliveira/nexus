@@ -11,6 +11,7 @@ use crate::domain::accounts::quota::{
 
 /// Deprecated compatibility wrapper for legacy `codex status` text parsing.
 #[deprecated(note = "use parse_legacy_status_output for explicit legacy fallback parsing")]
+#[allow(dead_code)]
 pub fn parse_status_output(input: &str) -> Option<QuotaSnapshot> {
     parse_legacy_status_output(input)
 }
@@ -317,17 +318,21 @@ struct UsageResponse {
     rate_limit: Option<serde_json::Value>,
 }
 
-pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Option<QuotaSnapshot> {
-    let account_id = profile_auth.account_id()?;
-    let access_token = profile_auth.access_token()?;
+pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Result<QuotaSnapshot, String> {
+    let account_id = profile_auth
+        .account_id()
+        .ok_or("missing account_id in auth")?;
+    let access_token = profile_auth
+        .access_token()
+        .ok_or("missing access_token in auth")?;
     fetch_quota_async(account_id, access_token).await
 }
 
-async fn fetch_quota_async(account_id: &str, access_token: &str) -> Option<QuotaSnapshot> {
+async fn fetch_quota_async(account_id: &str, access_token: &str) -> Result<QuotaSnapshot, String> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .ok()?;
+        .map_err(|e| format!("client build failed: {e}"))?;
 
     let response = client
         .get("https://chatgpt.com/backend-api/wham/usage")
@@ -336,23 +341,26 @@ async fn fetch_quota_async(account_id: &str, access_token: &str) -> Option<Quota
         .header("Accept", "application/json")
         .send()
         .await
-        .ok()?;
+        .map_err(|e| format!("request failed: {e}"))?;
 
     if !response.status().is_success() {
-        return None;
+        return Err(format!("HTTP {}", response.status()));
     }
 
-    let usage: UsageResponse = response.json().await.ok()?;
-    let rate_limit = usage.rate_limit?;
+    let usage: UsageResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("response parse failed: {e}"))?;
+    let rate_limit = usage.rate_limit.ok_or("no rate_limit in response")?;
     let windows = parse_windows_from_rate_limits(&rate_limit);
     let credits = parse_credits_from_rate_limits(&rate_limit);
     if windows.is_empty() && credits.is_none() {
-        return None;
+        return Err("no quota data in rate_limit".to_string());
     }
 
     let summary = summarize_windows(&windows, credits.as_ref());
 
-    Some(QuotaSnapshot::from_windows(
+    Ok(QuotaSnapshot::from_windows(
         Utc::now(),
         Confidence::Exact,
         windows,

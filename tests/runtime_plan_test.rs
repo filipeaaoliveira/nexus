@@ -1,4 +1,4 @@
-use nexus::codex_profiles::runtime::{canonical_repo_root, repo_runtime_key};
+use nexus::testing::{canonical_repo_root, repo_runtime_key};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;

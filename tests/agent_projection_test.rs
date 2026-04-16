@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use nexus::domain::agents::{
+use nexus::testing::{
     Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, NormalizedState,
     NormalizedStatus, PrimaryStatus,
 };

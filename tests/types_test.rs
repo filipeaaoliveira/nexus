@@ -1,14 +1,10 @@
-use nexus::codex_profiles::profile::{
-    extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
-    StoredCodexProfile,
+use nexus::testing::{
+    extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339, load_profile_metadata,
+    parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata, Activity, Agent,
+    AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, Confidence, LimitState,
+    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus, ProfileMetadata,
+    QuotaCache, QuotaSnapshot, SortMode, StoredCodexProfile, TodoItem, TodoPriority, TodoStatus,
 };
-use nexus::codex_profiles::quota::parse_legacy_status_output;
-use nexus::domain::accounts::{Confidence, LimitState, QuotaCache, QuotaSnapshot};
-use nexus::domain::agents::{
-    Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, NormalizedReason,
-    NormalizedState, NormalizedStatus, PrimaryStatus, SortMode, TodoItem, TodoPriority, TodoStatus,
-};
-use nexus::domain::shared::{from_epoch_millis, from_epoch_secs, from_rfc3339};
 use serde_json::json;
 use std::fs;
 use tempfile::tempdir;
@@ -478,14 +474,12 @@ fn codex_quota_snapshot_old_json_without_pct_fields_deserializes_ok() {
 
 #[test]
 fn parse_quota_from_sessions_returns_none_for_missing_dir() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let result = parse_quota_from_sessions(std::path::Path::new("/nonexistent/sessions/dir"));
     assert!(result.is_none());
 }
 
 #[test]
 fn parse_quota_from_sessions_returns_none_for_empty_dir() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let result = parse_quota_from_sessions(temp.path());
     assert!(result.is_none());
@@ -493,7 +487,6 @@ fn parse_quota_from_sessions_returns_none_for_empty_dir() {
 
 #[test]
 fn parse_quota_from_sessions_returns_none_when_no_token_count_events() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -508,7 +501,6 @@ fn parse_quota_from_sessions_returns_none_when_no_token_count_events() {
 
 #[test]
 fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -529,7 +521,6 @@ fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
 
 #[test]
 fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();
@@ -545,7 +536,6 @@ fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
 
 #[test]
 fn parse_quota_from_sessions_picks_last_token_count_event_in_file() {
-    use nexus::codex_profiles::quota::parse_quota_from_sessions;
     let temp = tempdir().unwrap();
     let day_dir = temp.path().join("2026").join("04").join("04");
     fs::create_dir_all(&day_dir).unwrap();

@@ -1,7 +1,6 @@
 use std::fs;
 
-use nexus::claude_profiles::profile::load_claude_profile_metadata;
-use nexus::codex_profiles::profile::load_profile_metadata;
+use nexus::testing::{load_claude_profile_metadata, load_profile_metadata};
 use tempfile::tempdir;
 
 #[test]

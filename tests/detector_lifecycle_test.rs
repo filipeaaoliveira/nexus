@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use nexus::domain::agents::{AgentId, AgentTool};
-use nexus::testing::{AgentEvent, AppState, RootState};
+use nexus::testing::{AgentEvent, AgentId, AgentTool, AppState, RootState};
 
 fn discovered(pid: u32, cwd: &str) -> AgentEvent {
     AgentEvent::Discovered {

@@ -71,6 +71,7 @@ impl ClaudeAuth {
     }
 
     /// Returns true if the access token is currently expired.
+    #[allow(dead_code)]
     pub fn is_expired(&self) -> bool {
         let Some(tokens) = &self.claude_ai_oauth else {
             return true;

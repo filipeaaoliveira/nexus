@@ -1,6 +1,8 @@
 use chrono::Utc;
-use nexus::codex_profiles::quota::{parse_legacy_status_output, parse_quota_from_sessions};
-use nexus::domain::accounts::{Confidence, CreditsState, LimitState, QuotaSnapshot, QuotaWindow};
+use nexus::testing::{
+    parse_legacy_status_output, parse_quota_from_sessions, Confidence, CreditsState, LimitState,
+    QuotaSnapshot, QuotaWindow,
+};
 use std::fs;
 use tempfile::tempdir;
 

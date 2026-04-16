@@ -1,21 +1,13 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-use nexus::claude_profiles::profile::ClaudeProfileMetadata;
-use nexus::codex_profiles::profile::ProfileMetadata;
-use nexus::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
-use nexus::domain::agents::activity::Activity;
-use nexus::domain::agents::ids::{AgentId, AgentTool};
-use nexus::domain::agents::model::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
-use nexus::domain::agents::status::{
-    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
-};
-use nexus::domain::shared::time::{
+use nexus::testing::{
     format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
+    Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
+    ClaudeProfileMetadata, CodexBackendHealth, Confidence, DetectorKind, DetectorNotification,
+    LimitState, NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+    ProfileMetadata, QuotaSnapshot,
 };
-use nexus::domain::system::health::CodexBackendHealth;
-use nexus::domain::system::notification::DetectorNotification;
-use nexus::domain::system::DetectorKind;
 
 #[test]
 fn agent_identity_semantics_distinguish_process_and_session_rows() {

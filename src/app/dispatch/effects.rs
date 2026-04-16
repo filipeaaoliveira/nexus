@@ -62,19 +62,6 @@ fn quota_auth_missing(profile_id: &str) -> AppError {
     })
 }
 
-#[allow(dead_code)]
-fn quota_api_failed(error: impl std::fmt::Display) -> AppError {
-    AppError::QuotaRefresh(QuotaRefreshError::ApiFailed {
-        detail: error.to_string(),
-    })
-}
-
-fn quota_parse_failed() -> AppError {
-    AppError::QuotaRefresh(QuotaRefreshError::ParseFailed {
-        detail: "no quota data in API response".to_string(),
-    })
-}
-
 async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
     let codex_profiles_dir = config.codex_profiles_dir.clone();
     let claude_profiles_dir = config.claude_profiles_dir.clone();
@@ -193,7 +180,7 @@ async fn refresh_codex_quota(
         .map_err(|_| quota_auth_missing(profile_id))?;
     let quota = fetch_quota_from_api(&auth)
         .await
-        .ok_or_else(quota_parse_failed)?;
+        .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
     Ok(EffectResult::CodexQuotaRefreshed {
         profile_id: profile_id.into(),
         quota,
@@ -222,7 +209,7 @@ async fn refresh_claude_quota(
     let refreshed = persist_refreshed_claude_auth_best_effort(save_path, refreshed).await;
     let quota = fetch_claude_quota(&refreshed)
         .await
-        .ok_or_else(quota_parse_failed)?;
+        .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
     Ok(EffectResult::ClaudeQuotaRefreshed {
         profile_id: profile_id.into(),
         quota,

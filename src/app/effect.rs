@@ -29,10 +29,10 @@ pub enum QuotaRefreshError {
     AuthMissing {
         profile_id: String,
     },
-    #[allow(dead_code)]
     ApiFailed {
         detail: String,
     },
+    #[allow(dead_code)]
     ParseFailed {
         detail: String,
     },

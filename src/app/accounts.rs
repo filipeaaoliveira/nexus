@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(test)]
+use crate::domain::accounts::ProfileId;
 
 impl AppState {
     pub(crate) fn accounts_root_state(&self) -> RootState {
@@ -23,12 +25,12 @@ impl AppState {
     }
 
     #[cfg(test)]
-    pub fn set_active_codex_profile(&mut self, profile_id: Option<String>) {
+    pub fn set_active_codex_profile(&mut self, profile_id: Option<ProfileId>) {
         self.root.accounts.active_codex_profile_id = profile_id;
     }
 
     #[cfg(test)]
-    pub fn active_codex_profile_id(&self) -> Option<&str> {
-        self.root.accounts.active_codex_profile_id.as_deref()
+    pub fn active_codex_profile_id(&self) -> Option<&ProfileId> {
+        self.root.accounts.active_codex_profile_id.as_ref()
     }
 }

@@ -96,8 +96,8 @@ pub struct AccountsState {
     pub(in crate::app) quota_loading: bool,
     pub(in crate::app) provider_filter: ProviderFilter,
     pub(in crate::app) status_message: Option<String>,
-    pub(in crate::app) active_codex_profile_id: Option<String>,
-    pub(in crate::app) active_claude_profile_id: Option<String>,
+    pub(in crate::app) active_codex_profile_id: Option<ProfileId>,
+    pub(in crate::app) active_claude_profile_id: Option<ProfileId>,
 }
 
 impl Default for AccountsState {
@@ -142,12 +142,12 @@ impl AccountsState {
         &self.quota_by_key
     }
 
-    pub fn active_codex_profile_id(&self) -> Option<&str> {
-        self.active_codex_profile_id.as_deref()
+    pub fn active_codex_profile_id(&self) -> Option<&ProfileId> {
+        self.active_codex_profile_id.as_ref()
     }
 
-    pub fn active_claude_profile_id(&self) -> Option<&str> {
-        self.active_claude_profile_id.as_deref()
+    pub fn active_claude_profile_id(&self) -> Option<&ProfileId> {
+        self.active_claude_profile_id.as_ref()
     }
 
     pub fn visible_entry_indices(&self) -> Vec<usize> {

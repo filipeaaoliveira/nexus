@@ -129,14 +129,12 @@ pub fn reduce_result(
             remove_entry(state, entry);
             match entry.provider {
                 Provider::Codex
-                    if state.active_codex_profile_id.as_deref()
-                        == Some(entry.profile_id.as_str()) =>
+                    if state.active_codex_profile_id.as_ref() == Some(&entry.profile_id) =>
                 {
                     state.active_codex_profile_id = None;
                 }
                 Provider::Claude
-                    if state.active_claude_profile_id.as_deref()
-                        == Some(entry.profile_id.as_str()) =>
+                    if state.active_claude_profile_id.as_ref() == Some(&entry.profile_id) =>
                 {
                     state.active_claude_profile_id = None;
                 }

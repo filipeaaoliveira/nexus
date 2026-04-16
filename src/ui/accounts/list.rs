@@ -45,12 +45,8 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
             let entry = *entry;
             let is_selected = accounts.selected_index() == Some(index);
             let is_active = match entry.provider {
-                Provider::Codex => {
-                    accounts.active_codex_profile_id() == Some(entry.profile_id.as_str())
-                }
-                Provider::Claude => {
-                    accounts.active_claude_profile_id() == Some(entry.profile_id.as_str())
-                }
+                Provider::Codex => accounts.active_codex_profile_id() == Some(&entry.profile_id),
+                Provider::Claude => accounts.active_claude_profile_id() == Some(&entry.profile_id),
             };
 
             let key = AccountKey::for_entry(entry);

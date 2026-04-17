@@ -4,14 +4,11 @@ use tracing::debug;
 
 use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
-#[cfg(test)]
-use super::types::MessageData;
-use super::types::{AssistantMessageData, OpenCodeSession, PartData};
+use super::types::{AssistantMessageData, MessageData, OpenCodeSession, PartData};
 #[cfg(test)]
 use std::path::Path;
 
 /// Parse message.data JSON column.
-#[cfg(test)]
 pub fn parse_message_data(json: &str) -> Option<MessageData> {
     let value: Value = serde_json::from_str(json).ok()?;
     let role = value.get("role")?.as_str()?.to_string();

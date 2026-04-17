@@ -61,6 +61,8 @@ pub mod testing {
 
     // detect
     pub use crate::detect::claude::{parse_project_session, parse_transcript};
+    pub use crate::detect::codex::{parse_rollout, parse_session_index, parse_source_field};
+    pub use crate::detect::opencode::{parse_message_data, parse_part_data};
     pub use crate::detect::process::{parse_lsof_cwds_multi, parse_ps_output};
     pub use crate::detect::worktree::parse_worktree_list;
 }

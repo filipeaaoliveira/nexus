@@ -3,9 +3,10 @@ use tracing::debug;
 
 use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
-use super::types::{CodexInferredStatus, RolloutEvent, SubagentSpawn, ToolCallInfo};
+use super::types::SessionIndexEntry;
 #[cfg(test)]
-use super::types::{SessionIndexEntry, SessionMeta};
+use super::types::SessionMeta;
+use super::types::{CodexInferredStatus, RolloutEvent, SubagentSpawn, ToolCallInfo};
 
 // ── JSONL Parsing ─────────────────────────────────────────────────
 
@@ -56,7 +57,6 @@ pub fn parse_rollout(content: &str) -> Vec<RolloutEvent> {
 /// Parse a Codex session index JSONL string into a list of entries.
 ///
 /// Each line is a JSON object with `id`, `thread_name`, and `updated_at`.
-#[cfg(test)]
 pub fn parse_session_index(content: &str) -> Vec<SessionIndexEntry> {
     let mut entries = Vec::new();
 

@@ -15,12 +15,12 @@ mod types;
 
 #[cfg(test)]
 pub use rollout::*;
+pub use rollout::{parse_rollout, parse_session_index};
 #[cfg(test)]
 pub use snapshot::*;
 #[allow(hidden_glob_reexports)]
 use snapshot::{detect_codex_backend_with_history, reconcile_codex_snapshots};
-#[cfg(test)]
-pub use sqlite::*;
+pub use sqlite::parse_source_field;
 #[allow(hidden_glob_reexports)]
 use types::CodexEventSnapshot;
 #[cfg(test)]

@@ -1,7 +1,8 @@
 use nexus::testing::{
     extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339, load_profile_metadata,
     parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata, Activity, Agent,
-    AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, Confidence, LimitState,
+    AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, ClaudeProfileMetadata,
+    CodexBackendHealth, Confidence, DetectorKind, DetectorNotification, LimitState,
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus, ProfileMetadata,
     QuotaCache, QuotaSnapshot, SortMode, StoredCodexProfile, TodoItem, TodoPriority, TodoStatus,
 };
@@ -574,4 +575,97 @@ fn profile_metadata_save_load_round_trip() {
     assert_eq!(loaded.label, metadata.label);
     assert_eq!(loaded.notes, metadata.notes);
     assert_eq!(loaded.enabled, metadata.enabled);
+}
+
+#[test]
+fn test_agent_model_preserves_alias_elapsed_and_runtime_state() {
+    use std::collections::VecDeque;
+    use std::path::PathBuf;
+
+    let started_at = chrono::Local::now() - chrono::Duration::minutes(5);
+    let agent = Agent {
+        ident: AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 100),
+            pid: Some(100),
+            session_id: Some("thread-1".into()),
+            alias: Some("review-me".into()),
+            cwd: Some(PathBuf::from("/tmp/repo")),
+            branch: Some("main".into()),
+            is_worktree: false,
+            started_at,
+        },
+        lifecycle: AgentLifecycle {
+            status: PrimaryStatus::Running,
+            normalized: NormalizedState::new(
+                NormalizedStatus::NeedsInput,
+                Some(NormalizedReason::Review),
+            ),
+            activity: Some(Activity::Generating),
+            last_activity: chrono::Local::now(),
+        },
+        detail: AgentDetail {
+            subagents: Vec::new(),
+            recent_events: VecDeque::new(),
+            todos: Vec::new(),
+        },
+    };
+
+    assert_eq!(agent.display_name(), "review-me");
+    assert_eq!(agent.status().as_str(), "RUNNING");
+    assert_eq!(agent.normalized().reason, Some(NormalizedReason::Review));
+    assert!(agent.elapsed() >= chrono::Duration::minutes(4));
+}
+
+#[test]
+fn test_quota_legacy_fallback_keeps_window_and_summary_views_in_sync() {
+    let snapshot = QuotaSnapshot::legacy_fallback(
+        chrono::Utc::now(),
+        Confidence::Exact,
+        LimitState::Available,
+        None,
+        Some(25),
+        LimitState::Hit,
+        None,
+        Some(90),
+        "25% 5h, 90% weekly".into(),
+    );
+
+    assert_eq!(snapshot.summary, "25% 5h, 90% weekly");
+    assert_eq!(snapshot.confidence, Confidence::Exact);
+    assert_eq!(snapshot.five_hour_state, LimitState::Available);
+    assert_eq!(snapshot.five_hour_used_pct, Some(25));
+    assert_eq!(snapshot.weekly_state, LimitState::Hit);
+    assert_eq!(snapshot.weekly_used_pct, Some(90));
+    assert_eq!(snapshot.windows.len(), 2);
+    assert_eq!(snapshot.windows[0].label, "5h");
+    assert_eq!(snapshot.windows[1].label, "weekly");
+}
+
+#[test]
+fn test_detector_domain_types_encode_health_without_stringly_identifiers() {
+    let healthy = CodexBackendHealth::Healthy;
+    let degraded = CodexBackendHealth::degraded("backend lagging");
+    let notification = DetectorNotification {
+        detector: DetectorKind::ProcessScanner,
+        healthy: false,
+        message: "process scan stalled".into(),
+    };
+
+    assert_eq!(healthy.reason(), None);
+    assert_eq!(degraded.reason(), Some("backend lagging"));
+    assert_eq!(notification.detector, DetectorKind::ProcessScanner);
+    assert_eq!(notification.detector.as_str(), "process-scanner");
+}
+
+#[test]
+fn test_metadata_defaults_keep_profiles_enabled_until_explicitly_disabled() {
+    let codex = ProfileMetadata::default();
+    let claude = ClaudeProfileMetadata::default();
+
+    assert!(codex.enabled);
+    assert!(claude.enabled);
+    assert_eq!(codex.label, None);
+    assert_eq!(claude.label, None);
+    assert_eq!(codex.id, "");
+    assert_eq!(claude.id, "");
 }

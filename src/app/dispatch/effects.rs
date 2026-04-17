@@ -8,9 +8,9 @@ use crate::codex_profiles::quota::fetch_quota_from_api;
 use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::domain::accounts::{AccountEntry, DomainProfile, Provider};
-use crate::services::accounts::{
-    claude as claude_service, codex as codex_service, storage as storage_service,
-};
+use crate::services::accounts::claude_store::ClaudeProfileStore;
+use crate::services::accounts::codex_store::CodexProfileStore;
+use crate::services::accounts::traits::ProfileStore;
 
 pub async fn dispatch_effect(config: &Config, effect: Effect) -> EffectResult {
     match dispatch_effect_inner(config, &effect).await {
@@ -20,33 +20,48 @@ pub async fn dispatch_effect(config: &Config, effect: Effect) -> EffectResult {
 }
 
 async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> Result<EffectResult, AppError> {
+    let codex = CodexProfileStore::new(config.codex_profiles_dir.clone());
+    let claude = ClaudeProfileStore::new(config.claude_profiles_dir.clone());
+
     match effect {
-        Effect::LoadProfiles => load_profiles(config).await,
+        Effect::LoadProfiles => load_profiles(codex, claude).await,
         Effect::LoadEditableProfile {
             provider,
             profile_id,
-        } => load_profile_draft(config, *provider, profile_id).await,
+        } => match provider {
+            Provider::Codex => load_profile_draft(codex, profile_id).await,
+            Provider::Claude => load_profile_draft(claude, profile_id).await,
+        },
         Effect::RefreshCodexQuota { profile_id, origin } => {
             refresh_codex_quota(config, profile_id, *origin).await
         }
         Effect::RefreshClaudeQuota { profile_id, origin } => {
             refresh_claude_quota(config, profile_id, *origin).await
         }
-        Effect::ImportCodexProfile => import_codex_profile(config).await,
-        Effect::ImportClaudeProfile => import_claude_profile(config).await,
+        Effect::ImportCodexProfile => import_profile(codex).await,
+        Effect::ImportClaudeProfile => import_profile(claude).await,
         Effect::SaveProfileEdits {
             provider,
             profile_id,
             draft,
-        } => save_profile_edits(config, *provider, profile_id, draft).await,
+        } => match provider {
+            Provider::Codex => save_profile_edits(codex, profile_id, draft).await,
+            Provider::Claude => save_profile_edits(claude, profile_id, draft).await,
+        },
         Effect::WriteProfileToHome {
             provider,
             profile_id,
-        } => write_profile_to_home(config, *provider, profile_id).await,
+        } => match provider {
+            Provider::Codex => write_profile_to_home(codex, profile_id).await,
+            Provider::Claude => write_profile_to_home(claude, profile_id).await,
+        },
         Effect::DeleteProfile {
             provider,
             profile_id,
-        } => delete_profile(config, *provider, profile_id).await,
+        } => match provider {
+            Provider::Codex => delete_profile(codex, profile_id).await,
+            Provider::Claude => delete_profile(claude, profile_id).await,
+        },
     }
 }
 
@@ -62,54 +77,16 @@ fn quota_auth_missing(profile_id: &str) -> AppError {
     })
 }
 
-async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
-    let codex_profiles_dir = config.codex_profiles_dir.clone();
-    let claude_profiles_dir = config.claude_profiles_dir.clone();
+async fn load_profiles(
+    codex: CodexProfileStore,
+    claude: ClaudeProfileStore,
+) -> Result<EffectResult, AppError> {
     let (profiles, entries) = tokio::task::spawn_blocking(move || {
         let mut profiles = Vec::new();
         let mut entries = Vec::new();
 
-        for profile_id in storage_service::scan_codex_profile_ids(&codex_profiles_dir) {
-            let profile_dir = codex_profiles_dir.join(&profile_id);
-            match storage_service::load_codex_profile(&profile_dir) {
-                Ok(outcome) => {
-                    entries.push(AccountEntry {
-                        provider: Provider::Codex,
-                        profile_id: profile_id.clone().into(),
-                    });
-                    profiles.push(DomainProfile::from(outcome.into_value()));
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        profile_id = %profile_id,
-                        path = %profile_dir.display(),
-                        error = %error,
-                        "skipping invalid Codex profile during startup load"
-                    );
-                }
-            }
-        }
-
-        for profile_id in storage_service::scan_claude_profile_ids(&claude_profiles_dir) {
-            let profile_dir = claude_profiles_dir.join(&profile_id);
-            match storage_service::load_claude_profile(&profile_dir) {
-                Ok(outcome) => {
-                    entries.push(AccountEntry {
-                        provider: Provider::Claude,
-                        profile_id: profile_id.clone().into(),
-                    });
-                    profiles.push(DomainProfile::from(outcome.into_value()));
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        profile_id = %profile_id,
-                        path = %profile_dir.display(),
-                        error = %error,
-                        "skipping invalid Claude profile during startup load"
-                    );
-                }
-            }
-        }
+        load_all_from_store(&codex, &mut profiles, &mut entries);
+        load_all_from_store(&claude, &mut profiles, &mut entries);
 
         Ok::<_, anyhow::Error>((profiles, entries))
     })
@@ -120,46 +97,44 @@ async fn load_profiles(config: &Config) -> Result<EffectResult, AppError> {
     Ok(EffectResult::ProfilesLoaded { profiles, entries })
 }
 
+fn load_all_from_store(
+    store: &impl ProfileStore,
+    profiles: &mut Vec<DomainProfile>,
+    entries: &mut Vec<AccountEntry>,
+) {
+    let provider = store.provider();
+    for profile_id in store.scan_profile_ids() {
+        match store.load_profile(&profile_id) {
+            Ok(outcome) => {
+                entries.push(AccountEntry {
+                    provider,
+                    profile_id: profile_id.clone().into(),
+                });
+                profiles.push(outcome.into_value());
+            }
+            Err(error) => {
+                tracing::warn!(
+                    profile_id = %profile_id,
+                    provider = ?provider,
+                    error = %error,
+                    "skipping invalid profile during startup load"
+                );
+            }
+        }
+    }
+}
+
 async fn load_profile_draft(
-    config: &Config,
-    provider: Provider,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
-    let draft = match provider {
-        Provider::Codex => {
-            let profile_dir = config.codex_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                storage_service::load_codex_profile(&profile_dir).map(|outcome| {
-                    let profile = outcome.into_value();
-                    EditableProfile {
-                        label: profile.label,
-                        notes: profile.notes.unwrap_or_default(),
-                        enabled: profile.enabled,
-                    }
-                })
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?
-        }
-        Provider::Claude => {
-            let profile_dir = config.claude_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                storage_service::load_claude_profile(&profile_dir).map(|outcome| {
-                    let profile = outcome.into_value();
-                    EditableProfile {
-                        label: profile.label,
-                        notes: profile.notes.unwrap_or_default(),
-                        enabled: profile.enabled,
-                    }
-                })
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?
-        }
-    };
+    let provider = store.provider();
+    let pid = profile_id.clone();
+    let draft = tokio::task::spawn_blocking(move || store.load_editable(&pid))
+        .await
+        .map_err(storage_io)?
+        .map_err(storage_io)?;
 
     Ok(EffectResult::EditableProfileLoaded {
         provider,
@@ -217,109 +192,43 @@ async fn refresh_claude_quota(
     })
 }
 
-async fn import_codex_profile(config: &Config) -> Result<EffectResult, AppError> {
-    let profiles_dir = config.codex_profiles_dir.clone();
+async fn import_profile(store: impl ProfileStore) -> Result<EffectResult, AppError> {
     let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
-    let profile = tokio::task::spawn_blocking(move || {
-        codex_service::import_profile_from_home(&profiles_dir, &home)
-    })
-    .await
-    .map_err(storage_io)?
-    .map_err(storage_io)?;
-    Ok(EffectResult::ProfileImported {
-        profile: DomainProfile::from(profile),
-    })
-}
-
-async fn import_claude_profile(config: &Config) -> Result<EffectResult, AppError> {
-    let profiles_dir = config.claude_profiles_dir.clone();
-    let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
-    let profile = tokio::task::spawn_blocking(move || {
-        claude_service::import_profile_from_home(&profiles_dir, &home)
-    })
-    .await
-    .map_err(storage_io)?
-    .map_err(storage_io)?;
-    Ok(EffectResult::ProfileImported {
-        profile: DomainProfile::from(profile),
-    })
+    let profile = tokio::task::spawn_blocking(move || store.import_from_home(&home))
+        .await
+        .map_err(storage_io)?
+        .map_err(storage_io)?;
+    Ok(EffectResult::ProfileImported { profile })
 }
 
 async fn save_profile_edits(
-    config: &Config,
-    provider: Provider,
+    store: impl ProfileStore,
     profile_id: &str,
     draft: &EditableProfile,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
     let draft = draft.clone();
-    let profile = match provider {
-        Provider::Codex => {
-            let profile_dir = config.codex_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                storage_service::save_codex_profile_metadata(
-                    &profile_dir,
-                    &profile_id,
-                    &draft.label,
-                    notes_option(&draft.notes),
-                    draft.enabled,
-                )?;
-                storage_service::load_codex_profile(&profile_dir)
-                    .map(|outcome| DomainProfile::from(outcome.into_value()))
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?
-        }
-        Provider::Claude => {
-            let profile_dir = config.claude_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                storage_service::save_claude_profile_edits(
-                    &profile_dir,
-                    &profile_id,
-                    &draft.label,
-                    notes_option(&draft.notes),
-                    draft.enabled,
-                )?;
-                storage_service::load_claude_profile(&profile_dir)
-                    .map(|outcome| DomainProfile::from(outcome.into_value()))
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?
-        }
-    };
+    let pid = profile_id.clone();
+    let profile = tokio::task::spawn_blocking(move || store.save_edits(&pid, &draft))
+        .await
+        .map_err(storage_io)?
+        .map_err(storage_io)?;
 
     Ok(EffectResult::ProfileSaved { profile })
 }
 
 async fn write_profile_to_home(
-    config: &Config,
-    provider: Provider,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
+    let provider = store.provider();
     let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
-    match provider {
-        Provider::Codex => {
-            let profile_dir = config.codex_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                codex_service::write_profile_to_home(&profile_dir, &home)
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?;
-        }
-        Provider::Claude => {
-            let profile_dir = config.claude_profiles_dir.join(&profile_id);
-            tokio::task::spawn_blocking(move || {
-                claude_service::write_profile_to_home(&profile_dir, &home)
-            })
-            .await
-            .map_err(storage_io)?
-            .map_err(storage_io)?;
-        }
-    }
+    let pid = profile_id.clone();
+    tokio::task::spawn_blocking(move || store.write_to_home(&pid, &home))
+        .await
+        .map_err(storage_io)?
+        .map_err(storage_io)?;
 
     Ok(EffectResult::ProfileWrittenToHome {
         entry: AccountEntry {
@@ -330,16 +239,13 @@ async fn write_profile_to_home(
 }
 
 async fn delete_profile(
-    config: &Config,
-    provider: Provider,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
-    let profile_dir = match provider {
-        Provider::Codex => config.codex_profiles_dir.join(&profile_id),
-        Provider::Claude => config.claude_profiles_dir.join(&profile_id),
-    };
-    tokio::task::spawn_blocking(move || storage_service::delete_profile_dir(&profile_dir))
+    let provider = store.provider();
+    let pid = profile_id.clone();
+    tokio::task::spawn_blocking(move || store.delete(&pid))
         .await
         .map_err(storage_io)?
         .map_err(storage_io)?;
@@ -349,14 +255,6 @@ async fn delete_profile(
             profile_id: profile_id.into(),
         },
     })
-}
-
-fn notes_option(notes: &str) -> Option<String> {
-    if notes.is_empty() {
-        None
-    } else {
-        Some(notes.to_string())
-    }
 }
 
 async fn persist_refreshed_claude_auth_best_effort(

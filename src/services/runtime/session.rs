@@ -7,11 +7,13 @@ use crate::app::state::AccountKey;
 use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider};
 use crate::config::Config;
 use crate::domain::accounts::{QuotaCache, QuotaSnapshot};
+use crate::services::accounts::provider::ConfigStoreProvider;
 use crate::services::accounts::quota as quota_service;
 
 pub(crate) struct RuntimeSession {
     app: AppState,
     config: Config,
+    stores: ConfigStoreProvider,
     interactive_quota_refreshes: BTreeSet<AccountKey>,
     accounts_status_message_expires_at: Option<Instant>,
     started_at: Instant,
@@ -19,9 +21,11 @@ pub(crate) struct RuntimeSession {
 
 impl RuntimeSession {
     pub(crate) fn new(config: Config, app: AppState) -> Self {
+        let stores = ConfigStoreProvider::from_config(&config);
         Self {
             app,
             config,
+            stores,
             interactive_quota_refreshes: BTreeSet::new(),
             accounts_status_message_expires_at: None,
             started_at: Instant::now(),
@@ -161,13 +165,13 @@ impl RuntimeSession {
             .map(|_| Instant::now() + Duration::from_secs(5));
 
         for effect in effects {
-            let result = dispatch_effect(&self.config, effect).await;
+            let result = dispatch_effect(&self.config, &self.stores, effect).await;
             self.apply_effect_result(result);
         }
     }
 
     pub(crate) async fn run_accounts_effect(&mut self, effect: Effect) {
-        let result = dispatch_effect(&self.config, effect).await;
+        let result = dispatch_effect(&self.config, &self.stores, effect).await;
         self.apply_effect_result(result);
     }
 

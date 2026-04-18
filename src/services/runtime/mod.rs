@@ -13,6 +13,7 @@ use crate::app::{AppState, EffectResult, RefreshOrigin};
 use crate::config::Config;
 use crate::detect;
 use crate::event::AgentEvent;
+use crate::services::accounts;
 
 pub(crate) use session::RuntimeSession;
 
@@ -65,14 +66,21 @@ async fn run_loop(
     let token = CancellationToken::new();
     let config = session.config().clone();
 
+    let stores = accounts::provider::ConfigStoreProvider::from_config(&config);
+
     let quota_codex = tokio::spawn(quota::poll_quota_loop(
         config.codex_profiles_dir.clone(),
         effect_tx.clone(),
         {
             let config = config.clone();
+            let stores = stores.clone();
             move |pid, _profile_dir| {
                 let config = config.clone();
-                async move { quota::refresh_codex_quota(&config, pid, RefreshOrigin::Background).await }
+                let stores = stores.clone();
+                async move {
+                    quota::refresh_codex_quota(&config, &stores, pid, RefreshOrigin::Background)
+                        .await
+                }
             }
         },
         token.child_token(),
@@ -83,9 +91,14 @@ async fn run_loop(
         effect_tx.clone(),
         {
             let config = config.clone();
+            let stores = stores.clone();
             move |pid, _profile_dir| {
                 let config = config.clone();
-                async move { quota::refresh_claude_quota(&config, pid, RefreshOrigin::Background).await }
+                let stores = stores.clone();
+                async move {
+                    quota::refresh_claude_quota(&config, &stores, pid, RefreshOrigin::Background)
+                        .await
+                }
             }
         },
         token.child_token(),

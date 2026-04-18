@@ -2,25 +2,38 @@ use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::{Effect, EffectResult, RefreshOrigin};
 use crate::config::Config;
 use crate::domain::accounts::ProfileId;
+use crate::services::accounts::provider::{ConfigStoreProvider, StoreProvider};
 
 use super::RuntimeSession;
 
 pub(super) async fn refresh_codex_quota(
     config: &Config,
+    stores: &dyn StoreProvider,
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
     let profile_id: ProfileId = profile_id.into();
-    dispatch_effect(config, Effect::RefreshCodexQuota { profile_id, origin }).await
+    dispatch_effect(
+        config,
+        stores,
+        Effect::RefreshCodexQuota { profile_id, origin },
+    )
+    .await
 }
 
 pub(super) async fn refresh_claude_quota(
     config: &Config,
+    stores: &dyn StoreProvider,
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
     let profile_id: ProfileId = profile_id.into();
-    dispatch_effect(config, Effect::RefreshClaudeQuota { profile_id, origin }).await
+    dispatch_effect(
+        config,
+        stores,
+        Effect::RefreshClaudeQuota { profile_id, origin },
+    )
+    .await
 }
 
 pub(super) fn spawn_manual_quota_refresh(
@@ -34,8 +47,10 @@ pub(super) fn spawn_manual_quota_refresh(
                 .begin_manual_quota_refresh(crate::domain::accounts::Provider::Claude, &profile_id);
             let tx = effect_tx.clone();
             let config = session.config().clone();
+            let stores = ConfigStoreProvider::from_config(&config);
             tokio::spawn(async move {
-                let result = refresh_claude_quota(&config, profile_id, RefreshOrigin::Manual).await;
+                let result =
+                    refresh_claude_quota(&config, &stores, profile_id, RefreshOrigin::Manual).await;
                 let _ = tx.send(result).await;
             });
         }
@@ -45,8 +60,10 @@ pub(super) fn spawn_manual_quota_refresh(
                 .begin_manual_quota_refresh(crate::domain::accounts::Provider::Codex, &profile_id);
             let tx = effect_tx.clone();
             let config = session.config().clone();
+            let stores = ConfigStoreProvider::from_config(&config);
             tokio::spawn(async move {
-                let result = refresh_codex_quota(&config, profile_id, RefreshOrigin::Manual).await;
+                let result =
+                    refresh_codex_quota(&config, &stores, profile_id, RefreshOrigin::Manual).await;
                 let _ = tx.send(result).await;
             });
         }

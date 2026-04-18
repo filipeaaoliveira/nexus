@@ -8,29 +8,33 @@ use crate::codex_profiles::quota::fetch_quota_from_api;
 use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::domain::accounts::{AccountEntry, DomainProfile, Provider};
-use crate::services::accounts::claude_store::ClaudeProfileStore;
-use crate::services::accounts::codex_store::CodexProfileStore;
+use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::traits::ProfileStore;
 
-pub async fn dispatch_effect(config: &Config, effect: Effect) -> EffectResult {
-    match dispatch_effect_inner(config, &effect).await {
+pub async fn dispatch_effect(
+    config: &Config,
+    stores: &dyn StoreProvider,
+    effect: Effect,
+) -> EffectResult {
+    match dispatch_effect_inner(config, stores, &effect).await {
         Ok(result) => result,
         Err(error) => EffectResult::Failed { effect, error },
     }
 }
 
-async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> Result<EffectResult, AppError> {
-    let codex = CodexProfileStore::new(config.codex_profiles_dir.clone());
-    let claude = ClaudeProfileStore::new(config.claude_profiles_dir.clone());
-
+async fn dispatch_effect_inner(
+    config: &Config,
+    stores: &dyn StoreProvider,
+    effect: &Effect,
+) -> Result<EffectResult, AppError> {
     match effect {
-        Effect::LoadProfiles => load_profiles(codex, claude).await,
+        Effect::LoadProfiles => load_profiles(stores.codex_store(), stores.claude_store()).await,
         Effect::LoadEditableProfile {
             provider,
             profile_id,
         } => match provider {
-            Provider::Codex => load_profile_draft(codex, profile_id).await,
-            Provider::Claude => load_profile_draft(claude, profile_id).await,
+            Provider::Codex => load_profile_draft(stores.codex_store(), profile_id).await,
+            Provider::Claude => load_profile_draft(stores.claude_store(), profile_id).await,
         },
         Effect::RefreshCodexQuota { profile_id, origin } => {
             refresh_codex_quota(config, profile_id, *origin).await
@@ -38,29 +42,29 @@ async fn dispatch_effect_inner(config: &Config, effect: &Effect) -> Result<Effec
         Effect::RefreshClaudeQuota { profile_id, origin } => {
             refresh_claude_quota(config, profile_id, *origin).await
         }
-        Effect::ImportCodexProfile => import_profile(codex).await,
-        Effect::ImportClaudeProfile => import_profile(claude).await,
+        Effect::ImportCodexProfile => import_profile(stores.codex_store()).await,
+        Effect::ImportClaudeProfile => import_profile(stores.claude_store()).await,
         Effect::SaveProfileEdits {
             provider,
             profile_id,
             draft,
         } => match provider {
-            Provider::Codex => save_profile_edits(codex, profile_id, draft).await,
-            Provider::Claude => save_profile_edits(claude, profile_id, draft).await,
+            Provider::Codex => save_profile_edits(stores.codex_store(), profile_id, draft).await,
+            Provider::Claude => save_profile_edits(stores.claude_store(), profile_id, draft).await,
         },
         Effect::WriteProfileToHome {
             provider,
             profile_id,
         } => match provider {
-            Provider::Codex => write_profile_to_home(codex, profile_id).await,
-            Provider::Claude => write_profile_to_home(claude, profile_id).await,
+            Provider::Codex => write_profile_to_home(stores.codex_store(), profile_id).await,
+            Provider::Claude => write_profile_to_home(stores.claude_store(), profile_id).await,
         },
         Effect::DeleteProfile {
             provider,
             profile_id,
         } => match provider {
-            Provider::Codex => delete_profile(codex, profile_id).await,
-            Provider::Claude => delete_profile(claude, profile_id).await,
+            Provider::Codex => delete_profile(stores.codex_store(), profile_id).await,
+            Provider::Claude => delete_profile(stores.claude_store(), profile_id).await,
         },
     }
 }
@@ -78,15 +82,15 @@ fn quota_auth_missing(profile_id: &str) -> AppError {
 }
 
 async fn load_profiles(
-    codex: CodexProfileStore,
-    claude: ClaudeProfileStore,
+    codex: Box<dyn ProfileStore>,
+    claude: Box<dyn ProfileStore>,
 ) -> Result<EffectResult, AppError> {
     let (profiles, entries) = tokio::task::spawn_blocking(move || {
         let mut profiles = Vec::new();
         let mut entries = Vec::new();
 
-        load_all_from_store(&codex, &mut profiles, &mut entries);
-        load_all_from_store(&claude, &mut profiles, &mut entries);
+        load_all_from_store(codex.as_ref(), &mut profiles, &mut entries);
+        load_all_from_store(claude.as_ref(), &mut profiles, &mut entries);
 
         Ok::<_, anyhow::Error>((profiles, entries))
     })
@@ -98,7 +102,7 @@ async fn load_profiles(
 }
 
 fn load_all_from_store(
-    store: &impl ProfileStore,
+    store: &dyn ProfileStore,
     profiles: &mut Vec<DomainProfile>,
     entries: &mut Vec<AccountEntry>,
 ) {
@@ -125,7 +129,7 @@ fn load_all_from_store(
 }
 
 async fn load_profile_draft(
-    store: impl ProfileStore,
+    store: Box<dyn ProfileStore>,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
@@ -192,9 +196,9 @@ async fn refresh_claude_quota(
     })
 }
 
-async fn import_profile(store: impl ProfileStore) -> Result<EffectResult, AppError> {
+async fn import_profile(store: Box<dyn ProfileStore>) -> Result<EffectResult, AppError> {
     let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
-    let profile = tokio::task::spawn_blocking(move || store.import_from_home(&home))
+    let profile = tokio::task::spawn_blocking(move || (*store).import_from_home(&home))
         .await
         .map_err(storage_io)?
         .map_err(storage_io)?;
@@ -202,7 +206,7 @@ async fn import_profile(store: impl ProfileStore) -> Result<EffectResult, AppErr
 }
 
 async fn save_profile_edits(
-    store: impl ProfileStore,
+    store: Box<dyn ProfileStore>,
     profile_id: &str,
     draft: &EditableProfile,
 ) -> Result<EffectResult, AppError> {
@@ -218,7 +222,7 @@ async fn save_profile_edits(
 }
 
 async fn write_profile_to_home(
-    store: impl ProfileStore,
+    store: Box<dyn ProfileStore>,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
@@ -239,7 +243,7 @@ async fn write_profile_to_home(
 }
 
 async fn delete_profile(
-    store: impl ProfileStore,
+    store: Box<dyn ProfileStore>,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
@@ -288,6 +292,7 @@ mod tests {
     use super::*;
     use crate::claude_profiles::auth::{ClaudeAuth, ClaudeOAuthTokens};
     use crate::config::Config;
+    use crate::services::accounts::provider::ConfigStoreProvider;
     use std::path::Path;
     use tempfile::tempdir;
 
@@ -314,8 +319,10 @@ mod tests {
         )
         .unwrap();
 
+        let stores = ConfigStoreProvider::from_config(&config);
         let result = dispatch_effect(
             &config,
+            &stores,
             Effect::SaveProfileEdits {
                 provider: Provider::Codex,
                 profile_id: "profile-01".into(),
@@ -359,8 +366,10 @@ mod tests {
         )
         .unwrap();
 
+        let stores = ConfigStoreProvider::from_config(&config);
         let result = dispatch_effect(
             &config,
+            &stores,
             Effect::LoadEditableProfile {
                 provider: Provider::Codex,
                 profile_id: "profile-03".into(),
@@ -392,8 +401,10 @@ mod tests {
         std::fs::create_dir_all(&profile_dir).unwrap();
         std::fs::write(profile_dir.join(".credentials.json"), r#"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"ref","expiresAt":9999999999000}}"#).unwrap();
 
+        let stores = ConfigStoreProvider::from_config(&config);
         let result = dispatch_effect(
             &config,
+            &stores,
             Effect::DeleteProfile {
                 provider: Provider::Claude,
                 profile_id: "profile-02".into(),
@@ -415,8 +426,10 @@ mod tests {
         let temp = tempdir().unwrap();
         let config = test_config(temp.path());
 
+        let stores = ConfigStoreProvider::from_config(&config);
         let result = dispatch_effect(
             &config,
+            &stores,
             Effect::RefreshClaudeQuota {
                 profile_id: "profile-09".into(),
                 origin: RefreshOrigin::Manual,

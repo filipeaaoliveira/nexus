@@ -2,8 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::app::state::EditableProfile;
-use crate::domain::accounts::{DomainProfile, Provider};
+use crate::domain::accounts::{DomainProfile, EditableProfile, Provider};
 use crate::services::accounts::storage::LoadOutcome;
 use crate::services::accounts::{claude as claude_service, storage as storage_service};
 

@@ -5,12 +5,7 @@ use crate::domain::accounts::{
     AccountEntry, DomainProfile, ProfileId, Provider, ProviderFilter, QuotaSnapshot,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct EditableProfile {
-    pub label: String,
-    pub notes: String,
-    pub enabled: bool,
-}
+pub use crate::domain::accounts::EditableProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountsConfirmAction {

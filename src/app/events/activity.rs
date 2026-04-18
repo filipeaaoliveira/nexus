@@ -10,11 +10,11 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.lifecycle.status = new;
-            agent.lifecycle.last_activity = now;
+            agent.merge_pid(pid);
+            agent.set_status(new);
+            agent.touch(now);
             push_event(
-                &mut agent.detail.recent_events,
+                agent.recent_events_mut(),
                 ActivityEventKind::StatusChanged,
                 format!("{} → {}", old.as_str(), new.as_str()),
                 now,
@@ -31,9 +31,9 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.lifecycle.activity = activity;
-            agent.lifecycle.last_activity = now;
+            agent.merge_pid(pid);
+            agent.set_activity(activity);
+            agent.touch(now);
             self.mark_agents_dirty();
         }
     }
@@ -46,12 +46,12 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.lifecycle.normalized = state;
-            agent.lifecycle.last_activity = now;
+            agent.merge_pid(pid);
+            agent.set_normalized(state);
+            agent.touch(now);
         } else {
             let agent = self.insert_placeholder_agent(id, pid, now);
-            agent.lifecycle.normalized = state;
+            agent.set_normalized(state);
         }
         self.mark_agents_dirty();
         self.clamp_selection();
@@ -65,12 +65,12 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
+            agent.merge_pid(pid);
             let desc = format!("spawned: {}", subagent.name);
-            agent.detail.subagents.push(subagent);
-            agent.lifecycle.last_activity = now;
+            agent.push_subagent(subagent);
+            agent.touch(now);
             push_event(
-                &mut agent.detail.recent_events,
+                agent.recent_events_mut(),
                 ActivityEventKind::SubagentSpawned,
                 desc,
                 now,
@@ -87,16 +87,15 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
+            agent.merge_pid(pid);
             let matching_subagent = if id.tool() == AgentTool::Codex {
-                agent.detail.subagents.iter_mut().find(|s| {
+                agent.subagents_mut().iter_mut().find(|s| {
                     s.name == subagent_name
                         || s.description.as_deref() == Some(subagent_name.as_str())
                 })
             } else {
                 agent
-                    .detail
-                    .subagents
+                    .subagents_mut()
                     .iter_mut()
                     .find(|s| s.name == subagent_name)
             };
@@ -104,9 +103,9 @@ impl AppState {
                 sub.status = PrimaryStatus::Done;
                 sub.ended_at = Some(now);
             }
-            agent.lifecycle.last_activity = now;
+            agent.touch(now);
             push_event(
-                &mut agent.detail.recent_events,
+                agent.recent_events_mut(),
                 ActivityEventKind::SubagentCompleted,
                 format!("completed: {}", subagent_name),
                 now,
@@ -123,17 +122,12 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.detail.subagents = subagents;
-            if agent.detail.subagents.is_empty() {
-                agent.detail.recent_events.retain(|event| {
-                    !matches!(
-                        event.kind,
-                        ActivityEventKind::SubagentSpawned | ActivityEventKind::SubagentCompleted
-                    )
-                });
+            agent.merge_pid(pid);
+            agent.set_subagents(subagents);
+            if agent.subagents().is_empty() {
+                agent.clear_subagent_events();
             }
-            agent.lifecycle.last_activity = now;
+            agent.touch(now);
             self.mark_agents_dirty();
         }
     }
@@ -147,15 +141,15 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.lifecycle.activity = Some(Activity::ToolCall);
-            agent.lifecycle.last_activity = now;
+            agent.merge_pid(pid);
+            agent.set_activity(Some(Activity::ToolCall));
+            agent.touch(now);
             let desc = match args_summary {
                 Some(args) => format!("{} ({})", tool_name, args),
                 None => tool_name,
             };
             push_event(
-                &mut agent.detail.recent_events,
+                agent.recent_events_mut(),
                 ActivityEventKind::ToolCall,
                 desc,
                 now,
@@ -171,11 +165,11 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            if agent.lifecycle.activity == Some(Activity::ToolCall) {
-                agent.lifecycle.activity = Some(Activity::Idle);
+            agent.merge_pid(pid);
+            if agent.activity() == Some(Activity::ToolCall) {
+                agent.set_activity(Some(Activity::Idle));
             }
-            agent.lifecycle.last_activity = now;
+            agent.touch(now);
             self.mark_agents_dirty();
         }
     }
@@ -188,9 +182,9 @@ impl AppState {
         now: chrono::DateTime<chrono::Local>,
     ) {
         if let Some(agent) = self.find_agent_mut_by_id(&id) {
-            agent.ident.pid = pid.or(agent.ident.pid);
-            agent.detail.todos = todos;
-            agent.lifecycle.last_activity = now;
+            agent.merge_pid(pid);
+            agent.set_todos(todos);
+            agent.touch(now);
             self.mark_agents_dirty();
         }
     }

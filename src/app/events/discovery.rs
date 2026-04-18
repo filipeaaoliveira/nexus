@@ -14,18 +14,16 @@ impl AppState {
         if let Some(agent_idx) = self.agents.iter().position(|a| *a.id() == id) {
             let absorbed_pid = {
                 let agent = &mut self.agents[agent_idx];
-                agent.ident.cwd = Some(cwd);
-                agent.ident.pid = pid.or(agent.ident.pid);
+                agent.set_cwd(cwd);
+                agent.merge_pid(pid);
                 if !(preserve_codex_session_status && agent.id().is_session()) {
-                    agent.lifecycle.status = PrimaryStatus::Running;
+                    agent.set_status(PrimaryStatus::Running);
                 }
                 if let Some(real_start) = real_start {
-                    if real_start < agent.ident.started_at {
-                        agent.ident.started_at = real_start;
-                    }
+                    agent.clamp_started_at(real_start);
                 }
-                agent.lifecycle.last_activity = now;
-                agent.ident.pid
+                agent.touch(now);
+                agent.pid()
             };
             self.mark_agents_dirty();
             if id.tool() == AgentTool::Codex && id.is_session() {
@@ -43,17 +41,15 @@ impl AppState {
                 if matching_agent_indices.len() > 1 {
                     for agent_idx in matching_agent_indices {
                         let agent = &mut self.agents[agent_idx];
-                        agent.ident.cwd = Some(cwd.clone());
-                        agent.ident.pid = Some(pid);
+                        agent.set_cwd(cwd.clone());
+                        agent.merge_pid(Some(pid));
                         if !preserve_codex_session_status {
-                            agent.lifecycle.status = PrimaryStatus::Running;
+                            agent.set_status(PrimaryStatus::Running);
                         }
                         if let Some(real_start) = real_start {
-                            if real_start < agent.ident.started_at {
-                                agent.ident.started_at = real_start;
-                            }
+                            agent.clamp_started_at(real_start);
                         }
-                        agent.lifecycle.last_activity = now;
+                        agent.touch(now);
                     }
                     self.mark_agents_dirty();
                     self.clamp_selection();
@@ -61,17 +57,15 @@ impl AppState {
                 }
                 if let Some(agent_idx) = matching_agent_indices.into_iter().next() {
                     let agent = &mut self.agents[agent_idx];
-                    agent.ident.cwd = Some(cwd);
-                    agent.ident.pid = Some(pid);
+                    agent.set_cwd(cwd);
+                    agent.merge_pid(Some(pid));
                     if !preserve_codex_session_status {
-                        agent.lifecycle.status = PrimaryStatus::Running;
+                        agent.set_status(PrimaryStatus::Running);
                     }
                     if let Some(real_start) = real_start {
-                        if real_start < agent.ident.started_at {
-                            agent.ident.started_at = real_start;
-                        }
+                        agent.clamp_started_at(real_start);
                     }
-                    agent.lifecycle.last_activity = now;
+                    agent.touch(now);
                     self.mark_agents_dirty();
                     self.clamp_selection();
                     return;
@@ -83,15 +77,13 @@ impl AppState {
                     if !exited_agent_indices.is_empty() {
                         for agent_idx in exited_agent_indices {
                             let agent = &mut self.agents[agent_idx];
-                            agent.ident.cwd = Some(cwd.clone());
-                            agent.ident.pid = Some(pid);
-                            agent.lifecycle.status = PrimaryStatus::Running;
+                            agent.set_cwd(cwd.clone());
+                            agent.merge_pid(Some(pid));
+                            agent.set_status(PrimaryStatus::Running);
                             if let Some(real_start) = real_start {
-                                if real_start < agent.ident.started_at {
-                                    agent.ident.started_at = real_start;
-                                }
+                                agent.clamp_started_at(real_start);
                             }
-                            agent.lifecycle.last_activity = now;
+                            agent.touch(now);
                         }
                         self.mark_agents_dirty();
                         self.clamp_selection();
@@ -155,7 +147,7 @@ impl AppState {
                         update.started_at,
                         now,
                     );
-                    agent.ident.pid
+                    agent.pid()
                 };
                 self.mark_agents_dirty();
                 self.remove_redundant_codex_process_agents(absorbed_pid);
@@ -165,7 +157,7 @@ impl AppState {
 
             if let Some(pid) = pid {
                 if let Some(agent) = self.find_process_agent_mut(id.tool(), pid) {
-                    agent.ident.id = id.clone();
+                    agent.set_id(id.clone());
                     Self::apply_session_info(
                         agent,
                         Some(pid),

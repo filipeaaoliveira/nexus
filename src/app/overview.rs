@@ -141,7 +141,7 @@ impl AppState {
                             .iter_mut()
                             .find(|agent| *agent.id() == *agent_id)
                         {
-                            agent.ident.alias = Some(input.clone());
+                            agent.set_alias(Some(input.clone()));
                         }
                     }
                 }

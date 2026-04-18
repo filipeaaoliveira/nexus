@@ -50,11 +50,11 @@ impl AppState {
                             self.agents.remove(agent_idx);
                         } else {
                             let agent = &mut self.agents[agent_idx];
-                            agent.lifecycle.status = PrimaryStatus::Exited;
-                            agent.lifecycle.activity = None;
-                            agent.lifecycle.last_activity = now;
+                            agent.set_status(PrimaryStatus::Exited);
+                            agent.set_activity(None);
+                            agent.touch(now);
                             push_event(
-                                &mut agent.detail.recent_events,
+                                agent.recent_events_mut(),
                                 ActivityEventKind::StatusChanged,
                                 "Process exited".to_string(),
                                 now,

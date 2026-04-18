@@ -23,29 +23,25 @@ fn agent_id_projection_tracks_process_and_session_identity() {
 
 #[test]
 fn agent_display_projection_prefers_alias_over_tool_name() {
-    let agent = Agent {
-        ident: AgentIdent {
-            id: AgentId::new(AgentTool::OpenCode, 7),
-            pid: Some(7),
-            session_id: Some("thread-7".into()),
-            alias: Some("focused-runner".into()),
-            cwd: Some(PathBuf::from("/tmp/repo")),
-            branch: Some("main".into()),
-            is_worktree: false,
-            started_at: chrono::Local::now(),
-        },
-        lifecycle: AgentLifecycle {
-            status: PrimaryStatus::Running,
-            normalized: NormalizedState::new(NormalizedStatus::Working, None),
-            activity: Some(Activity::Generating),
-            last_activity: chrono::Local::now(),
-        },
-        detail: AgentDetail {
-            subagents: Vec::new(),
-            recent_events: std::collections::VecDeque::new(),
-            todos: Vec::new(),
-        },
-    };
+    let agent = Agent::new(
+        AgentIdent::new(
+            AgentId::new(AgentTool::OpenCode, 7),
+            Some(7),
+            Some("thread-7".into()),
+            Some("focused-runner".into()),
+            Some(PathBuf::from("/tmp/repo")),
+            Some("main".into()),
+            false,
+            chrono::Local::now(),
+        ),
+        AgentLifecycle::new(
+            PrimaryStatus::Running,
+            NormalizedState::new(NormalizedStatus::Working, None),
+            Some(Activity::Generating),
+            chrono::Local::now(),
+        ),
+        AgentDetail::new(Vec::new(), std::collections::VecDeque::new(), Vec::new()),
+    );
 
     assert_eq!(agent.display_name(), "focused-runner");
 }

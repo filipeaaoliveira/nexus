@@ -134,12 +134,12 @@ impl AppState {
         pid: Option<u32>,
         now: chrono::DateTime<chrono::Local>,
     ) {
-        agent.ident.pid = pid.or(agent.ident.pid);
-        agent.lifecycle.status = PrimaryStatus::Exited;
-        agent.lifecycle.activity = None;
-        agent.lifecycle.last_activity = now;
+        agent.merge_pid(pid);
+        agent.set_status(PrimaryStatus::Exited);
+        agent.set_activity(None);
+        agent.touch(now);
         push_event(
-            &mut agent.detail.recent_events,
+            agent.recent_events_mut(),
             ActivityEventKind::StatusChanged,
             "Process exited".to_string(),
             now,
@@ -155,19 +155,13 @@ impl AppState {
         started_at: Option<chrono::DateTime<chrono::Local>>,
         now: chrono::DateTime<chrono::Local>,
     ) {
-        agent.ident.pid = pid.or(agent.ident.pid);
-        if session_id.is_some() {
-            agent.ident.session_id = session_id;
-        }
-        if branch.is_some() {
-            agent.ident.branch = branch;
-        }
-        agent.ident.is_worktree = is_worktree;
+        agent.merge_pid(pid);
+        agent.set_session_id(session_id);
+        agent.set_branch(branch);
+        agent.set_is_worktree(is_worktree);
         if let Some(real_start) = started_at {
-            if real_start < agent.ident.started_at {
-                agent.ident.started_at = real_start;
-            }
+            agent.clamp_started_at(real_start);
         }
-        agent.lifecycle.last_activity = now;
+        agent.touch(now);
     }
 }

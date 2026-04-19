@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AuthMetadata {
@@ -22,8 +22,6 @@ pub struct StoredCodexProfile {
     pub last_used: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_dir: PathBuf,
-    pub auth_path: PathBuf,
 }
 
 fn default_true() -> bool {
@@ -78,7 +76,7 @@ impl StoredCodexProfile {
     pub fn import_from_auth(
         id: &str,
         label: &str,
-        profile_dir: PathBuf,
+        profile_dir: &Path,
         auth_source: &Path,
     ) -> Result<Self> {
         if id.trim().is_empty() {
@@ -93,7 +91,7 @@ impl StoredCodexProfile {
         let json: Value = serde_json::from_str(&content).context("invalid auth.json")?;
         let metadata = extract_auth_metadata(&json);
 
-        fs::create_dir_all(&profile_dir)
+        fs::create_dir_all(profile_dir)
             .with_context(|| format!("failed to create {}", profile_dir.display()))?;
 
         let auth_path = profile_dir.join("auth.json");
@@ -117,8 +115,6 @@ impl StoredCodexProfile {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir,
-            auth_path,
         })
     }
 }

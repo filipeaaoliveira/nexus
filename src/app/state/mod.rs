@@ -93,7 +93,6 @@ impl RootState {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
-    use std::path::PathBuf;
 
     use super::*;
     use crate::claude_profiles::profile::StoredClaudeProfile;
@@ -116,8 +115,6 @@ mod tests {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir: PathBuf::from(format!("/tmp/{id}")),
-            auth_path: PathBuf::from(format!("/tmp/{id}/auth.json")),
         }
     }
 
@@ -133,8 +130,6 @@ mod tests {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir: PathBuf::from(format!("/tmp/{id}")),
-            auth_path: PathBuf::from(format!("/tmp/{id}/.credentials.json")),
         }
     }
 

@@ -325,7 +325,7 @@ fn codex_profile_imports_auth_and_sets_defaults() {
     fs::write(&source, auth_json).unwrap();
 
     let profile =
-        StoredCodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source)
+        StoredCodexProfile::import_from_auth("profile-1", "Primary", &profile_dir, &source)
             .unwrap();
 
     assert_eq!(profile.id, "profile-1");
@@ -335,10 +335,12 @@ fn codex_profile_imports_auth_and_sets_defaults() {
     assert_eq!(profile.notes, None);
     assert!(profile.enabled);
     assert_eq!(profile.last_used, None);
-    assert_eq!(profile.profile_dir, profile_dir);
-    assert_eq!(profile.auth_path, profile_dir.join("auth.json"));
-    assert!(profile.profile_dir.exists());
-    assert_eq!(fs::read_to_string(&profile.auth_path).unwrap(), auth_json);
+    assert!(profile_dir.exists());
+    assert!(profile_dir.join("auth.json").is_file());
+    assert_eq!(
+        fs::read_to_string(profile_dir.join("auth.json")).unwrap(),
+        auth_json
+    );
     assert_eq!(profile.created_at, profile.updated_at);
 }
 
@@ -351,7 +353,7 @@ fn codex_profile_import_rejects_invalid_auth_without_partial_state() {
     fs::write(&source, "{invalid json").unwrap();
 
     let result =
-        StoredCodexProfile::import_from_auth("profile-1", "Primary", profile_dir.clone(), &source);
+        StoredCodexProfile::import_from_auth("profile-1", "Primary", &profile_dir, &source);
 
     assert!(result.is_err());
     assert!(!profile_dir.exists());
@@ -365,10 +367,9 @@ fn codex_profile_import_rejects_blank_id_or_label() {
 
     fs::write(&source, r#"{"email":"dev@example.com"}"#).unwrap();
 
-    let blank_id =
-        StoredCodexProfile::import_from_auth("   ", "Primary", profile_dir.clone(), &source);
+    let blank_id = StoredCodexProfile::import_from_auth("   ", "Primary", &profile_dir, &source);
     let blank_label =
-        StoredCodexProfile::import_from_auth("profile-1", "\n\t", profile_dir.clone(), &source);
+        StoredCodexProfile::import_from_auth("profile-1", "\n\t", &profile_dir, &source);
 
     assert!(blank_id.is_err());
     assert!(blank_label.is_err());

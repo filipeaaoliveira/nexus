@@ -107,8 +107,6 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredCodexP
         last_used: None,
         created_at: metadata.created_at.unwrap_or(now),
         updated_at: metadata.updated_at.unwrap_or(now),
-        profile_dir: profile_dir.to_path_buf(),
-        auth_path,
     };
 
     if warnings.is_empty() {
@@ -171,8 +169,6 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredClaud
         last_used: None,
         created_at: metadata.created_at.unwrap_or(now),
         updated_at: metadata.updated_at.unwrap_or(now),
-        profile_dir: profile_dir.to_path_buf(),
-        auth_path,
     };
 
     if warnings.is_empty() {

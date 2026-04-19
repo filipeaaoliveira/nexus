@@ -6,7 +6,6 @@ use crate::codex_profiles::profile::StoredCodexProfile;
 use crate::domain::accounts::ProfileId;
 use crate::domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
 use chrono::Utc;
-use std::path::PathBuf;
 
 // ── helpers ──────────────────────────────────────────────────────
 
@@ -22,8 +21,6 @@ fn codex_profile(id: &str) -> StoredCodexProfile {
         last_used: None,
         created_at: now,
         updated_at: now,
-        profile_dir: PathBuf::from(format!("/tmp/{id}")),
-        auth_path: PathBuf::from(format!("/tmp/{id}/auth.json")),
     }
 }
 
@@ -39,8 +36,6 @@ fn claude_profile(id: &str) -> StoredClaudeProfile {
         last_used: None,
         created_at: now,
         updated_at: now,
-        profile_dir: PathBuf::from(format!("/tmp/{id}")),
-        auth_path: PathBuf::from(format!("/tmp/{id}/.credentials.json")),
     }
 }
 

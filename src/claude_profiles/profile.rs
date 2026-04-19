@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::claude_profiles::auth::ClaudeAuth;
 
@@ -17,8 +17,6 @@ pub struct StoredClaudeProfile {
     pub last_used: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_dir: PathBuf,
-    pub auth_path: PathBuf, // profile_dir/.credentials.json
 }
 
 fn default_true() -> bool {
@@ -73,7 +71,7 @@ impl StoredClaudeProfile {
     pub fn import_from_credentials(
         id: &str,
         label: &str,
-        profile_dir: PathBuf,
+        profile_dir: &Path,
         credentials_source: &Path,
     ) -> Result<Self> {
         if id.trim().is_empty() {
@@ -85,7 +83,7 @@ impl StoredClaudeProfile {
 
         let auth = ClaudeAuth::load(credentials_source)?;
 
-        fs::create_dir_all(&profile_dir)
+        fs::create_dir_all(profile_dir)
             .with_context(|| format!("failed to create {}", profile_dir.display()))?;
 
         let auth_path = profile_dir.join(".credentials.json");
@@ -116,8 +114,6 @@ impl StoredClaudeProfile {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir,
-            auth_path,
         })
     }
 }
@@ -191,7 +187,7 @@ mod tests {
         let profile = StoredClaudeProfile::import_from_credentials(
             "profile-01",
             "My Claude",
-            profile_dir.clone(),
+            &profile_dir,
             &source,
         )
         .unwrap();
@@ -206,12 +202,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("c.json");
         fs::write(&source, r#"{}"#).unwrap();
-        let result = StoredClaudeProfile::import_from_credentials(
-            "   ",
-            "label",
-            tmp.path().to_path_buf(),
-            &source,
-        );
+        let result =
+            StoredClaudeProfile::import_from_credentials("   ", "label", tmp.path(), &source);
         assert!(result.is_err());
     }
 

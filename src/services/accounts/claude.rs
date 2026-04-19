@@ -31,7 +31,7 @@ pub fn import_profile_from_credentials(
     let profile = StoredClaudeProfile::import_from_credentials(
         &profile_id,
         &profile_id,
-        profile_dir,
+        &profile_dir,
         credentials_source,
     )?;
 
@@ -45,7 +45,7 @@ pub fn import_profile_from_credentials(
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_claude_profile_metadata(&profile.profile_dir, &metadata)?;
+    save_claude_profile_metadata(&profile_dir, &metadata)?;
 
     Ok(profile)
 }
@@ -131,10 +131,11 @@ mod tests {
         .unwrap();
 
         let profile = import_profile_from_credentials(&profiles_dir, &creds_source).unwrap();
-        let metadata = load_claude_profile_metadata(&profile.profile_dir).unwrap();
+        let profile_dir = profiles_dir.join(&profile.id);
+        let metadata = load_claude_profile_metadata(&profile_dir).unwrap();
 
         assert_eq!(profile.id, "profile-01");
-        assert!(profile.profile_dir.join(".credentials.json").is_file());
+        assert!(profile_dir.join(".credentials.json").is_file());
         assert_eq!(metadata.label.as_deref(), Some("profile-01"));
         assert_eq!(metadata.plan.as_deref(), Some("claude_max"));
         assert!(metadata.enabled);

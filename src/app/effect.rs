@@ -153,7 +153,6 @@ mod tests {
     use crate::domain::accounts::{
         AccountEntry, Confidence, DomainProfile, LimitState, Provider, QuotaSnapshot,
     };
-    use std::path::PathBuf;
 
     use super::*;
 
@@ -169,8 +168,6 @@ mod tests {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir: PathBuf::from(format!("/tmp/{id}")),
-            auth_path: PathBuf::from(format!("/tmp/{id}/auth.json")),
         }
     }
 
@@ -186,8 +183,6 @@ mod tests {
             last_used: None,
             created_at: now,
             updated_at: now,
-            profile_dir: PathBuf::from(format!("/tmp/{id}")),
-            auth_path: PathBuf::from(format!("/tmp/{id}/.credentials.json")),
         }
     }
 

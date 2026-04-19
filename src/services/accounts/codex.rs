@@ -28,7 +28,7 @@ pub fn import_profile_from_auth(
     let profile_id = storage::next_profile_id(profiles_dir);
     let profile_dir = profiles_dir.join(&profile_id);
     let profile =
-        StoredCodexProfile::import_from_auth(&profile_id, &profile_id, profile_dir, auth_source)?;
+        StoredCodexProfile::import_from_auth(&profile_id, &profile_id, &profile_dir, auth_source)?;
 
     let metadata = ProfileMetadata {
         id: profile.id.clone(),
@@ -40,7 +40,7 @@ pub fn import_profile_from_auth(
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_profile_metadata(&profile.profile_dir, &metadata)?;
+    save_profile_metadata(&profile_dir, &metadata)?;
 
     Ok(profile)
 }
@@ -87,12 +87,11 @@ mod tests {
         .unwrap();
 
         let profile = import_profile_from_auth(&profiles_dir, &auth_source).unwrap();
-        let loaded = load_codex_profile(&profile.profile_dir)
-            .unwrap()
-            .into_value();
+        let profile_dir = profiles_dir.join(&profile.id);
+        let loaded = load_codex_profile(&profile_dir).unwrap().into_value();
 
         assert_eq!(profile.id, "profile-01");
-        assert!(profile.profile_dir.join("auth.json").is_file());
+        assert!(profile_dir.join("auth.json").is_file());
         assert_eq!(loaded.label, "profile-01");
         assert_eq!(loaded.email.as_deref(), Some("imported@example.com"));
         assert_eq!(loaded.plan.as_deref(), Some("plus"));

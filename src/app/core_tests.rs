@@ -300,13 +300,9 @@ fn test_import_codex_auth_writes_profile_json() {
 
     let profile_id = "profile-01";
     let profile_dir = profiles_dir.join(profile_id);
-    let profile = StoredCodexProfile::import_from_auth(
-        profile_id,
-        profile_id,
-        profile_dir.clone(),
-        &auth_source,
-    )
-    .unwrap();
+    let profile =
+        StoredCodexProfile::import_from_auth(profile_id, profile_id, &profile_dir, &auth_source)
+            .unwrap();
 
     let metadata = ProfileMetadata {
         id: profile.id.clone(),
@@ -318,7 +314,7 @@ fn test_import_codex_auth_writes_profile_json() {
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_profile_metadata(&profile.profile_dir, &metadata).unwrap();
+    save_profile_metadata(&profile_dir, &metadata).unwrap();
 
     let written = load_profile_metadata(&profile_dir).unwrap();
     assert!(

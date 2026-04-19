@@ -172,20 +172,15 @@ impl RuntimeSession {
     pub(crate) async fn dispatch_action(&mut self, action: Action) -> bool {
         match action {
             Action::QuitRequested => false,
-            Action::Workspace(action) => {
-                self.app.run_workspace_reducer_action(action);
-                true
-            }
-            Action::Overview(action) => {
-                self.app.run_overview_reducer_action(action);
+            Action::Workspace(_) | Action::Overview(_) | Action::System(_) => {
+                reducer::root::reduce(&mut self.app, &action);
+                if matches!(action, Action::System(_)) {
+                    self.app.clamp_help_scroll();
+                }
                 true
             }
             Action::Accounts(action) => {
                 self.run_accounts_reducer_action(action).await;
-                true
-            }
-            Action::System(action) => {
-                self.app.run_system_reducer_action(action);
                 true
             }
             Action::EffectResult(result) => {

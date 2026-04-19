@@ -1,6 +1,6 @@
 use super::*;
-use crate::app::action::OverviewAction;
-use crate::app::state::OverviewMode;
+use crate::app::action::{Action, OverviewAction};
+use crate::app::reducer;
 
 impl AppState {
     #[cfg(test)]
@@ -71,118 +71,10 @@ impl AppState {
     pub(super) fn mark_agents_dirty(&self) {}
 
     pub fn run_overview_reducer_action(&mut self, action: OverviewAction) {
-        match action {
-            OverviewAction::SelectNext => self.select_next_visible(),
-            OverviewAction::SelectPrevious => self.select_previous_visible(),
-            OverviewAction::CycleSortMode => {
-                self.root.overview.sort_mode = self.root.overview.sort_mode.next();
-                self.clamp_selection();
-            }
-            OverviewAction::StartFiltering => {
-                self.root.overview.mode = OverviewMode::Filtering {
-                    input: String::new(),
-                };
-                self.root.overview.filter = None;
-                self.clamp_selection();
-            }
-            OverviewAction::UpdateFilter(input) => {
-                self.root.overview.mode = OverviewMode::Filtering {
-                    input: input.clone(),
-                };
-                self.root.overview.filter = if input.is_empty() { None } else { Some(input) };
-                self.clamp_selection();
-            }
-            OverviewAction::ConfirmFilter => {
-                self.root.overview.mode = OverviewMode::Normal;
-                self.clamp_selection();
-            }
-            #[cfg(test)]
-            OverviewAction::ClearFilter => {
-                self.root.overview.mode = OverviewMode::Normal;
-                self.root.overview.filter = None;
-                self.clamp_selection();
-            }
-            OverviewAction::StartRenaming { agent_id } => {
-                if self
-                    .visible_agents()
-                    .iter()
-                    .any(|agent| *agent.id() == agent_id)
-                {
-                    self.root.overview.mode = OverviewMode::Renaming {
-                        agent_id,
-                        input: String::new(),
-                    };
-                }
-            }
-            OverviewAction::UpdateRenameInput(input) => {
-                if let OverviewMode::Renaming { agent_id, .. } = &self.root.overview.mode {
-                    self.root.overview.mode = OverviewMode::Renaming {
-                        agent_id: agent_id.clone(),
-                        input,
-                    };
-                }
-            }
-            OverviewAction::DismissExited => {
-                self.agents
-                    .retain(|agent| agent.status() != PrimaryStatus::Exited);
-                self.clamp_selection();
-            }
-            OverviewAction::DismissSelected => {
-                if let Some(selected_id) = self.selected_visible_agent_id() {
-                    self.agents.retain(|agent| *agent.id() != selected_id);
-                    self.clamp_selection();
-                }
-            }
-            OverviewAction::ConfirmRename => {
-                if let OverviewMode::Renaming { agent_id, input } = &self.root.overview.mode {
-                    if !input.is_empty() {
-                        if let Some(agent) = self
-                            .agents
-                            .iter_mut()
-                            .find(|agent| *agent.id() == *agent_id)
-                        {
-                            agent.set_alias(Some(input.clone()));
-                        }
-                    }
-                }
-                self.root.overview.mode = OverviewMode::Normal;
-                self.clamp_selection();
-            }
-            OverviewAction::CancelMode => {
-                if matches!(self.root.overview.mode, OverviewMode::Filtering { .. }) {
-                    self.root.overview.filter = None;
-                }
-                self.root.overview.mode = OverviewMode::Normal;
-                self.clamp_selection();
-            }
-        }
+        reducer::root::reduce(self, &Action::Overview(action));
     }
 
-    fn selected_visible_agent_id(&self) -> Option<AgentId> {
+    pub(super) fn selected_visible_agent_id(&self) -> Option<AgentId> {
         crate::app::projection::selected_agent_id(&self.agents, self.root.overview())
-    }
-
-    fn select_next_visible(&mut self) {
-        let len = self.visible_agents().len();
-        if len == 0 {
-            return;
-        }
-
-        self.root.overview.selected_index = Some(match self.root.overview.selected_index {
-            Some(idx) => (idx + 1) % len,
-            None => 0,
-        });
-    }
-
-    fn select_previous_visible(&mut self) {
-        let len = self.visible_agents().len();
-        if len == 0 {
-            return;
-        }
-
-        self.root.overview.selected_index = Some(match self.root.overview.selected_index {
-            Some(idx) => (idx + len - 1) % len,
-            None => len - 1,
-        });
     }
 }

@@ -27,7 +27,7 @@ pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::Overview(action) => overview::reduce(&mut app.root.overview, action),
+        Action::Overview(action) => overview::reduce(&mut app.agents, &mut app.root.overview, action),
         Action::System(action) => system::reduce(&mut app.root.system, action),
     }
 }

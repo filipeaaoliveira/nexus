@@ -38,7 +38,7 @@ impl AppState {
         self.clamp_help_scroll();
     }
 
-    fn clamp_help_scroll(&mut self) {
+    pub(crate) fn clamp_help_scroll(&mut self) {
         let max = crate::ui::help::help_lines(true).len() as u16;
         if let Overlay::Help { scroll } = &mut self.root.system.overlay {
             *scroll = (*scroll).min(max);

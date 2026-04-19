@@ -4,14 +4,14 @@ use std::path::PathBuf;
 pub use crate::domain::accounts::Provider;
 #[cfg(test)]
 pub use crate::domain::accounts::{AccountEntry, ProviderFilter};
-pub use crate::domain::agents::activity::{
-    Activity, ActivityEvent, ActivityEventKind, Subagent, TodoItem,
-};
+pub use crate::domain::agents::activity::{Activity, Subagent, TodoItem};
 pub use crate::domain::agents::ids::{AgentId, AgentTool};
-pub use crate::domain::agents::model::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 pub use crate::domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
+pub use agent::{ActivityEvent, ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle};
+
 pub mod action;
+pub mod agent;
 mod core;
 pub mod dispatch;
 pub mod effect;

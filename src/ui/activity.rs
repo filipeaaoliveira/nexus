@@ -4,7 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::domain::agents::activity::{ActivityEventKind, Subagent};
+use crate::app::agent::ActivityEventKind;
+use crate::domain::agents::activity::Subagent;
 use crate::domain::shared::time::format_duration;
 
 use super::{theme, RenderData};

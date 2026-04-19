@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 
+use crate::app::agent::Agent;
 use crate::app::state::OverviewState;
 use crate::domain::agents::activity::Activity;
-use crate::domain::agents::model::{Agent, SortMode};
 use crate::domain::agents::status::NormalizedStatus;
 #[cfg(test)]
 use crate::domain::agents::status::PrimaryStatus;
+use crate::domain::agents::SortMode;
 
 /// A projected view of an `Agent` for UI rendering.
 ///

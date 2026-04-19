@@ -29,22 +29,6 @@ impl std::fmt::Display for Activity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ActivityEventKind {
-    ToolCall,
-    SubagentSpawned,
-    SubagentCompleted,
-    StatusChanged,
-    Message,
-}
-
-#[derive(Debug, Clone)]
-pub struct ActivityEvent {
-    pub timestamp: DateTime<Local>,
-    pub kind: ActivityEventKind,
-    pub description: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct Subagent {
     pub name: String,

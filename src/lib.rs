@@ -29,11 +29,15 @@ pub mod testing {
         Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
     };
 
-    // domain::agents
+    // domain::agents — shared vocabulary only
     pub use crate::domain::agents::{
-        Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
-        NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus, SortMode, TodoItem,
-        TodoPriority, TodoStatus,
+        Activity, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
+        PrimaryStatus, SortMode, Subagent, TodoItem, TodoPriority, TodoStatus,
+    };
+
+    // app::agent — the stateful composite
+    pub use crate::app::agent::{
+        ActivityEvent, ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
     };
 
     // domain::shared

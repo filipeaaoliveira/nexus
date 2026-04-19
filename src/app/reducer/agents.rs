@@ -108,7 +108,7 @@ pub fn reduce(
 // ── Activity handlers ───────────────────────────────────────
 
 fn reduce_status_changed(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     old: PrimaryStatus,
@@ -129,7 +129,7 @@ fn reduce_status_changed(
 }
 
 fn reduce_activity_changed(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     activity: Option<nexus_domain::agents::activity::Activity>,
@@ -161,7 +161,7 @@ fn reduce_normalized_state_changed(
 }
 
 fn reduce_subagent_spawned(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     subagent: &Subagent,
@@ -182,7 +182,7 @@ fn reduce_subagent_spawned(
 }
 
 fn reduce_subagent_completed(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     subagent_name: &str,
@@ -216,7 +216,7 @@ fn reduce_subagent_completed(
 }
 
 fn reduce_subagents_updated(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     subagents: &[Subagent],
@@ -233,7 +233,7 @@ fn reduce_subagents_updated(
 }
 
 fn reduce_tool_call_started(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     tool_name: &str,
@@ -258,7 +258,7 @@ fn reduce_tool_call_started(
 }
 
 fn reduce_tool_call_completed(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     now: DateTime<Local>,
@@ -273,7 +273,7 @@ fn reduce_tool_call_completed(
 }
 
 fn reduce_todos_updated(
-    agents: &mut Vec<Agent>,
+    agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
     todos: &[nexus_domain::agents::activity::TodoItem],

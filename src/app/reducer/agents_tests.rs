@@ -89,8 +89,7 @@ fn reduce_discovered_creates_new_agent() {
 #[test]
 fn reduce_discovered_updates_existing_agent() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 
@@ -110,8 +109,7 @@ fn reduce_discovered_updates_existing_agent() {
 #[test]
 fn reduce_status_changed_updates_agent_status() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 
@@ -141,8 +139,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
     )];
     // Also add the process agent that will trigger the exit
     let process_id = AgentId::new(AgentTool::Codex, 50);
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 
@@ -162,8 +159,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
 fn reduce_process_exited_removes_claude_process_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let agent_id = agents[0].id().clone();
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 
@@ -181,8 +177,7 @@ fn reduce_process_exited_removes_claude_process_agents() {
 fn reduce_tool_call_sets_activity_and_pushes_event() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let agent_id = agents[0].id().clone();
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 
@@ -205,8 +200,7 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
 #[test]
 fn reduce_detector_health_updates_root_not_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState::default();
-    overview.selected_index = Some(0);
+    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
     let now = Local::now();
 

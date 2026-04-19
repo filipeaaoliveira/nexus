@@ -173,8 +173,7 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Exited),
         ];
-        let mut state = OverviewState::default();
-        state.selected_index = Some(1);
+        let mut state = OverviewState { selected_index: Some(1), ..Default::default() };
         reduce(&mut agents, &mut state, &OverviewAction::DismissExited);
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].pid(), Some(1));
@@ -187,8 +186,7 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Running),
         ];
-        let mut state = OverviewState::default();
-        state.selected_index = Some(0);
+        let mut state = OverviewState { selected_index: Some(0), ..Default::default() };
         reduce(&mut agents, &mut state, &OverviewAction::DismissSelected);
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].pid(), Some(2));
@@ -198,11 +196,13 @@ mod tests {
     fn confirm_rename_applies_alias_to_agent() {
         let mut agents = vec![make_agent(AgentTool::Claude, 1, PrimaryStatus::Running)];
         let agent_id = agents[0].id().clone();
-        let mut state = OverviewState::default();
-        state.selected_index = Some(0);
-        state.mode = OverviewMode::Renaming {
-            agent_id,
-            input: "my-agent".to_string(),
+        let mut state = OverviewState {
+            selected_index: Some(0),
+            mode: OverviewMode::Renaming {
+                agent_id,
+                input: "my-agent".to_string(),
+            },
+            ..Default::default()
         };
         reduce(&mut agents, &mut state, &OverviewAction::ConfirmRename);
         assert_eq!(agents[0].alias(), Some("my-agent"));
@@ -215,8 +215,7 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Running),
         ];
-        let mut state = OverviewState::default();
-        state.selected_index = Some(1);
+        let mut state = OverviewState { selected_index: Some(1), ..Default::default() };
         reduce(&mut agents, &mut state, &OverviewAction::SelectNext);
         assert_eq!(state.selected_index, Some(0));
     }

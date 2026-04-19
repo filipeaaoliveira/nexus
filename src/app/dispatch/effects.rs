@@ -288,6 +288,10 @@ async fn persist_refreshed_claude_auth_best_effort(
 }
 
 #[cfg(test)]
+#[path = "effects_mock_test.rs"]
+mod mock_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::claude_profiles::auth::{ClaudeAuth, ClaudeOAuthTokens};

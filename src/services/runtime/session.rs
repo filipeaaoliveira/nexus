@@ -57,9 +57,7 @@ impl RuntimeSession {
     }
 
     pub(crate) fn begin_manual_quota_refresh(&mut self, provider: Provider, profile_id: &str) {
-        let mut root = self.app.accounts_root_state();
-        root.set_accounts_quota_loading(true);
-        self.app.apply_accounts_root_state(&root);
+        self.app.set_accounts_quota_loading(true);
         self.interactive_quota_refreshes
             .insert(AccountKey::new(provider, profile_id.to_string()));
     }
@@ -67,9 +65,7 @@ impl RuntimeSession {
     pub(crate) fn clear_expired_accounts_status(&mut self) {
         if let Some(expires_at) = self.accounts_status_message_expires_at {
             if Instant::now() >= expires_at {
-                let mut root = self.app.accounts_root_state();
-                root.clear_accounts_status_message();
-                self.app.apply_accounts_root_state(&root);
+                self.app.clear_accounts_status_message();
                 self.accounts_status_message_expires_at = None;
             }
         }
@@ -135,13 +131,10 @@ impl RuntimeSession {
             }
         }
 
-        let mut root = self.app.accounts_root_state();
-        reducer::root::reduce(&mut root, &Action::EffectResult(result));
-        root.set_accounts_quota_loading(!self.interactive_quota_refreshes.is_empty());
-        self.app.apply_accounts_root_state(&root);
-        self.accounts_status_message_expires_at = root
-            .accounts()
-            .status_message()
+        reducer::root::reduce(&mut self.app, &Action::EffectResult(result));
+        self.app.set_accounts_quota_loading(!self.interactive_quota_refreshes.is_empty());
+        self.accounts_status_message_expires_at = self.app
+            .accounts_status_message()
             .map(|_| Instant::now() + Duration::from_secs(5));
 
         if let Some((provider, profile_id, quota)) = refreshed_quota {
@@ -156,12 +149,9 @@ impl RuntimeSession {
     }
 
     pub(crate) async fn run_accounts_reducer_action(&mut self, action: AccountsAction) {
-        let mut root = self.app.accounts_root_state();
-        let effects = reducer::root::reduce(&mut root, &Action::Accounts(action));
-        self.app.apply_accounts_root_state(&root);
-        self.accounts_status_message_expires_at = root
-            .accounts()
-            .status_message()
+        let effects = reducer::root::reduce(&mut self.app, &Action::Accounts(action));
+        self.accounts_status_message_expires_at = self.app
+            .accounts_status_message()
             .map(|_| Instant::now() + Duration::from_secs(5));
 
         for effect in effects {

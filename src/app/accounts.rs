@@ -3,13 +3,16 @@ use super::*;
 use nexus_domain::accounts::ProfileId;
 
 impl AppState {
-    pub(crate) fn accounts_root_state(&self) -> RootState {
-        self.root.clone()
+    pub(crate) fn set_accounts_quota_loading(&mut self, loading: bool) {
+        self.root.accounts.set_quota_loading(loading);
     }
 
-    pub(crate) fn apply_accounts_root_state(&mut self, root: &RootState) {
-        self.root.accounts = root.accounts.clone();
-        self.root.system = root.system.clone();
+    pub(crate) fn clear_accounts_status_message(&mut self) {
+        self.root.accounts.clear_status_message();
+    }
+
+    pub(crate) fn accounts_status_message(&self) -> Option<&str> {
+        self.root.accounts.status_message()
     }
 
     pub fn dismiss_accounts_overlay(&mut self) {

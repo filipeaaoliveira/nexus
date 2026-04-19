@@ -22,7 +22,7 @@ impl AppState {
     }
 
     pub fn run_workspace_reducer_action(&mut self, action: WorkspaceAction) {
-        let effects = reducer::root::reduce(&mut self.root, &Action::Workspace(action));
+        let effects = reducer::root::reduce(self, &Action::Workspace(action));
         debug_assert!(
             effects.is_empty(),
             "workspace reducer should not emit effects yet"
@@ -30,7 +30,7 @@ impl AppState {
     }
 
     pub fn run_system_reducer_action(&mut self, action: SystemAction) {
-        let effects = reducer::root::reduce(&mut self.root, &Action::System(action));
+        let effects = reducer::root::reduce(self, &Action::System(action));
         debug_assert!(
             effects.is_empty(),
             "system reducer should not emit effects yet"

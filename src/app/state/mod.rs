@@ -80,14 +80,6 @@ impl RootState {
         self.accounts
             .upsert_quota(AccountKey::new(provider, profile_id.into()), quota);
     }
-
-    pub(crate) fn clear_accounts_status_message(&mut self) {
-        self.accounts.clear_status_message();
-    }
-
-    pub(crate) fn set_accounts_quota_loading(&mut self, loading: bool) {
-        self.accounts.set_quota_loading(loading);
-    }
 }
 
 #[cfg(test)]

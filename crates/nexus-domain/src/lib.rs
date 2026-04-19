@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod accounts;
 pub mod agents;
 pub mod shared;

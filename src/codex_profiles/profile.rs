@@ -56,11 +56,11 @@ impl Default for ProfileMetadata {
     }
 }
 
-impl From<StoredCodexProfile> for crate::domain::accounts::DomainProfile {
+impl From<StoredCodexProfile> for nexus_domain::accounts::DomainProfile {
     fn from(p: StoredCodexProfile) -> Self {
         Self {
-            id: crate::domain::accounts::ProfileId::new(p.id),
-            provider: crate::domain::accounts::Provider::Codex,
+            id: nexus_domain::accounts::ProfileId::new(p.id),
+            provider: nexus_domain::accounts::Provider::Codex,
             label: p.label,
             email: p.email,
             plan: p.plan,

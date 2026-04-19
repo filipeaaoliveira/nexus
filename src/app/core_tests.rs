@@ -3,12 +3,12 @@ use crate::app::state::AccountsState;
 use crate::codex_profiles::profile::{
     load_profile_metadata, save_profile_metadata, ProfileMetadata, StoredCodexProfile,
 };
-use crate::domain::agents::ids::{AgentId, AgentTool};
-use crate::domain::agents::model::SortMode;
-use crate::domain::agents::status::PrimaryStatus;
-use crate::domain::system::DetectorKind;
 use crate::event::AgentEvent;
 use crate::services::accounts::storage::next_profile_id;
+use nexus_domain::agents::ids::{AgentId, AgentTool};
+use nexus_domain::agents::model::SortMode;
+use nexus_domain::agents::status::PrimaryStatus;
+use nexus_domain::system::DetectorKind;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

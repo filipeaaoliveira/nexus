@@ -1,7 +1,7 @@
 use crate::app::RootState;
 use crate::config::Config;
-use crate::domain::accounts::Provider;
 use crate::services::accounts::quota::load_quota_cache;
+use nexus_domain::accounts::Provider;
 
 pub(super) fn load_root_state(config: &Config) -> RootState {
     let mut root = RootState::default();

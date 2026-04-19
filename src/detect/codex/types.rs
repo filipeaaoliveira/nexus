@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 
-use crate::domain::agents::activity::TodoItem;
-use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::status::{NormalizedReason, PrimaryStatus};
-use crate::domain::system::health::CodexBackendHealth;
+use nexus_domain::agents::activity::TodoItem;
+use nexus_domain::agents::ids::AgentId;
+use nexus_domain::agents::status::{NormalizedReason, PrimaryStatus};
+use nexus_domain::system::health::CodexBackendHealth;
 
 // ── Types ─────────────────────────────────────────────────────────
 

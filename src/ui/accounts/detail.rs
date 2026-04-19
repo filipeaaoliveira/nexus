@@ -6,9 +6,9 @@ use ratatui::Frame;
 
 use crate::app::state::AccountKey;
 use crate::app::AccountsMode;
-use crate::domain::accounts::Provider;
-use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 use crate::services::runtime::RuntimeSession;
+use nexus_domain::accounts::Provider;
+use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 
 use super::provider_badge_color;
 use crate::ui::theme;
@@ -273,7 +273,7 @@ fn format_reset_duration(reset_at: chrono::DateTime<chrono::Utc>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::accounts::LimitState;
+    use nexus_domain::accounts::LimitState;
 
     use super::{quota_bar_spans, quota_row};
 

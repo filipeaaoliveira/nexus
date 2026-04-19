@@ -1,7 +1,7 @@
 use super::{
     extract_claude_resume_session, parse_lsof_cwd, parse_ps_output as parse_ps_output_impl,
 };
-use crate::domain::agents::AgentTool;
+use nexus_domain::agents::AgentTool;
 use std::path::PathBuf;
 
 #[test]

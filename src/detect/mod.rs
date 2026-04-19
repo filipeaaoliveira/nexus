@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tracing::error;
 
-use crate::domain::agents::ids::AgentId;
+use nexus_domain::agents::ids::AgentId;
 
 #[derive(Debug, Clone)]
 struct CachedWorktreeInfo {
@@ -246,9 +246,9 @@ pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentE
 #[cfg(test)]
 mod tests {
     use super::forward_agent_events;
-    use crate::domain::agents::ids::{AgentId, AgentTool};
     use crate::event::AgentEvent;
     use chrono::Local;
+    use nexus_domain::agents::ids::{AgentId, AgentTool};
     use std::path::PathBuf;
     use std::time::Duration;
     use tokio::sync::mpsc;

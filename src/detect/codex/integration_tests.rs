@@ -1,12 +1,12 @@
 use crate::detect::codex::*;
 use crate::detect::registry::RegistrySnapshot;
-use crate::domain::agents::{
+use crate::event::AgentEvent;
+use nexus_domain::agents::{
     Activity, AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoItem,
     TodoPriority, TodoStatus,
 };
-use crate::domain::shared::from_epoch_secs;
-use crate::domain::system::CodexBackendHealth;
-use crate::event::AgentEvent;
+use nexus_domain::shared::from_epoch_secs;
+use nexus_domain::system::CodexBackendHealth;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};

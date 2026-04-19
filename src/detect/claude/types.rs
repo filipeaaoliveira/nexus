@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::domain::agents::activity::TodoItem;
-use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
+use nexus_domain::agents::activity::TodoItem;
+use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 
 /// A parsed entry from a Claude transcript JSONL file.
 #[derive(Debug, Clone)]

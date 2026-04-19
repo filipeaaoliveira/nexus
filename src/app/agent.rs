@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
 
-use crate::domain::agents::activity::{Activity, Subagent, TodoItem};
-use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
+use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
+use nexus_domain::agents::ids::AgentId;
+use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 
 // ── Sub-structs ──────────────────────────────────────────────
 

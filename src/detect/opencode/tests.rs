@@ -1,9 +1,9 @@
 use crate::detect::opencode::*;
-use crate::domain::agents::AgentTool;
-use crate::domain::agents::{
+use crate::event::AgentEvent;
+use nexus_domain::agents::AgentTool;
+use nexus_domain::agents::{
     Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
 };
-use crate::event::AgentEvent;
 use std::path::PathBuf;
 
 /// Create a temporary SQLite DB with the `message` table for testing.

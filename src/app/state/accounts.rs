@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
-use crate::domain::accounts::{
+use nexus_domain::accounts::{
     AccountEntry, DomainProfile, ProfileId, Provider, ProviderFilter, QuotaSnapshot,
 };
 
-pub use crate::domain::accounts::EditableProfile;
+pub use nexus_domain::accounts::EditableProfile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountsConfirmAction {

@@ -1,7 +1,7 @@
 use crate::app::action::AccountsAction;
 use crate::app::effect::{Effect, EffectResult};
 use crate::app::state::{AccountKey, AccountsMode, AccountsState, Workflow};
-use crate::domain::accounts::{AccountEntry, DomainProfile, Provider, ProviderFilter};
+use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider, ProviderFilter};
 
 pub fn reduce(
     state: &mut AccountsState,

@@ -1,8 +1,8 @@
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::{Effect, EffectResult, RefreshOrigin};
 use crate::config::Config;
-use crate::domain::accounts::ProfileId;
 use crate::services::accounts::provider::{ConfigStoreProvider, StoreProvider};
+use nexus_domain::accounts::ProfileId;
 
 use super::RuntimeSession;
 
@@ -41,10 +41,10 @@ pub(super) fn spawn_manual_quota_refresh(
     effect_tx: &tokio::sync::mpsc::Sender<EffectResult>,
 ) {
     match session.selected_account() {
-        Some((crate::domain::accounts::Provider::Claude, profile_id)) => {
+        Some((nexus_domain::accounts::Provider::Claude, profile_id)) => {
             let profile_id = profile_id.to_string();
             session
-                .begin_manual_quota_refresh(crate::domain::accounts::Provider::Claude, &profile_id);
+                .begin_manual_quota_refresh(nexus_domain::accounts::Provider::Claude, &profile_id);
             let tx = effect_tx.clone();
             let config = session.config().clone();
             let stores = ConfigStoreProvider::from_config(&config);
@@ -54,10 +54,10 @@ pub(super) fn spawn_manual_quota_refresh(
                 let _ = tx.send(result).await;
             });
         }
-        Some((crate::domain::accounts::Provider::Codex, profile_id)) => {
+        Some((nexus_domain::accounts::Provider::Codex, profile_id)) => {
             let profile_id = profile_id.to_string();
             session
-                .begin_manual_quota_refresh(crate::domain::accounts::Provider::Codex, &profile_id);
+                .begin_manual_quota_refresh(nexus_domain::accounts::Provider::Codex, &profile_id);
             let tx = effect_tx.clone();
             let config = session.config().clone();
             let stores = ConfigStoreProvider::from_config(&config);
@@ -133,7 +133,7 @@ mod tests {
 
     use super::poll_quota_loop;
     use crate::app::{Effect, EffectResult, RefreshOrigin};
-    use crate::domain::accounts::{Confidence, LimitState, QuotaSnapshot};
+    use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot};
     use tokio_util::sync::CancellationToken;
 
     fn test_snapshot() -> QuotaSnapshot {

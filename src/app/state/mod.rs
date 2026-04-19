@@ -63,7 +63,7 @@ impl RootState {
 
     pub fn record_detector_health(
         &mut self,
-        detector: crate::domain::system::DetectorKind,
+        detector: nexus_domain::system::DetectorKind,
         healthy: bool,
         message: impl Into<String>,
     ) {
@@ -73,9 +73,9 @@ impl RootState {
 
     pub(crate) fn load_cached_quota(
         &mut self,
-        provider: crate::domain::accounts::Provider,
+        provider: nexus_domain::accounts::Provider,
         profile_id: impl Into<String>,
-        quota: crate::domain::accounts::QuotaSnapshot,
+        quota: nexus_domain::accounts::QuotaSnapshot,
     ) {
         self.accounts
             .upsert_quota(AccountKey::new(provider, profile_id.into()), quota);
@@ -97,11 +97,11 @@ mod tests {
     use super::*;
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
-    use crate::domain::accounts::{
+    use nexus_domain::accounts::{
         AccountEntry, Confidence, DomainProfile, LimitState, Provider, ProviderFilter,
         QuotaSnapshot,
     };
-    use crate::domain::agents::model::SortMode;
+    use nexus_domain::agents::model::SortMode;
 
     fn codex_profile(id: &str) -> StoredCodexProfile {
         let now = Utc::now();
@@ -300,7 +300,7 @@ mod tests {
         let mut state = RootState::default();
 
         state.record_detector_health(
-            crate::domain::system::DetectorKind::Codex,
+            nexus_domain::system::DetectorKind::Codex,
             false,
             "sqlite unavailable",
         );
@@ -308,23 +308,19 @@ mod tests {
             state
                 .system
                 .detector_health
-                .get(&crate::domain::system::DetectorKind::Codex),
+                .get(&nexus_domain::system::DetectorKind::Codex),
             Some(&DetectorHealth {
                 healthy: false,
                 message: "sqlite unavailable".to_string(),
             })
         );
 
-        state.record_detector_health(
-            crate::domain::system::DetectorKind::Codex,
-            true,
-            "recovered",
-        );
+        state.record_detector_health(nexus_domain::system::DetectorKind::Codex, true, "recovered");
         assert_eq!(
             state
                 .system
                 .detector_health
-                .get(&crate::domain::system::DetectorKind::Codex),
+                .get(&nexus_domain::system::DetectorKind::Codex),
             Some(&DetectorHealth {
                 healthy: true,
                 message: "recovered".to_string(),

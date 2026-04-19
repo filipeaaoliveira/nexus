@@ -7,11 +7,11 @@ use chrono::Local;
 use tokio::sync::mpsc;
 
 use crate::detect::registry::RegistryHandle;
-use crate::domain::agents::activity::Subagent;
-use crate::domain::agents::ids::{AgentId, AgentTool};
-use crate::domain::agents::status::PrimaryStatus;
-use crate::domain::shared::time::from_rfc3339;
 use crate::event::AgentEvent;
+use nexus_domain::agents::activity::Subagent;
+use nexus_domain::agents::ids::{AgentId, AgentTool};
+use nexus_domain::agents::status::PrimaryStatus;
+use nexus_domain::shared::time::from_rfc3339;
 
 mod inference;
 mod parser;

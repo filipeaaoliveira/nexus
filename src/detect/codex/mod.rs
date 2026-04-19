@@ -78,10 +78,10 @@ mod tests {
         ObservedCodexSubagent, ObservedCodexThread,
     };
     use crate::detect::registry::RegistrySnapshot;
-    use crate::domain::agents::ids::{AgentId, AgentTool};
-    use crate::domain::agents::status::PrimaryStatus;
-    use crate::domain::shared::time::from_epoch_secs;
     use crate::event::AgentEvent;
+    use nexus_domain::agents::ids::{AgentId, AgentTool};
+    use nexus_domain::agents::status::PrimaryStatus;
+    use nexus_domain::shared::time::from_epoch_secs;
     use rusqlite::Connection;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};

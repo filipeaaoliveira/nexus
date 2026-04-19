@@ -2,10 +2,10 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 
-use crate::domain::agents::activity::{Activity, Subagent, TodoItem};
-use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
-use crate::domain::system::DetectorKind;
+use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
+use nexus_domain::agents::ids::AgentId;
+use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
+use nexus_domain::system::DetectorKind;
 
 #[derive(Debug, Clone)]
 pub enum AgentEvent {

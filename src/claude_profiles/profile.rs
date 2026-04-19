@@ -51,11 +51,11 @@ impl Default for ClaudeProfileMetadata {
     }
 }
 
-impl From<StoredClaudeProfile> for crate::domain::accounts::DomainProfile {
+impl From<StoredClaudeProfile> for nexus_domain::accounts::DomainProfile {
     fn from(p: StoredClaudeProfile) -> Self {
         Self {
-            id: crate::domain::accounts::ProfileId::new(p.id),
-            provider: crate::domain::accounts::Provider::Claude,
+            id: nexus_domain::accounts::ProfileId::new(p.id),
+            provider: nexus_domain::accounts::Provider::Claude,
             label: p.label,
             email: p.email,
             plan: p.plan,

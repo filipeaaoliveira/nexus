@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(test)]
-use crate::domain::accounts::ProfileId;
+use nexus_domain::accounts::ProfileId;
 
 impl AppState {
     pub(crate) fn accounts_root_state(&self) -> RootState {

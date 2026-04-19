@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use crate::domain::accounts::{ProfileId, Provider};
-use crate::domain::system::DetectorKind;
+use nexus_domain::accounts::{ProfileId, Provider};
+use nexus_domain::system::DetectorKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetectorHealth {

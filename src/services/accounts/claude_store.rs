@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::domain::accounts::{DomainProfile, EditableProfile, Provider};
 use crate::services::accounts::storage::LoadOutcome;
 use crate::services::accounts::{claude as claude_service, storage as storage_service};
+use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
 
 use super::traits::ProfileStore;
 

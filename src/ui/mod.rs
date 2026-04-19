@@ -13,8 +13,8 @@ use ratatui::Frame;
 
 use crate::app::projection::AgentView;
 use crate::app::{AppState, Workspace};
-use crate::domain::agents::status::NormalizedStatus;
 use crate::services::runtime::RuntimeSession;
+use nexus_domain::agents::status::NormalizedStatus;
 
 pub struct HeaderStats {
     pub total: usize,
@@ -99,10 +99,10 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::AppState;
-    use crate::domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
-    use crate::domain::agents::{AgentId, AgentTool};
     use crate::event::AgentEvent;
     use crate::services::runtime::RuntimeSession;
+    use nexus_domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
+    use nexus_domain::agents::{AgentId, AgentTool};
 
     use super::RenderData;
 

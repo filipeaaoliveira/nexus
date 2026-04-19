@@ -4,10 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use crate::domain::agents::activity::TodoStatus;
-use crate::domain::agents::ids::AgentTool;
-use crate::domain::agents::status::NormalizedStatus;
-use crate::domain::shared::time::format_duration_short;
+use nexus_domain::agents::activity::TodoStatus;
+use nexus_domain::agents::ids::AgentTool;
+use nexus_domain::agents::status::NormalizedStatus;
+use nexus_domain::shared::time::format_duration_short;
 
 use super::{theme, RenderData};
 

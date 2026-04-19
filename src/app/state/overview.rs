@@ -1,5 +1,5 @@
-use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::model::SortMode;
+use nexus_domain::agents::ids::AgentId;
+use nexus_domain::agents::model::SortMode;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum OverviewMode {

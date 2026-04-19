@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tracing::debug;
 
-use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
+use nexus_domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
 use super::types::SessionIndexEntry;
 #[cfg(test)]

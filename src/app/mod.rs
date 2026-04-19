@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-pub use crate::domain::accounts::Provider;
+pub use nexus_domain::accounts::Provider;
 #[cfg(test)]
-pub use crate::domain::accounts::{AccountEntry, ProviderFilter};
-pub use crate::domain::agents::activity::{Activity, Subagent, TodoItem};
-pub use crate::domain::agents::ids::{AgentId, AgentTool};
-pub use crate::domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
+pub use nexus_domain::accounts::{AccountEntry, ProviderFilter};
+pub use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
+pub use nexus_domain::agents::ids::{AgentId, AgentTool};
+pub use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
 pub use agent::{ActivityEvent, ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle};
 

@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::domain::accounts::quota::{
+use nexus_domain::accounts::quota::{
     Confidence, CreditsState, LimitState, QuotaSnapshot, QuotaWindow,
 };
 

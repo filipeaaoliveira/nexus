@@ -1,4 +1,4 @@
-use crate::domain::accounts::{AccountEntry, DomainProfile, ProfileId, Provider, QuotaSnapshot};
+use nexus_domain::accounts::{AccountEntry, DomainProfile, ProfileId, Provider, QuotaSnapshot};
 
 use super::state::EditableProfile;
 
@@ -150,7 +150,7 @@ mod tests {
 
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
-    use crate::domain::accounts::{
+    use nexus_domain::accounts::{
         AccountEntry, Confidence, DomainProfile, LimitState, Provider, QuotaSnapshot,
     };
 

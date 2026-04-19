@@ -2,14 +2,14 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::domain::accounts::{QuotaCache, QuotaSnapshot};
+use nexus_domain::accounts::{QuotaCache, QuotaSnapshot};
 
 pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
-    crate::domain::accounts::quota::load_quota_cache(path)
+    nexus_domain::accounts::quota::load_quota_cache(path)
 }
 
 pub fn save_quota_cache(cache: &QuotaCache, path: &Path) -> Result<()> {
-    crate::domain::accounts::quota::save_quota_cache(cache, path)
+    nexus_domain::accounts::quota::save_quota_cache(cache, path)
 }
 
 pub fn persist_quota_snapshot(
@@ -29,10 +29,10 @@ mod tests {
     use chrono::Utc;
     use tempfile::tempdir;
 
-    use crate::domain::accounts::{Confidence, LimitState, QuotaCache, QuotaSnapshot};
     use crate::services::accounts::quota::{
         load_quota_cache, persist_quota_snapshot, save_quota_cache,
     };
+    use nexus_domain::accounts::{Confidence, LimitState, QuotaCache, QuotaSnapshot};
 
     #[test]
     fn quota_cache_round_trips_snapshot_by_profile() {

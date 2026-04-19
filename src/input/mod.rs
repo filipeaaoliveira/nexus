@@ -1,7 +1,7 @@
 use crate::app::{
     AccountsEditField, AccountsMode, Action as SemanticAction, EditableProfile, Workspace,
 };
-use crate::domain::accounts::ProviderFilter;
+use nexus_domain::accounts::ProviderFilter;
 
 pub(crate) mod keymap;
 
@@ -125,8 +125,8 @@ mod tests {
         AccountsAction, AccountsConfirmAction, AccountsEditField, Action as SemanticAction,
         EditableProfile, OverviewAction, SystemAction, WorkspaceAction,
     };
-    use crate::domain::accounts::ProviderFilter;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use nexus_domain::accounts::ProviderFilter;
 
     fn map(key: KeyEvent, context: &Context) -> Option<Action> {
         super::keymap::action_for_key(key, context)

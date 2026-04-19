@@ -10,10 +10,10 @@ use ratatui::widgets::Block;
 use ratatui::Frame;
 
 use crate::app::{AccountsConfirmAction, AccountsMode, ConfirmKind};
-use crate::domain::accounts::Provider;
-use crate::domain::accounts::{Confidence, CreditsState, LimitState};
 use crate::services::runtime::RuntimeSession;
 use crate::ui::{header, theme, RenderData};
+use nexus_domain::accounts::Provider;
+use nexus_domain::accounts::{Confidence, CreditsState, LimitState};
 
 pub fn render(frame: &mut Frame, state: &RuntimeSession) {
     let render_data = RenderData::from_state(state);

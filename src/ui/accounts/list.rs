@@ -7,8 +7,8 @@ use ratatui::Frame;
 use crate::app::state::AccountKey;
 use crate::claude_profiles::profile::detect_live_claude_profile_id;
 use crate::codex_profiles::profile::detect_live_profile_id;
-use crate::domain::accounts::{Provider, ProviderFilter};
 use crate::services::runtime::RuntimeSession;
+use nexus_domain::accounts::{Provider, ProviderFilter};
 
 use super::{provider_badge, provider_badge_color};
 use crate::ui::theme;
@@ -164,7 +164,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::accounts::Provider;
+    use nexus_domain::accounts::Provider;
 
     use super::provider_badge;
 

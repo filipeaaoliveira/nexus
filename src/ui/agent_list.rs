@@ -5,9 +5,9 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::projection::AgentView;
-use crate::domain::agents::status::NormalizedStatus;
-use crate::domain::shared::time::format_duration;
 use crate::services::runtime::RuntimeSession;
+use nexus_domain::agents::status::NormalizedStatus;
+use nexus_domain::shared::time::format_duration;
 
 use super::{theme, RenderData};
 

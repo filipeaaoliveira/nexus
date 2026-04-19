@@ -1,7 +1,7 @@
 use crate::detect::heuristics::looks_like_review_output;
 use crate::detect::registry::ClaudeLaunchInfo;
-use crate::domain::agents::activity::Activity;
-use crate::domain::agents::status::{
+use nexus_domain::agents::activity::Activity;
+use nexus_domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
 

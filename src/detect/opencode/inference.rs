@@ -1,11 +1,11 @@
 use crate::detect::heuristics::looks_like_review_output;
-use crate::domain::agents::activity::{Activity, Subagent};
-use crate::domain::agents::ids::{AgentId, AgentTool};
-use crate::domain::agents::status::{
+use crate::event::AgentEvent;
+use nexus_domain::agents::activity::{Activity, Subagent};
+use nexus_domain::agents::ids::{AgentId, AgentTool};
+use nexus_domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
-use crate::domain::shared::time::from_epoch_millis;
-use crate::event::AgentEvent;
+use nexus_domain::shared::time::from_epoch_millis;
 
 use super::types::{OpenCodeSession, PartData, SessionEmitState};
 

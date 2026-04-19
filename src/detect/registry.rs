@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Local};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::domain::agents::ids::AgentTool;
+use nexus_domain::agents::ids::AgentTool;
 
 type AgentKey = (AgentTool, PathBuf);
 type PidList = Vec<u32>;

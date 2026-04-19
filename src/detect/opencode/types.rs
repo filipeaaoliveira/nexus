@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::domain::agents::activity::TodoItem;
-use crate::domain::agents::status::{NormalizedState, PrimaryStatus};
+use nexus_domain::agents::activity::TodoItem;
+use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 
 /// Parsed message data from OpenCode's SQLite `message.data` JSON.
 #[allow(dead_code)] // parsed message rows intentionally retain optional provider metadata

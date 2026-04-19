@@ -6,10 +6,10 @@ use tokio::sync::mpsc;
 use tracing::debug;
 
 use crate::detect::registry::RegistryHandle;
-use crate::domain::agents::activity::TodoItem;
-use crate::domain::agents::ids::{AgentId, AgentTool};
-use crate::domain::agents::status::PrimaryStatus;
 use crate::event::AgentEvent;
+use nexus_domain::agents::activity::TodoItem;
+use nexus_domain::agents::ids::{AgentId, AgentTool};
+use nexus_domain::agents::status::PrimaryStatus;
 
 mod inference;
 mod query;

@@ -5,8 +5,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::agent::ActivityEventKind;
-use crate::domain::agents::activity::Subagent;
-use crate::domain::shared::time::format_duration;
+use nexus_domain::agents::activity::Subagent;
+use nexus_domain::shared::time::format_duration;
 
 use super::{theme, RenderData};
 
@@ -126,9 +126,9 @@ fn subagent_status_text(subagent: &Subagent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::agents::activity::Subagent;
-    use crate::domain::agents::status::{NormalizedReason, PrimaryStatus};
     use chrono::Local;
+    use nexus_domain::agents::activity::Subagent;
+    use nexus_domain::agents::status::{NormalizedReason, PrimaryStatus};
 
     use super::subagent_status_text;
 

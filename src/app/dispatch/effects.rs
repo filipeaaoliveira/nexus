@@ -7,9 +7,9 @@ use crate::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed}
 use crate::codex_profiles::quota::fetch_quota_from_api;
 use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
-use crate::domain::accounts::{AccountEntry, DomainProfile, Provider};
 use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::traits::ProfileStore;
+use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider};
 
 pub async fn dispatch_effect(
     config: &Config,

@@ -5,8 +5,8 @@ use chrono::{DateTime, Local};
 use serde_json::Value;
 use tracing::warn;
 
-use crate::domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
-use crate::domain::shared::time::from_rfc3339;
+use nexus_domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
+use nexus_domain::shared::time::from_rfc3339;
 
 use super::types::{ProjectSessionInfo, SessionRegistryEntry, TranscriptEntry};
 

@@ -2,11 +2,11 @@ use std::borrow::Cow;
 
 use crate::app::agent::Agent;
 use crate::app::state::OverviewState;
-use crate::domain::agents::activity::Activity;
-use crate::domain::agents::status::NormalizedStatus;
+use nexus_domain::agents::activity::Activity;
+use nexus_domain::agents::status::NormalizedStatus;
 #[cfg(test)]
-use crate::domain::agents::status::PrimaryStatus;
-use crate::domain::agents::SortMode;
+use nexus_domain::agents::status::PrimaryStatus;
+use nexus_domain::agents::SortMode;
 
 /// A projected view of an `Agent` for UI rendering.
 ///
@@ -66,7 +66,7 @@ pub fn visible_agent_indices(agents: &[Agent], overview: &OverviewState) -> Vec<
         .iter()
         .enumerate()
         .filter(|(_, agent)| {
-            !(agent.id().tool() == crate::domain::agents::ids::AgentTool::Codex
+            !(agent.id().tool() == nexus_domain::agents::ids::AgentTool::Codex
                 && agent.id().is_session()
                 && agent.pid().is_none())
         })
@@ -115,7 +115,7 @@ pub fn visible_agents<'a>(agents: &'a [Agent], overview: &OverviewState) -> Vec<
 pub fn selected_agent_id(
     agents: &[Agent],
     overview: &OverviewState,
-) -> Option<crate::domain::agents::ids::AgentId> {
+) -> Option<nexus_domain::agents::ids::AgentId> {
     let visible_idx = overview.selected_index()?;
     let real_idx = *visible_agent_indices(agents, overview).get(visible_idx)?;
     Some(agents[real_idx].id().clone())
@@ -158,10 +158,10 @@ fn agent_matches_filter(agent: &Agent, filter: &str) -> bool {
 mod tests {
     use super::*;
     use crate::app::AppState;
-    use crate::domain::agents::activity::Activity;
-    use crate::domain::agents::ids::{AgentId, AgentTool};
-    use crate::domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
     use crate::event::AgentEvent;
+    use nexus_domain::agents::activity::Activity;
+    use nexus_domain::agents::ids::{AgentId, AgentTool};
+    use nexus_domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
     use std::path::PathBuf;
 
     #[test]

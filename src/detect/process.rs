@@ -1,9 +1,9 @@
 use crate::detect::registry::RegistryHandle;
-use crate::domain::agents::ids::AgentId;
-use crate::domain::agents::ids::AgentTool;
-use crate::domain::system::DetectorKind;
 use crate::event::AgentEvent;
 use chrono::{DateTime, Local, NaiveDateTime};
+use nexus_domain::agents::ids::AgentId;
+use nexus_domain::agents::ids::AgentTool;
+use nexus_domain::system::DetectorKind;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;

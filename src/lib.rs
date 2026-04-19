@@ -5,7 +5,6 @@ mod claude_profiles;
 mod codex_profiles;
 pub mod config;
 mod detect;
-mod domain;
 mod event;
 mod infra;
 mod input;
@@ -25,12 +24,12 @@ pub mod testing {
     pub use crate::event::AgentEvent;
 
     // domain::accounts
-    pub use crate::domain::accounts::{
+    pub use nexus_domain::accounts::{
         Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
     };
 
     // domain::agents — shared vocabulary only
-    pub use crate::domain::agents::{
+    pub use nexus_domain::agents::{
         Activity, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
         PrimaryStatus, SortMode, Subagent, TodoItem, TodoPriority, TodoStatus,
     };
@@ -41,12 +40,12 @@ pub mod testing {
     };
 
     // domain::shared
-    pub use crate::domain::shared::{
+    pub use nexus_domain::shared::{
         format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
     };
 
     // domain::system
-    pub use crate::domain::system::{CodexBackendHealth, DetectorKind, DetectorNotification};
+    pub use nexus_domain::system::{CodexBackendHealth, DetectorKind, DetectorNotification};
 
     // claude_profiles
     pub use crate::claude_profiles::profile::{

@@ -1,9 +1,9 @@
 use crate::detect::claude::*;
 use crate::detect::registry::ClaudeLaunchInfo;
-use crate::domain::agents::{
+use nexus_domain::agents::{
     Activity, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoPriority, TodoStatus,
 };
-use crate::domain::shared::from_rfc3339;
+use nexus_domain::shared::from_rfc3339;
 
 #[test]
 fn test_infer_activity_tool_use_last() {

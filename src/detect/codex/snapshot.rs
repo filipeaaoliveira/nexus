@@ -5,14 +5,14 @@ use chrono::Local;
 
 use crate::detect::heuristics::looks_like_review_output;
 use crate::detect::registry::RegistrySnapshot;
-use crate::domain::agents::activity::{Activity, Subagent};
-use crate::domain::agents::ids::{AgentId, AgentTool};
-use crate::domain::agents::status::{
+use crate::event::AgentEvent;
+use nexus_domain::agents::activity::{Activity, Subagent};
+use nexus_domain::agents::ids::{AgentId, AgentTool};
+use nexus_domain::agents::status::{
     NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
 };
-use crate::domain::shared::time::from_epoch_secs;
-use crate::domain::system::health::CodexBackendHealth;
-use crate::event::AgentEvent;
+use nexus_domain::shared::time::from_epoch_secs;
+use nexus_domain::system::health::CodexBackendHealth;
 
 use super::rollout::{
     extract_plan_todos, extract_subagent_spawns, extract_tool_calls, infer_rollout_status,

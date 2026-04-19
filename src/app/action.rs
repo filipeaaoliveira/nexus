@@ -1,5 +1,5 @@
-use crate::domain::accounts::ProviderFilter;
-use crate::domain::agents::ids::AgentId;
+use nexus_domain::accounts::ProviderFilter;
+use nexus_domain::agents::ids::AgentId;
 
 use super::effect::EffectResult;
 use super::state::{AccountsConfirmAction, AccountsMode};

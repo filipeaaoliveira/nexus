@@ -1,7 +1,7 @@
 use crate::app::action::{Action, WorkspaceAction};
 use crate::app::core::AppState;
 use crate::app::effect::Effect;
-use crate::app::reducer::{accounts, overview, system};
+use crate::app::reducer::{accounts, agents, overview, system};
 use crate::app::state::Workflow;
 
 pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
@@ -29,6 +29,10 @@ pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
         }
         Action::Overview(action) => overview::reduce(&mut app.agents, &mut app.root.overview, action),
         Action::System(action) => system::reduce(&mut app.root.system, action),
+        Action::AgentEvent { event, now } => {
+            agents::reduce(&mut app.agents, &mut app.root.overview, &mut app.root.system, event, *now);
+            Vec::new()
+        }
     }
 }
 

@@ -5,7 +5,7 @@ use nexus_domain::accounts::ProviderFilter;
 
 pub(crate) mod keymap;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     App(Box<SemanticAction>),
     Runtime(RuntimeAction),

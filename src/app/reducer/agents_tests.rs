@@ -1,6 +1,6 @@
 use super::*;
 use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
-use crate::app::state::{OverviewState, RootState};
+use crate::app::state::{OverviewState, SystemState};
 use crate::event::AgentEvent;
 use chrono::Local;
 use nexus_domain::agents::activity::Activity;
@@ -67,7 +67,7 @@ fn make_codex_session_agent(pid: u32, session_id: &str, status: PrimaryStatus) -
 fn reduce_discovered_creates_new_agent() {
     let mut agents = Vec::new();
     let mut overview = OverviewState::default();
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::Discovered {
@@ -77,7 +77,7 @@ fn reduce_discovered_creates_new_agent() {
         started_at: None,
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].pid(), Some(42));
@@ -91,7 +91,7 @@ fn reduce_discovered_updates_existing_agent() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::Discovered {
@@ -101,7 +101,7 @@ fn reduce_discovered_updates_existing_agent() {
         started_at: None,
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].cwd(), Some(PathBuf::from("/new/path").as_path()));
@@ -112,7 +112,7 @@ fn reduce_status_changed_updates_agent_status() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::StatusChanged {
@@ -122,7 +122,7 @@ fn reduce_status_changed_updates_agent_status() {
         new: PrimaryStatus::Done,
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     assert_eq!(agents[0].status(), PrimaryStatus::Done);
     assert!(!agents[0].recent_events().is_empty());
@@ -143,7 +143,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
     let process_id = AgentId::new(AgentTool::Codex, 50);
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::ProcessExited {
@@ -151,7 +151,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
         pid: Some(50),
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     // Session agent should be marked exited (not removed)
     assert_eq!(agents.len(), 1);
@@ -164,7 +164,7 @@ fn reduce_process_exited_removes_claude_process_agents() {
     let agent_id = agents[0].id().clone();
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::ProcessExited {
@@ -172,7 +172,7 @@ fn reduce_process_exited_removes_claude_process_agents() {
         pid: Some(10),
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     assert!(agents.is_empty(), "Claude process agent should be removed entirely");
 }
@@ -183,7 +183,7 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
     let agent_id = agents[0].id().clone();
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::ToolCallStarted {
@@ -193,7 +193,7 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
         args_summary: Some("foo.rs".to_string()),
     };
 
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     assert_eq!(agents[0].activity(), Some(Activity::ToolCall));
     assert!(!agents[0].recent_events().is_empty());
@@ -207,7 +207,7 @@ fn reduce_detector_health_updates_root_not_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState::default();
     overview.selected_index = Some(0);
-    let mut root = RootState::default();
+    let mut system = SystemState::default();
     let now = Local::now();
 
     let event = AgentEvent::DetectorHealthChanged {
@@ -217,16 +217,15 @@ fn reduce_detector_health_updates_root_not_agents() {
     };
 
     let agents_before = agents.clone();
-    reduce(&mut agents, &mut overview, &mut root, &event, now);
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
 
     // Agents unchanged
     assert_eq!(agents.len(), agents_before.len());
     assert_eq!(agents[0].status(), agents_before[0].status());
 
-    // Root updated
-    let health = root
-        .system()
-        .detector_health
+    // System updated
+    let health = system
+        .detector_health()
         .get(&nexus_domain::system::DetectorKind::Codex)
         .expect("detector health should be recorded");
     assert!(!health.healthy);
@@ -240,7 +239,7 @@ fn reduce_is_deterministic_same_input_same_output() {
     let run = || {
         let mut agents = Vec::new();
         let mut overview = OverviewState::default();
-        let mut root = RootState::default();
+        let mut system = SystemState::default();
 
         let events = vec![
             AgentEvent::Discovered {
@@ -268,7 +267,7 @@ fn reduce_is_deterministic_same_input_same_output() {
         ];
 
         for event in &events {
-            reduce(&mut agents, &mut overview, &mut root, event, now);
+            reduce(&mut agents, &mut overview, &mut system, event, now);
         }
 
         (agents, overview)

@@ -1,14 +1,15 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
 
 pub use nexus_domain::accounts::Provider;
 #[cfg(test)]
 pub use nexus_domain::accounts::{AccountEntry, ProviderFilter};
-pub use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
-pub use nexus_domain::agents::ids::{AgentId, AgentTool};
+pub use nexus_domain::agents::ids::AgentId;
+#[cfg(test)]
 pub use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
 
-pub use agent::{ActivityEvent, ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle};
+pub use agent::{ActivityEvent, ActivityEventKind, Agent};
+#[cfg(test)]
+pub use agent::{AgentDetail, AgentIdent, AgentLifecycle};
 
 pub mod action;
 pub mod agent;
@@ -19,7 +20,6 @@ pub mod reducer;
 pub mod state;
 
 mod accounts;
-mod events;
 mod overview;
 pub mod projection;
 mod system;
@@ -39,15 +39,6 @@ const MAX_RECENT_EVENTS: usize = 20;
 pub enum ConfirmKind {
     DeleteProfile,
     WriteToHome,
-}
-
-#[derive(Debug, Clone)]
-struct SessionInfoUpdate {
-    pid: Option<u32>,
-    session_id: Option<String>,
-    branch: Option<String>,
-    is_worktree: bool,
-    started_at: Option<chrono::DateTime<chrono::Local>>,
 }
 
 pub(super) fn push_event(

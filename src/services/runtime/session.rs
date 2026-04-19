@@ -187,6 +187,10 @@ impl RuntimeSession {
                 self.apply_effect_result(result);
                 true
             }
+            Action::AgentEvent { .. } => {
+                reducer::root::reduce(&mut self.app, &action);
+                true
+            }
         }
     }
 

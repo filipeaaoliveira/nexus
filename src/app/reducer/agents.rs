@@ -6,7 +6,7 @@ use chrono::{DateTime, Local};
 use crate::app::agent::{
     ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
 };
-use crate::app::state::{OverviewState, RootState};
+use crate::app::state::{OverviewState, SystemState};
 use crate::event::AgentEvent;
 use nexus_domain::agents::activity::Subagent;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -18,7 +18,7 @@ use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimarySta
 pub fn reduce(
     agents: &mut Vec<Agent>,
     overview: &mut OverviewState,
-    root: &mut RootState,
+    system: &mut SystemState,
     event: &AgentEvent,
     now: DateTime<Local>,
 ) {
@@ -28,7 +28,7 @@ pub fn reduce(
             healthy,
             message,
         } => {
-            root.record_detector_health(*detector, *healthy, message);
+            system.record_detector_health(*detector, *healthy, message);
         }
         AgentEvent::Discovered {
             id,

@@ -29,7 +29,7 @@ impl std::fmt::Display for Activity {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Subagent {
     pub name: String,
     pub status: PrimaryStatus,

@@ -7,7 +7,7 @@ use nexus_domain::agents::ids::AgentId;
 use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 use nexus_domain::system::DetectorKind;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
     DetectorHealthChanged {
         detector: DetectorKind,

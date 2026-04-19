@@ -138,7 +138,11 @@ async fn run_loop(
             _ = token.cancelled() => break,
 
             Some(event) = rx.recv() => {
-                session.handle_event(event);
+                let now = chrono::Local::now();
+                session.dispatch_action(crate::app::Action::AgentEvent {
+                    event: Box::new(event),
+                    now,
+                }).await;
             }
 
             Some(result) = effect_rx.recv() => {

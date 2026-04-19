@@ -1,12 +1,15 @@
+use chrono::{DateTime, Local};
 use nexus_domain::accounts::ProviderFilter;
 use nexus_domain::agents::ids::AgentId;
+
+use crate::event::AgentEvent;
 
 use super::effect::EffectResult;
 use super::state::{AccountsConfirmAction, AccountsMode};
 #[cfg(test)]
 use super::state::{EditableProfile, Workflow};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     QuitRequested,
     Workspace(WorkspaceAction),
@@ -14,6 +17,10 @@ pub enum Action {
     Accounts(AccountsAction),
     System(SystemAction),
     EffectResult(EffectResult),
+    AgentEvent {
+        event: Box<AgentEvent>,
+        now: DateTime<Local>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

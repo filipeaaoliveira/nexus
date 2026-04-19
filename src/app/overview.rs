@@ -68,8 +68,6 @@ impl AppState {
         self.root.overview.clamp_selection(visible_count);
     }
 
-    pub(super) fn mark_agents_dirty(&self) {}
-
     pub fn run_overview_reducer_action(&mut self, action: OverviewAction) {
         reducer::root::reduce(self, &Action::Overview(action));
     }

@@ -558,7 +558,7 @@ fn reduce_session_info(
 
 // ── Store helpers ───────────────────────────────────────────
 
-fn find_agent_mut_by_id<'a>(agents: &'a mut Vec<Agent>, id: &AgentId) -> Option<&'a mut Agent> {
+fn find_agent_mut_by_id<'a>(agents: &'a mut [Agent], id: &AgentId) -> Option<&'a mut Agent> {
     agents.iter_mut().find(|a| *a.id() == *id)
 }
 
@@ -606,11 +606,7 @@ fn insert_placeholder_agent(
         .expect("placeholder agent was just inserted")
 }
 
-fn find_process_agent_mut(
-    agents: &mut Vec<Agent>,
-    tool: AgentTool,
-    pid: u32,
-) -> Option<&mut Agent> {
+fn find_process_agent_mut(agents: &mut [Agent], tool: AgentTool, pid: u32) -> Option<&mut Agent> {
     agents
         .iter_mut()
         .find(|a| a.id().tool() == tool && a.pid() == Some(pid) && a.id().is_process())
@@ -656,7 +652,7 @@ fn find_exited_session_agent_indices_by_pid(
         .collect()
 }
 
-fn find_agent_mut_by_pid(agents: &mut Vec<Agent>, tool: AgentTool, pid: u32) -> Option<&mut Agent> {
+fn find_agent_mut_by_pid(agents: &mut [Agent], tool: AgentTool, pid: u32) -> Option<&mut Agent> {
     agents
         .iter_mut()
         .find(|a| a.id().tool() == tool && a.pid() == Some(pid))

@@ -1016,10 +1016,8 @@ dependencies = [
 name = "nexus-domain"
 version = "0.2.0"
 dependencies = [
- "anyhow",
  "chrono",
  "serde",
- "serde_json",
 ]
 
 [[package]]

@@ -1,10 +1,11 @@
 use nexus::testing::{
     extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339, load_profile_metadata,
-    parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata, Activity, Agent,
-    AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool, ClaudeProfileMetadata,
-    CodexBackendHealth, Confidence, DetectorKind, DetectorNotification, LimitState,
-    NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus, ProfileMetadata,
-    QuotaCache, QuotaSnapshot, SortMode, StoredCodexProfile, TodoItem, TodoPriority, TodoStatus,
+    load_quota_cache, parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata,
+    save_quota_cache, Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
+    ClaudeProfileMetadata, CodexBackendHealth, Confidence, DetectorKind, DetectorNotification,
+    LimitState, NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
+    ProfileMetadata, QuotaCache, QuotaSnapshot, SortMode, StoredCodexProfile, TodoItem,
+    TodoPriority, TodoStatus,
 };
 use serde_json::json;
 use std::fs;
@@ -424,8 +425,8 @@ fn codex_quota_cache_save_load_round_trip() {
     let mut cache = QuotaCache::default();
     cache.by_profile.insert("profile-1".to_string(), snapshot);
 
-    cache.save(&path).unwrap();
-    let loaded = QuotaCache::load(&path).unwrap();
+    save_quota_cache(&cache, &path).unwrap();
+    let loaded = load_quota_cache(&path).unwrap();
 
     assert_eq!(loaded, cache);
 }
@@ -437,7 +438,7 @@ fn codex_quota_cache_loads_malformed_file_as_error() {
 
     fs::write(&path, "{ invalid json").unwrap();
 
-    let err = QuotaCache::load(&path).unwrap_err();
+    let err = load_quota_cache(&path).unwrap_err();
 
     assert!(err.to_string().contains("failed to parse"));
     assert!(err.to_string().contains("quota-cache.json"));

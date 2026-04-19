@@ -1,15 +1,33 @@
+use std::fs;
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use nexus_domain::accounts::{QuotaCache, QuotaSnapshot};
 
 pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
-    nexus_domain::accounts::quota::load_quota_cache(path)
+    if !path.exists() {
+        return Ok(QuotaCache::default());
+    }
+
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let mut cache: QuotaCache = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    cache.normalize();
+    Ok(cache)
 }
 
 pub fn save_quota_cache(cache: &QuotaCache, path: &Path) -> Result<()> {
-    nexus_domain::accounts::quota::save_quota_cache(cache, path)
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let content = serde_json::to_string_pretty(cache)?;
+    fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
 }
 
 pub fn persist_quota_snapshot(

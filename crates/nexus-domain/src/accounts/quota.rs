@@ -1,9 +1,6 @@
-use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum Confidence {
@@ -214,42 +211,9 @@ pub struct QuotaCache {
 }
 
 impl QuotaCache {
-    pub fn load(path: &Path) -> Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-
-        let mut cache: Self = serde_json::from_str(&content)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
-        cache.normalize();
-        Ok(cache)
-    }
-
-    pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-
-        let content = serde_json::to_string_pretty(self)?;
-        fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
-        Ok(())
-    }
-
     pub fn normalize(&mut self) {
         for snapshot in self.by_profile.values_mut() {
             snapshot.refresh_legacy_fields();
         }
     }
-}
-
-pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
-    QuotaCache::load(path)
-}
-
-pub fn save_quota_cache(cache: &QuotaCache, path: &Path) -> Result<()> {
-    cache.save(path)
 }

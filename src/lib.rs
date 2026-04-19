@@ -52,6 +52,9 @@ pub mod testing {
         load_claude_profile_metadata, ClaudeProfileMetadata,
     };
 
+    // services::accounts
+    pub use crate::services::accounts::quota::{load_quota_cache, save_quota_cache};
+
     // codex_profiles
     pub use crate::codex_profiles::profile::{
         extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,

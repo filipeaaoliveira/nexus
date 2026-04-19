@@ -714,3 +714,7 @@ fn clamp_selection(agents: &[Agent], overview: &mut OverviewState) {
 #[cfg(test)]
 #[path = "agents_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "proptest_agents.rs"]
+mod proptest_tests;

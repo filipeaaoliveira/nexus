@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod error;
 pub(crate) mod heuristics;
 pub mod opencode;
 pub mod process;

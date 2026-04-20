@@ -8,12 +8,15 @@ use crate::event::AgentEvent;
 
 #[cfg(test)]
 mod integration_tests;
+pub(crate) mod normalization;
 pub(crate) mod pid_binding;
 mod rollout;
 mod snapshot;
 mod sqlite;
 mod types;
 
+#[cfg(test)]
+pub use normalization::normalize_codex_session;
 #[cfg(test)]
 pub use pid_binding::codex_pid_for_thread;
 #[cfg(test)]

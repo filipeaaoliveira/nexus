@@ -1,10 +1,9 @@
 use std::collections::BTreeSet;
-use std::ops::{Deref, DerefMut};
 use std::time::{Duration, Instant};
 
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::state::AccountKey;
-use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider};
+use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider, Workspace};
 use crate::config::Config;
 use crate::services::accounts::provider::ConfigStoreProvider;
 use crate::services::accounts::quota as quota_service;
@@ -34,6 +33,10 @@ impl RuntimeSession {
 
     pub(crate) fn app(&self) -> &AppState {
         &self.app
+    }
+
+    pub(crate) fn app_mut(&mut self) -> &mut AppState {
+        &mut self.app
     }
 
     pub(crate) fn config(&self) -> &Config {
@@ -213,19 +216,58 @@ impl RuntimeSession {
             tracing::warn!("failed to save {label} quota cache: {error}");
         }
     }
-}
 
-impl Deref for RuntimeSession {
-    type Target = AppState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.app
+    // Delegation methods for commonly used AppState methods
+    pub(crate) fn active_tab(&self) -> Workspace {
+        self.app.active_tab()
     }
-}
 
-impl DerefMut for RuntimeSession {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.app
+    pub(crate) fn show_help(&self) -> bool {
+        self.app.show_help()
+    }
+
+    pub(crate) fn help_scroll(&self) -> u16 {
+        self.app.help_scroll()
+    }
+
+    pub(crate) fn root(&self) -> &crate::app::RootState {
+        self.app.root()
+    }
+
+    pub(crate) fn agents(&self) -> &[crate::app::Agent] {
+        self.app.agents()
+    }
+
+    pub(crate) fn toggle_help(&mut self) {
+        self.app.toggle_help();
+    }
+
+    pub(crate) fn dismiss_overlay(&mut self) {
+        self.app.dismiss_overlay();
+    }
+
+    pub(crate) fn dismiss_accounts_overlay(&mut self) {
+        self.app.dismiss_accounts_overlay();
+    }
+
+    pub(crate) fn start_rename(&mut self) {
+        self.app.start_rename();
+    }
+
+    pub(crate) fn remove_selected(&mut self) {
+        self.app.remove_selected();
+    }
+
+    pub(crate) fn remove_exited(&mut self) {
+        self.app.remove_exited();
+    }
+
+    pub(crate) fn selected_account(&self) -> Option<(Provider, &str)> {
+        self.app.selected_account()
+    }
+
+    pub(crate) fn primary_detector_issue(&self) -> Option<&str> {
+        self.app.primary_detector_issue()
     }
 }
 

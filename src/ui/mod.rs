@@ -87,7 +87,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession) {
 
     match state.active_tab() {
         Workspace::Overview => {
-            let render_data = RenderData::from_state(state);
+            let render_data = RenderData::from_state(state.app());
             overview::render(frame, state, &render_data)
         }
         Workspace::Accounts => accounts::render(frame, state),

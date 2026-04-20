@@ -16,7 +16,7 @@ use nexus_domain::accounts::Provider;
 use nexus_domain::accounts::{Confidence, CreditsState, LimitState};
 
 pub fn render(frame: &mut Frame, state: &RuntimeSession) {
-    let render_data = RenderData::from_state(state);
+    let render_data = RenderData::from_state(state.app());
 
     frame.render_widget(
         Block::default().style(Style::default().bg(theme::BG_MAIN)),

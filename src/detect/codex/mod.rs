@@ -10,6 +10,7 @@ use crate::event::AgentEvent;
 mod integration_tests;
 pub(crate) mod normalization;
 pub(crate) mod pid_binding;
+pub(crate) mod reconcile;
 mod rollout;
 mod snapshot;
 mod sqlite;
@@ -25,7 +26,9 @@ pub use rollout::{parse_rollout, parse_session_index};
 #[cfg(test)]
 pub use snapshot::*;
 #[allow(hidden_glob_reexports)]
-use snapshot::{detect_codex_backend_with_history, reconcile_codex_snapshots};
+use reconcile::reconcile_codex_snapshots;
+#[allow(hidden_glob_reexports)]
+use snapshot::detect_codex_backend_with_history;
 pub use sqlite::parse_source_field;
 #[allow(hidden_glob_reexports)]
 use types::CodexEventSnapshot;
@@ -80,10 +83,11 @@ pub async fn run_codex_detector(
 mod tests {
     use super::{
         build_codex_event_snapshot, codex_pid_for_thread, load_spawn_edges_snapshot,
-        reconcile_codex_snapshots, snapshot_child_threads_by_parent, CodexEventSnapshot,
-        CodexSnapshot, CodexThread, CodexThreadClassification, ObservedCodexSession,
-        ObservedCodexSubagent, ObservedCodexThread,
+        snapshot_child_threads_by_parent, CodexEventSnapshot, CodexSnapshot, CodexThread,
+        CodexThreadClassification, ObservedCodexSession, ObservedCodexSubagent,
+        ObservedCodexThread,
     };
+    use crate::detect::codex::reconcile::reconcile_codex_snapshots;
     use crate::detect::registry::RegistrySnapshot;
     use crate::event::AgentEvent;
     use nexus_domain::agents::ids::{AgentId, AgentTool};

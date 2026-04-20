@@ -78,8 +78,14 @@ async fn run_loop(
                 let config = config.clone();
                 let stores = stores.clone();
                 async move {
-                    quota::refresh_codex_quota(&config, &stores, pid, RefreshOrigin::Background)
-                        .await
+                    quota::refresh_quota(
+                        &config,
+                        &stores,
+                        nexus_domain::accounts::Provider::Codex,
+                        pid,
+                        RefreshOrigin::Background,
+                    )
+                    .await
                 }
             }
         },
@@ -96,8 +102,14 @@ async fn run_loop(
                 let config = config.clone();
                 let stores = stores.clone();
                 async move {
-                    quota::refresh_claude_quota(&config, &stores, pid, RefreshOrigin::Background)
-                        .await
+                    quota::refresh_quota(
+                        &config,
+                        &stores,
+                        nexus_domain::accounts::Provider::Claude,
+                        pid,
+                        RefreshOrigin::Background,
+                    )
+                    .await
                 }
             }
         },

@@ -6,9 +6,10 @@ use nexus_domain::accounts::ProfileId;
 
 use super::RuntimeSession;
 
-pub(super) async fn refresh_codex_quota(
+pub(super) async fn refresh_quota(
     config: &Config,
     stores: &dyn StoreProvider,
+    provider: nexus_domain::accounts::Provider,
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
@@ -17,26 +18,7 @@ pub(super) async fn refresh_codex_quota(
         config,
         stores,
         Effect::RefreshQuota {
-            provider: nexus_domain::accounts::Provider::Codex,
-            profile_id,
-            origin,
-        },
-    )
-    .await
-}
-
-pub(super) async fn refresh_claude_quota(
-    config: &Config,
-    stores: &dyn StoreProvider,
-    profile_id: String,
-    origin: RefreshOrigin,
-) -> EffectResult {
-    let profile_id: ProfileId = profile_id.into();
-    dispatch_effect(
-        config,
-        stores,
-        Effect::RefreshQuota {
-            provider: nexus_domain::accounts::Provider::Claude,
+            provider,
             profile_id,
             origin,
         },
@@ -48,35 +30,18 @@ pub(super) fn spawn_manual_quota_refresh(
     session: &mut RuntimeSession,
     effect_tx: &tokio::sync::mpsc::Sender<EffectResult>,
 ) {
-    match session.selected_account() {
-        Some((nexus_domain::accounts::Provider::Claude, profile_id)) => {
-            let profile_id = profile_id.to_string();
-            session
-                .begin_manual_quota_refresh(nexus_domain::accounts::Provider::Claude, &profile_id);
-            let tx = effect_tx.clone();
-            let config = session.config().clone();
-            let stores = ConfigStoreProvider::from_config(&config);
-            tokio::spawn(async move {
-                let result =
-                    refresh_claude_quota(&config, &stores, profile_id, RefreshOrigin::Manual).await;
-                let _ = tx.send(result).await;
-            });
-        }
-        Some((nexus_domain::accounts::Provider::Codex, profile_id)) => {
-            let profile_id = profile_id.to_string();
-            session
-                .begin_manual_quota_refresh(nexus_domain::accounts::Provider::Codex, &profile_id);
-            let tx = effect_tx.clone();
-            let config = session.config().clone();
-            let stores = ConfigStoreProvider::from_config(&config);
-            tokio::spawn(async move {
-                let result =
-                    refresh_codex_quota(&config, &stores, profile_id, RefreshOrigin::Manual).await;
-                let _ = tx.send(result).await;
-            });
-        }
-        None => {}
-    }
+    let Some((provider, profile_id)) = session.selected_account() else {
+        return;
+    };
+    let profile_id = profile_id.to_string();
+    session.begin_manual_quota_refresh(provider, &profile_id);
+    let tx = effect_tx.clone();
+    let config = session.config().clone();
+    let stores = ConfigStoreProvider::from_config(&config);
+    tokio::spawn(async move {
+        let result = refresh_quota(&config, &stores, provider, profile_id, RefreshOrigin::Manual).await;
+        let _ = tx.send(result).await;
+    });
 }
 
 pub(super) async fn poll_quota_loop<F, Fut>(

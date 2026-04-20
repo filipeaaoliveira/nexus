@@ -13,6 +13,37 @@ use crate::codex_profiles::profile::{
 use anyhow::{Context, Result};
 use chrono::Utc;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ProfileStoreError {
+    #[error("profile not found: {profile_id}")]
+    NotFound { profile_id: String },
+    #[error("corrupted profile data at {path}: {detail}")]
+    Corrupted { path: String, detail: String },
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("{context}: {source}")]
+    Other { context: String, #[source] source: Box<dyn std::error::Error + Send + Sync> },
+}
+
+pub type StoreResult<T> = Result<T, ProfileStoreError>;
+
+impl ProfileStoreError {
+    pub fn corrupted(path: impl std::fmt::Display, detail: impl std::fmt::Display) -> Self {
+        Self::Corrupted { path: path.to_string(), detail: detail.to_string() }
+    }
+    pub fn other(context: impl std::fmt::Display, source: impl std::fmt::Display) -> Self {
+        #[derive(Debug)]
+        struct StringError(String);
+        impl std::fmt::Display for StringError {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+        impl std::error::Error for StringError {}
+        Self::Other { context: context.to_string(), source: Box::new(StringError(source.to_string())) }
+    }
+}
+
 /// Result of loading a profile from disk.
 ///
 /// `Clean` means all files parsed without error.

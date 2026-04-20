@@ -1,14 +1,13 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{bail, Result};
 use chrono::Utc;
 
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::effect::{Effect, EffectResult};
 use crate::config::Config;
 use crate::services::accounts::provider::StoreProvider;
-use crate::services::accounts::storage::LoadOutcome;
+use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::traits::ProfileStore;
 use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
 
@@ -45,21 +44,21 @@ impl ProfileStore for MockProfileStore {
         lock.iter().map(|p| p.profile_id().to_string()).collect()
     }
 
-    fn load_profile(&self, profile_id: &str) -> Result<LoadOutcome<DomainProfile>> {
+    fn load_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
         let lock = self.profiles.lock().unwrap();
         lock.iter()
             .find(|p| p.profile_id() == profile_id)
             .cloned()
             .map(LoadOutcome::Clean)
-            .ok_or_else(|| anyhow::anyhow!("profile not found: {profile_id}"))
+            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })
     }
 
-    fn load_editable(&self, profile_id: &str) -> Result<EditableProfile> {
+    fn load_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
         let lock = self.profiles.lock().unwrap();
         let profile = lock
             .iter()
             .find(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| anyhow::anyhow!("profile not found: {profile_id}"))?;
+            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
         Ok(EditableProfile {
             label: profile.label.clone(),
             notes: profile.notes.clone().unwrap_or_default(),
@@ -67,12 +66,12 @@ impl ProfileStore for MockProfileStore {
         })
     }
 
-    fn save_edits(&self, profile_id: &str, draft: &EditableProfile) -> Result<DomainProfile> {
+    fn save_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let mut lock = self.profiles.lock().unwrap();
         let profile = lock
             .iter_mut()
             .find(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| anyhow::anyhow!("profile not found: {profile_id}"))?;
+            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
         profile.label = draft.label.clone();
         profile.notes = Some(draft.notes.clone());
         profile.enabled = draft.enabled;
@@ -80,20 +79,20 @@ impl ProfileStore for MockProfileStore {
         Ok(profile.clone())
     }
 
-    fn import_from_home(&self, _home: &Path) -> Result<DomainProfile> {
-        bail!("not implemented")
+    fn import_from_home(&self, _home: &Path) -> StoreResult<DomainProfile> {
+        Err(ProfileStoreError::Other { context: "not implemented".to_string(), source: "mock".into() })
     }
 
-    fn write_to_home(&self, _profile_id: &str, _home: &Path) -> Result<()> {
-        bail!("not implemented")
+    fn write_to_home(&self, _profile_id: &str, _home: &Path) -> StoreResult<()> {
+        Err(ProfileStoreError::Other { context: "not implemented".to_string(), source: "mock".into() })
     }
 
-    fn delete(&self, profile_id: &str) -> Result<()> {
+    fn delete(&self, profile_id: &str) -> StoreResult<()> {
         let mut lock = self.profiles.lock().unwrap();
         let idx = lock
             .iter()
             .position(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| anyhow::anyhow!("profile not found: {profile_id}"))?;
+            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
         lock.remove(idx);
         Ok(())
     }

@@ -1,8 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
-
-use crate::services::accounts::storage::LoadOutcome;
+use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::{codex as codex_service, storage as storage_service};
 use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
 
@@ -36,9 +34,10 @@ impl ProfileStore for CodexProfileStore {
         storage_service::scan_codex_profile_ids(&self.profiles_dir)
     }
 
-    fn load_profile(&self, profile_id: &str) -> Result<LoadOutcome<DomainProfile>> {
+    fn load_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let outcome = storage_service::load_codex_profile(&profile_dir)?;
+        let outcome = storage_service::load_codex_profile(&profile_dir)
+            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?;
         Ok(match outcome {
             LoadOutcome::Clean(v) => LoadOutcome::Clean(DomainProfile::from(v)),
             LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
@@ -48,9 +47,11 @@ impl ProfileStore for CodexProfileStore {
         })
     }
 
-    fn load_editable(&self, profile_id: &str) -> Result<EditableProfile> {
+    fn load_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let profile = storage_service::load_codex_profile(&profile_dir)?.into_value();
+        let profile = storage_service::load_codex_profile(&profile_dir)
+            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
+            .into_value();
         Ok(EditableProfile {
             label: profile.label,
             notes: profile.notes.unwrap_or_default(),
@@ -58,7 +59,7 @@ impl ProfileStore for CodexProfileStore {
         })
     }
 
-    fn save_edits(&self, profile_id: &str, draft: &EditableProfile) -> Result<DomainProfile> {
+    fn save_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
         storage_service::save_codex_profile_metadata(
             &profile_dir,
@@ -66,23 +67,29 @@ impl ProfileStore for CodexProfileStore {
             &draft.label,
             notes_option(&draft.notes),
             draft.enabled,
-        )?;
-        let profile = storage_service::load_codex_profile(&profile_dir)?.into_value();
+        )
+        .map_err(|e| ProfileStoreError::other("save_codex_profile_metadata", e))?;
+        let profile = storage_service::load_codex_profile(&profile_dir)
+            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
+            .into_value();
         Ok(DomainProfile::from(profile))
     }
 
-    fn import_from_home(&self, home: &Path) -> Result<DomainProfile> {
-        let profile = codex_service::import_profile_from_home(&self.profiles_dir, home)?;
+    fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
+        let profile = codex_service::import_profile_from_home(&self.profiles_dir, home)
+            .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
         Ok(DomainProfile::from(profile))
     }
 
-    fn write_to_home(&self, profile_id: &str, home: &Path) -> Result<()> {
+    fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
         let profile_dir = self.profiles_dir.join(profile_id);
         codex_service::write_profile_to_home(&profile_dir, home)
+            .map_err(|e| ProfileStoreError::other("write_profile_to_home", e))
     }
 
-    fn delete(&self, profile_id: &str) -> Result<()> {
+    fn delete(&self, profile_id: &str) -> StoreResult<()> {
         let profile_dir = self.profiles_dir.join(profile_id);
         storage_service::delete_profile_dir(&profile_dir)
+            .map_err(|e| ProfileStoreError::other("delete_profile_dir", e))
     }
 }

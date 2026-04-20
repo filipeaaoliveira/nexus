@@ -69,10 +69,20 @@ async fn dispatch_effect_inner(
     }
 }
 
-fn storage_io(error: impl std::fmt::Display) -> AppError {
+fn storage_err(error: impl std::fmt::Display) -> AppError {
     AppError::Storage(StorageError::Io {
         detail: error.to_string(),
     })
+}
+
+fn store_to_app_error(error: crate::services::accounts::storage::ProfileStoreError) -> AppError {
+    use crate::services::accounts::storage::ProfileStoreError;
+    match error {
+        ProfileStoreError::NotFound { profile_id } => AppError::Storage(StorageError::NotFound { path: profile_id }),
+        ProfileStoreError::Corrupted { path, detail } => AppError::Storage(StorageError::CorruptedData { path, detail }),
+        ProfileStoreError::Io(e) => AppError::Storage(StorageError::Io { detail: e.to_string() }),
+        ProfileStoreError::Other { context, source } => AppError::Storage(StorageError::Io { detail: format!("{context}: {source}") }),
+    }
 }
 
 fn quota_auth_missing(profile_id: &str) -> AppError {
@@ -92,11 +102,10 @@ async fn load_profiles(
         load_all_from_store(codex.as_ref(), &mut profiles, &mut entries);
         load_all_from_store(claude.as_ref(), &mut profiles, &mut entries);
 
-        Ok::<_, anyhow::Error>((profiles, entries))
+        (profiles, entries)
     })
     .await
-    .map_err(storage_io)?
-    .map_err(storage_io)?;
+    .map_err(storage_err)?;
 
     Ok(EffectResult::ProfilesLoaded { profiles, entries })
 }
@@ -137,8 +146,8 @@ async fn load_profile_draft(
     let pid = profile_id.clone();
     let draft = tokio::task::spawn_blocking(move || store.load_editable(&pid))
         .await
-        .map_err(storage_io)?
-        .map_err(storage_io)?;
+        .map_err(storage_err)?
+        .map_err(store_to_app_error)?;
 
     Ok(EffectResult::EditableProfileLoaded {
         provider,
@@ -155,7 +164,7 @@ async fn refresh_codex_quota(
     let auth_path = config.codex_profiles_dir.join(profile_id).join("auth.json");
     let auth = tokio::task::spawn_blocking(move || ProfileAuth::load(&auth_path))
         .await
-        .map_err(storage_io)?
+        .map_err(storage_err)?
         .map_err(|_| quota_auth_missing(profile_id))?;
     let quota = fetch_quota_from_api(&auth)
         .await
@@ -178,7 +187,7 @@ async fn refresh_claude_quota(
         .join(".credentials.json");
     let auth = tokio::task::spawn_blocking(move || ClaudeAuth::load(&creds_path))
         .await
-        .map_err(storage_io)?
+        .map_err(storage_err)?
         .map_err(|_| quota_auth_missing(profile_id))?;
     let refreshed = refresh_token_if_needed(auth).await;
     let save_path = config
@@ -197,11 +206,11 @@ async fn refresh_claude_quota(
 }
 
 async fn import_profile(store: Box<dyn ProfileStore>) -> Result<EffectResult, AppError> {
-    let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
+    let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
     let profile = tokio::task::spawn_blocking(move || (*store).import_from_home(&home))
         .await
-        .map_err(storage_io)?
-        .map_err(storage_io)?;
+        .map_err(storage_err)?
+        .map_err(store_to_app_error)?;
     Ok(EffectResult::ProfileImported { profile })
 }
 
@@ -215,8 +224,8 @@ async fn save_profile_edits(
     let pid = profile_id.clone();
     let profile = tokio::task::spawn_blocking(move || store.save_edits(&pid, &draft))
         .await
-        .map_err(storage_io)?
-        .map_err(storage_io)?;
+        .map_err(storage_err)?
+        .map_err(store_to_app_error)?;
 
     Ok(EffectResult::ProfileSaved { profile })
 }
@@ -227,12 +236,12 @@ async fn write_profile_to_home(
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
     let provider = store.provider();
-    let home = dirs::home_dir().ok_or_else(|| storage_io("home directory not found"))?;
+    let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
     let pid = profile_id.clone();
     tokio::task::spawn_blocking(move || store.write_to_home(&pid, &home))
         .await
-        .map_err(storage_io)?
-        .map_err(storage_io)?;
+        .map_err(storage_err)?
+        .map_err(store_to_app_error)?;
 
     Ok(EffectResult::ProfileWrittenToHome {
         entry: AccountEntry {
@@ -251,8 +260,8 @@ async fn delete_profile(
     let pid = profile_id.clone();
     tokio::task::spawn_blocking(move || store.delete(&pid))
         .await
-        .map_err(storage_io)?
-        .map_err(storage_io)?;
+        .map_err(storage_err)?
+        .map_err(store_to_app_error)?;
     Ok(EffectResult::ProfileDeleted {
         entry: AccountEntry {
             provider,

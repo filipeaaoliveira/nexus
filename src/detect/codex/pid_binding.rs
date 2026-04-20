@@ -12,16 +12,7 @@ use super::{CONSERVATIVE_PID_BINDING_WINDOW_SECS, SAME_CWD_MULTI_BIND_MAX_SKEW_S
 
 // ── PID Binding Helpers ───────────────────────────────────────────────
 
-#[cfg(test)]
-pub fn codex_pid_for_thread(registry: &RegistrySnapshot, cwd: &Path) -> Option<u32> {
-    match registry.find_pids(AgentTool::Codex, cwd).as_slice() {
-        [pid] => Some(*pid),
-        _ => None,
-    }
-}
-
-#[cfg(not(test))]
-pub(super) fn codex_pid_for_thread(registry: &RegistrySnapshot, cwd: &Path) -> Option<u32> {
+pub(crate) fn codex_pid_for_thread(registry: &RegistrySnapshot, cwd: &Path) -> Option<u32> {
     match registry.find_pids(AgentTool::Codex, cwd).as_slice() {
         [pid] => Some(*pid),
         _ => None,

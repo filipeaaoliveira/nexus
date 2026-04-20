@@ -19,7 +19,7 @@ mod types;
 #[cfg(test)]
 pub use normalization::normalize_codex_session;
 #[cfg(test)]
-pub use pid_binding::codex_pid_for_thread;
+pub(crate) use pid_binding::codex_pid_for_thread;
 #[cfg(test)]
 pub use rollout::*;
 pub use rollout::{parse_rollout, parse_session_index};

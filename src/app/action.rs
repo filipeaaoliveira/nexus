@@ -53,6 +53,8 @@ pub enum AccountsAction {
     SetProviderFilter(ProviderFilter),
     StartFiltering,
     UpdateFilter(String),
+    /// Used in tests to set up editing state directly. Kept unconditional
+    /// so the binary shape is identical between test and production builds.
     #[allow(dead_code)]
     StartEditing(EditableProfile),
     UpdateEditBuffer(String),

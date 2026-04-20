@@ -20,43 +20,48 @@ pub use services::runtime::run;
 
 #[doc(hidden)]
 pub mod testing {
-    // app / event
+    //! Curated re-exports for integration tests.
+    //!
+    //! Grouped by domain. Only types needed by `tests/*.rs` are exposed.
+
+    // ── App state & events ─────────────────────────────────────
     pub use crate::app::{AppState, RootState};
     pub use crate::event::AgentEvent;
 
-    // domain::accounts
+    // ── Domain: accounts ───────────────────────────────────────
     pub use nexus_domain::accounts::{
         Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
     };
 
-    // domain::agents — shared vocabulary only
+    // ── Domain: agents ─────────────────────────────────────────
     pub use nexus_domain::agents::{
         Activity, AgentId, AgentTool, NormalizedReason, NormalizedState, NormalizedStatus,
         PrimaryStatus, SortMode, Subagent, TodoItem, TodoPriority, TodoStatus,
     };
 
-    // app::agent — the stateful composite
+    // ── App: agent composite ───────────────────────────────────
     pub use crate::app::agent::{
         ActivityEvent, ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
     };
 
-    // domain::shared
+    // ── Domain: shared utilities ───────────────────────────────
     pub use nexus_domain::shared::{
         format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
     };
 
-    // domain::system
+    // ── Domain: system ─────────────────────────────────────────
     pub use nexus_domain::system::{CodexBackendHealth, DetectorKind, DetectorNotification};
 
-    // claude_profiles
+    // ── Services: profile storage ──────────────────────────────
+    pub use crate::services::accounts::quota::{load_quota_cache, save_quota_cache};
+    pub use crate::services::accounts::storage::{ProfileStoreError, StoreResult};
+
+    // ── Profiles: Claude ───────────────────────────────────────
     pub use crate::claude_profiles::profile::{
         load_claude_profile_metadata, ClaudeProfileMetadata,
     };
 
-    // services::accounts
-    pub use crate::services::accounts::quota::{load_quota_cache, save_quota_cache};
-
-    // codex_profiles
+    // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{
         extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
         StoredCodexProfile,
@@ -66,7 +71,7 @@ pub mod testing {
         canonical_repo_root, launch_codex, repo_runtime_key, require_codex_binary, RuntimePlan,
     };
 
-    // detect
+    // ── Detectors: parsers ─────────────────────────────────────
     pub use crate::detect::claude::{parse_project_session, parse_transcript};
     pub use crate::detect::codex::{parse_rollout, parse_session_index, parse_source_field};
     pub use crate::detect::opencode::{parse_message_data, parse_part_data};

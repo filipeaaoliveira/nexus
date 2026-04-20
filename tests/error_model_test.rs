@@ -23,7 +23,7 @@ fn invalid_claude_profile_metadata_returns_an_error() {
 }
 
 #[test]
-#[ignore = "forward-looking corruption policy for a later error-model task"]
+#[ignore = "load_profile_metadata returns anyhow::Error — typed corruption errors require migrating profile loaders"]
 fn invalid_profile_metadata_is_reported_as_corruption_not_silently_hidden() {
     let tmp = tempdir().unwrap();
     fs::write(tmp.path().join("profile.json"), "{ not valid json").unwrap();

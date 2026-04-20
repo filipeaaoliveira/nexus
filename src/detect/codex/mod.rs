@@ -64,7 +64,7 @@ pub async fn run_codex_detector(
             detect_codex_backend_with_history(&db, &registry_snap, has_seen_db)
         })
         .await
-        .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+        .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::other(e.to_string())))?;
 
         let current_snapshot = result.snapshot;
         let events = reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);

@@ -175,7 +175,7 @@ pub async fn run_opencode_detector(
                 Ok((active_session_ids, results))
             })
             .await
-            .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())));
+            .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::other(e.to_string())));
 
             match poll_result {
                 Ok(Ok((active_session_ids, session_data))) => {

@@ -9,6 +9,7 @@ pub enum DetectorError {
     Io(#[from] std::io::Error),
 
     #[error("channel closed")]
+    #[allow(dead_code)]
     ChannelClosed,
 }
 

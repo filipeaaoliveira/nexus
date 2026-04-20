@@ -35,6 +35,7 @@ impl RuntimeSession {
         &self.app
     }
 
+    #[allow(dead_code)]
     pub(crate) fn app_mut(&mut self) -> &mut AppState {
         &mut self.app
     }
@@ -223,6 +224,7 @@ impl RuntimeSession {
         self.app.root()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn agents(&self) -> &[crate::app::Agent] {
         self.app.agents()
     }

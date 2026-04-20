@@ -53,6 +53,7 @@ pub enum AccountsAction {
     SetProviderFilter(ProviderFilter),
     StartFiltering,
     UpdateFilter(String),
+    #[allow(dead_code)]
     StartEditing(EditableProfile),
     UpdateEditBuffer(String),
     ToggleEnabled,

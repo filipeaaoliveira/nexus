@@ -42,7 +42,6 @@ pub fn reduce(
             state.mode = OverviewMode::Normal;
             clamp_selection(agents, state);
         }
-        #[cfg(test)]
         OverviewAction::ClearFilter => {
             state.mode = OverviewMode::Normal;
             state.filter = None;

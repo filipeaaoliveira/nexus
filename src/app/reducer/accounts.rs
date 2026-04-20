@@ -27,7 +27,6 @@ pub fn reduce(
                 };
             }
         }
-        #[cfg(test)]
         AccountsAction::StartEditing(draft) => {
             state.mode = AccountsMode::Editing {
                 draft: draft.clone(),

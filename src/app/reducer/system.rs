@@ -16,7 +16,6 @@ pub fn reduce(state: &mut SystemState, action: &SystemAction) -> Vec<Effect> {
             }
         }
         SystemAction::ClearOverlay => state.overlay = Overlay::None,
-        #[cfg(test)]
         SystemAction::SetWorkflow(workflow) => state.workflow = workflow.clone(),
     }
 

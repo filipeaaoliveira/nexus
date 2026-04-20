@@ -6,7 +6,6 @@ use crate::event::AgentEvent;
 
 use super::effect::EffectResult;
 use super::state::{AccountsConfirmAction, AccountsMode};
-#[cfg(test)]
 use super::state::{EditableProfile, Workflow};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,7 +35,6 @@ pub enum OverviewAction {
     StartFiltering,
     UpdateFilter(String),
     ConfirmFilter,
-    #[cfg(test)]
     ClearFilter,
     StartRenaming {
         agent_id: AgentId,
@@ -55,7 +53,6 @@ pub enum AccountsAction {
     SetProviderFilter(ProviderFilter),
     StartFiltering,
     UpdateFilter(String),
-    #[cfg(test)]
     StartEditing(EditableProfile),
     UpdateEditBuffer(String),
     ToggleEnabled,
@@ -71,6 +68,5 @@ pub enum SystemAction {
     ScrollHelpUp,
     ScrollHelpDown,
     ClearOverlay,
-    #[cfg(test)]
     SetWorkflow(Workflow),
 }

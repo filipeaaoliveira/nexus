@@ -40,7 +40,7 @@ pub async fn run_codex_detector(
     codex_data_dir: PathBuf,
     poll_interval: Duration,
     registry: RegistryHandle,
-) -> anyhow::Result<()> {
+) -> Result<(), crate::detect::error::DetectorError> {
     let db_path = codex_data_dir.join("state_5.sqlite");
     let mut previous_snapshot: Option<CodexEventSnapshot> = None;
     let mut has_seen_db = false;
@@ -54,7 +54,8 @@ pub async fn run_codex_detector(
         let result = tokio::task::spawn_blocking(move || {
             detect_codex_backend_with_history(&db, &registry_snap, has_seen_db)
         })
-        .await?;
+        .await
+        .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
         let current_snapshot = result.snapshot;
         let events = reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);

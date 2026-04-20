@@ -129,7 +129,7 @@ async fn forward_agent_events(
 async fn run_with_restart<F, Fut>(name: &str, mut make_future: F)
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = anyhow::Result<()>>,
+    Fut: std::future::Future<Output = Result<(), error::DetectorError>>,
 {
     let mut backoff = Duration::from_secs(1);
     let max_backoff = Duration::from_secs(60);
@@ -137,7 +137,7 @@ where
         match make_future().await {
             Ok(()) => break,
             Err(e) => {
-                error!("{name} failed: {e:#}, restarting in {backoff:?}");
+                error!("{name} failed: {e}, restarting in {backoff:?}");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(max_backoff);
             }

@@ -5,6 +5,7 @@ use tracing::debug;
 use nexus_domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
 use super::types::{AssistantMessageData, MessageData, OpenCodeSession, PartData};
+use crate::detect::error::DetectorError;
 #[cfg(test)]
 use std::path::Path;
 
@@ -82,7 +83,7 @@ pub fn parse_part_data(json: &str, time_created: i64) -> Option<PartData> {
 /// across multiple queries in the same poll cycle.
 pub fn query_opencode_sessions_conn(
     conn: &rusqlite::Connection,
-) -> anyhow::Result<Vec<OpenCodeSession>> {
+) -> Result<Vec<OpenCodeSession>, DetectorError> {
     let mut stmt = conn.prepare(
         "SELECT s.id, s.title, s.directory, s.parent_id, s.time_created, s.time_updated, s.time_archived,
                 w.branch
@@ -125,7 +126,7 @@ pub fn query_opencode_sessions_conn(
 pub fn query_subagent_sessions(
     db_path: &Path,
     parent_session_id: &str,
-) -> anyhow::Result<Vec<OpenCodeSession>> {
+) -> Result<Vec<OpenCodeSession>, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -167,7 +168,7 @@ pub fn query_subagent_sessions(
 
 /// Query todo items for a specific session from the OpenCode database.
 #[cfg(test)]
-pub fn query_session_todos(db_path: &Path, session_id: &str) -> anyhow::Result<Vec<TodoItem>> {
+pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoItem>, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -200,7 +201,7 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> anyhow::Result<V
 pub fn check_assistant_turn_completed(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> anyhow::Result<bool> {
+) -> Result<bool, DetectorError> {
     let mut stmt = conn.prepare(
         "SELECT json_extract(data, '$.time.completed') \
          FROM message \
@@ -222,7 +223,7 @@ pub fn check_assistant_turn_completed(
 /// the turn is finished). Returns `false` if the timestamp is NULL or if
 /// there are no assistant messages.
 #[cfg(test)]
-pub fn query_assistant_turn_completed(db_path: &Path, session_id: &str) -> anyhow::Result<bool> {
+pub fn query_assistant_turn_completed(db_path: &Path, session_id: &str) -> Result<bool, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -289,7 +290,7 @@ pub(super) fn extract_assistant_message_data(json: &str) -> Option<AssistantMess
 pub fn query_latest_assistant_message_data_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> anyhow::Result<Option<AssistantMessageData>> {
+) -> Result<Option<AssistantMessageData>, DetectorError> {
     let mut stmt = conn.prepare(
         "SELECT data
          FROM message
@@ -312,7 +313,7 @@ pub fn query_latest_assistant_message_data_conn(
 pub fn query_session_todos_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> anyhow::Result<Vec<TodoItem>> {
+) -> Result<Vec<TodoItem>, DetectorError> {
     let mut stmt = conn.prepare(
         "SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position ASC",
     )?;
@@ -341,7 +342,7 @@ pub fn query_session_todos_conn(
 pub fn query_subagent_sessions_conn(
     conn: &rusqlite::Connection,
     parent_session_id: &str,
-) -> anyhow::Result<Vec<OpenCodeSession>> {
+) -> Result<Vec<OpenCodeSession>, DetectorError> {
     let mut stmt = conn.prepare(
         "SELECT id, title, directory, parent_id, time_created, time_updated, time_archived, NULL as branch
          FROM session

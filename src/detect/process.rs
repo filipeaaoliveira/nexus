@@ -467,7 +467,7 @@ pub async fn run_process_scanner(
     tx: mpsc::Sender<AgentEvent>,
     poll_interval: Duration,
     registry: RegistryHandle,
-) -> anyhow::Result<()> {
+) -> Result<(), crate::detect::error::DetectorError> {
     let mut known_pids: HashSet<(AgentTool, u32)> = HashSet::new();
     let mut last_health = ScannerHealth::Healthy;
     let mut cwd_cache = CwdCache::new();

@@ -27,7 +27,7 @@ pub async fn run_opencode_detector(
     opencode_data_dir: PathBuf,
     poll_interval: Duration,
     registry: RegistryHandle,
-) -> anyhow::Result<()> {
+) -> Result<(), crate::detect::error::DetectorError> {
     let db_path = opencode_data_dir.join("opencode.db");
     tracing::info!("OpenCode detector starting, db_path={}", db_path.display());
     tracing::info!("OpenCode detector: db exists={}", db_path.exists());
@@ -60,7 +60,7 @@ pub async fn run_opencode_detector(
                 Option<PartData>,                        // initial tool call (new sessions only)
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
-            let poll_result = tokio::task::spawn_blocking(move || -> anyhow::Result<PollData> {
+            let poll_result = tokio::task::spawn_blocking(move || -> Result<PollData, crate::detect::error::DetectorError> {
                 let conn = rusqlite::Connection::open_with_flags(
                     &db2,
                     rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -174,7 +174,8 @@ pub async fn run_opencode_detector(
                 }
                 Ok((active_session_ids, results))
             })
-            .await;
+            .await
+            .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())));
 
             match poll_result {
                 Ok(Ok((active_session_ids, session_data))) => {

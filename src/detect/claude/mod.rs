@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::Result;
 use chrono::Local;
 use tokio::sync::mpsc;
 
+use crate::detect::error::DetectorError;
 use crate::detect::registry::RegistryHandle;
 use crate::event::AgentEvent;
 use nexus_domain::agents::activity::Subagent;
@@ -42,7 +42,7 @@ pub async fn run_claude_detector(
     claude_data_dir: PathBuf,
     poll_interval: Duration,
     registry: RegistryHandle,
-) -> Result<()> {
+) -> Result<(), DetectorError> {
     let transcripts_dir = claude_data_dir.join("transcripts");
     let projects_dir = claude_data_dir.join("projects");
     let sessions_dir = claude_data_dir.join("sessions");
@@ -76,7 +76,9 @@ pub async fn run_claude_detector(
         // These files are written by Claude Code while a process is live.
         let sdir = sessions_dir.clone();
         let session_registry: HashMap<String, SessionRegistryEntry> =
-            tokio::task::spawn_blocking(move || scan_session_registry(&sdir)).await?;
+            tokio::task::spawn_blocking(move || scan_session_registry(&sdir))
+                .await
+                .map_err(|e| DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
         // Build a session_id → pid lookup from the live registry.
         let session_id_to_pid: HashMap<String, u32> = session_registry
             .values()
@@ -135,7 +137,8 @@ pub async fn run_claude_detector(
                 }
                 (changed, unchanged)
             })
-            .await?;
+            .await
+            .map_err(|e| DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
             let (changed, unchanged) = project_scan;
 
@@ -297,7 +300,8 @@ pub async fn run_claude_detector(
 
                 (new_state, results)
             })
-            .await?;
+            .await
+            .map_err(|e| DetectorError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
 
             let (new_state, results) = scan_result;
             file_state = new_state;

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use tracing::debug;
 
+use crate::detect::error::DetectorError;
 use super::types::{CodexThread, SourceInfo, SpawnEdge};
 
 // ── Source Field Parsing ──────────────────────────────────────────
@@ -47,7 +48,7 @@ pub fn parse_source_field(source: &str) -> SourceInfo {
 ///
 /// Opens the database in read-only mode and returns up to 50 threads
 /// ordered by most recently updated first.
-pub fn query_codex_threads(db_path: &Path) -> anyhow::Result<Vec<CodexThread>> {
+pub fn query_codex_threads(db_path: &Path) -> Result<Vec<CodexThread>, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -94,7 +95,7 @@ pub fn query_codex_threads(db_path: &Path) -> anyhow::Result<Vec<CodexThread>> {
 }
 
 /// Query all spawn edges (parent→child thread relationships) from the SQLite database.
-pub fn query_all_spawn_edges(db_path: &Path) -> anyhow::Result<Vec<SpawnEdge>> {
+pub fn query_all_spawn_edges(db_path: &Path) -> Result<Vec<SpawnEdge>, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,

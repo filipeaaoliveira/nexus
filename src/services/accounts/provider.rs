@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 
-use super::claude_store::ClaudeProfileStore;
-use super::codex_store::CodexProfileStore;
+use super::generic_store::GenericProfileStore;
+use super::storage_backend::{ClaudeStorageBackend, CodexStorageBackend};
 use super::traits::ProfileStore;
 
 /// Supplies ProfileStore implementations by provider type.
@@ -29,10 +29,14 @@ impl ConfigStoreProvider {
 
 impl StoreProvider for ConfigStoreProvider {
     fn codex_store(&self) -> Box<dyn ProfileStore> {
-        Box::new(CodexProfileStore::new(self.codex_profiles_dir.clone()))
+        Box::new(GenericProfileStore::new(CodexStorageBackend {
+            profiles_dir: self.codex_profiles_dir.clone(),
+        }))
     }
 
     fn claude_store(&self) -> Box<dyn ProfileStore> {
-        Box::new(ClaudeProfileStore::new(self.claude_profiles_dir.clone()))
+        Box::new(GenericProfileStore::new(ClaudeStorageBackend {
+            profiles_dir: self.claude_profiles_dir.clone(),
+        }))
     }
 }

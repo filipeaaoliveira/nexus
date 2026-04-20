@@ -16,8 +16,10 @@ use chrono::Utc;
 #[derive(Debug, thiserror::Error)]
 pub enum ProfileStoreError {
     #[error("profile not found: {profile_id}")]
+    #[allow(dead_code)]
     NotFound { profile_id: String },
     #[error("corrupted profile data at {path}: {detail}")]
+    #[allow(dead_code)]
     Corrupted { path: String, detail: String },
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -28,6 +30,7 @@ pub enum ProfileStoreError {
 pub type StoreResult<T> = Result<T, ProfileStoreError>;
 
 impl ProfileStoreError {
+    #[allow(dead_code)]
     pub fn corrupted(path: impl std::fmt::Display, detail: impl std::fmt::Display) -> Self {
         Self::Corrupted { path: path.to_string(), detail: detail.to_string() }
     }

@@ -8,11 +8,14 @@ use crate::event::AgentEvent;
 
 #[cfg(test)]
 mod integration_tests;
+pub(crate) mod pid_binding;
 mod rollout;
 mod snapshot;
 mod sqlite;
 mod types;
 
+#[cfg(test)]
+pub use pid_binding::codex_pid_for_thread;
 #[cfg(test)]
 pub use rollout::*;
 pub use rollout::{parse_rollout, parse_session_index};

@@ -76,23 +76,15 @@ pub fn reduce_result(
             *workflow = Workflow::Idle;
             true
         }
-        EffectResult::CodexQuotaRefreshed {
-            profile_id, quota, ..
+        EffectResult::QuotaRefreshed {
+            provider,
+            profile_id,
+            quota,
+            ..
         } => {
-            state.quota_by_key.insert(
-                AccountKey::new(Provider::Codex, profile_id.clone()),
-                quota.clone(),
-            );
-            *workflow = Workflow::Idle;
-            true
-        }
-        EffectResult::ClaudeQuotaRefreshed {
-            profile_id, quota, ..
-        } => {
-            state.quota_by_key.insert(
-                AccountKey::new(Provider::Claude, profile_id.clone()),
-                quota.clone(),
-            );
+            state
+                .quota_by_key
+                .insert(AccountKey::new(*provider, profile_id.clone()), quota.clone());
             *workflow = Workflow::Idle;
             true
         }
@@ -298,10 +290,8 @@ fn is_accounts_effect(effect: &Effect) -> bool {
         effect,
         Effect::LoadProfiles
             | Effect::LoadEditableProfile { .. }
-            | Effect::RefreshCodexQuota { .. }
-            | Effect::RefreshClaudeQuota { .. }
-            | Effect::ImportCodexProfile
-            | Effect::ImportClaudeProfile
+            | Effect::RefreshQuota { .. }
+            | Effect::ImportProfile { .. }
             | Effect::SaveProfileEdits { .. }
             | Effect::WriteProfileToHome { .. }
             | Effect::DeleteProfile { .. }

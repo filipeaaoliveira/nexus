@@ -80,16 +80,14 @@ pub enum Effect {
         provider: Provider,
         profile_id: ProfileId,
     },
-    RefreshCodexQuota {
+    RefreshQuota {
+        provider: Provider,
         profile_id: ProfileId,
         origin: RefreshOrigin,
     },
-    RefreshClaudeQuota {
-        profile_id: ProfileId,
-        origin: RefreshOrigin,
+    ImportProfile {
+        provider: Provider,
     },
-    ImportCodexProfile,
-    ImportClaudeProfile,
     SaveProfileEdits {
         provider: Provider,
         profile_id: ProfileId,
@@ -116,12 +114,8 @@ pub enum EffectResult {
         profile_id: ProfileId,
         draft: EditableProfile,
     },
-    CodexQuotaRefreshed {
-        profile_id: ProfileId,
-        quota: QuotaSnapshot,
-        origin: RefreshOrigin,
-    },
-    ClaudeQuotaRefreshed {
+    QuotaRefreshed {
+        provider: Provider,
         profile_id: ProfileId,
         quota: QuotaSnapshot,
         origin: RefreshOrigin,
@@ -230,18 +224,21 @@ mod tests {
 
     #[test]
     fn quota_refresh_results_carry_refreshed_snapshot() {
-        let result = EffectResult::CodexQuotaRefreshed {
+        let result = EffectResult::QuotaRefreshed {
+            provider: Provider::Codex,
             profile_id: "codex-main".into(),
             quota: quota_snapshot("fresh snapshot"),
             origin: RefreshOrigin::Manual,
         };
 
         match result {
-            EffectResult::CodexQuotaRefreshed {
+            EffectResult::QuotaRefreshed {
+                provider,
                 profile_id,
                 quota,
                 origin,
             } => {
+                assert_eq!(provider, Provider::Codex);
                 assert_eq!(profile_id, "codex-main");
                 assert_eq!(quota.summary, "fresh snapshot");
                 assert_eq!(origin, RefreshOrigin::Manual);

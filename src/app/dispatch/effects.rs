@@ -36,14 +36,18 @@ async fn dispatch_effect_inner(
             Provider::Codex => load_profile_draft(stores.codex_store(), profile_id).await,
             Provider::Claude => load_profile_draft(stores.claude_store(), profile_id).await,
         },
-        Effect::RefreshCodexQuota { profile_id, origin } => {
-            refresh_codex_quota(config, profile_id, *origin).await
-        }
-        Effect::RefreshClaudeQuota { profile_id, origin } => {
-            refresh_claude_quota(config, profile_id, *origin).await
-        }
-        Effect::ImportCodexProfile => import_profile(stores.codex_store()).await,
-        Effect::ImportClaudeProfile => import_profile(stores.claude_store()).await,
+        Effect::RefreshQuota {
+            provider,
+            profile_id,
+            origin,
+        } => match provider {
+            Provider::Codex => refresh_codex_quota(config, profile_id, *origin).await,
+            Provider::Claude => refresh_claude_quota(config, profile_id, *origin).await,
+        },
+        Effect::ImportProfile { provider } => match provider {
+            Provider::Codex => import_profile(stores.codex_store()).await,
+            Provider::Claude => import_profile(stores.claude_store()).await,
+        },
         Effect::SaveProfileEdits {
             provider,
             profile_id,
@@ -169,7 +173,8 @@ async fn refresh_codex_quota(
     let quota = fetch_quota_from_api(&auth)
         .await
         .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
-    Ok(EffectResult::CodexQuotaRefreshed {
+    Ok(EffectResult::QuotaRefreshed {
+        provider: Provider::Codex,
         profile_id: profile_id.into(),
         quota,
         origin,
@@ -198,7 +203,8 @@ async fn refresh_claude_quota(
     let quota = fetch_claude_quota(&refreshed)
         .await
         .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
-    Ok(EffectResult::ClaudeQuotaRefreshed {
+    Ok(EffectResult::QuotaRefreshed {
+        provider: Provider::Claude,
         profile_id: profile_id.into(),
         quota,
         origin,
@@ -443,7 +449,8 @@ mod tests {
         let result = dispatch_effect(
             &config,
             &stores,
-            Effect::RefreshClaudeQuota {
+            Effect::RefreshQuota {
+                provider: Provider::Claude,
                 profile_id: "profile-09".into(),
                 origin: RefreshOrigin::Manual,
             },
@@ -452,9 +459,15 @@ mod tests {
 
         match result {
             EffectResult::Failed {
-                effect: Effect::RefreshClaudeQuota { profile_id, origin },
+                effect:
+                    Effect::RefreshQuota {
+                        provider,
+                        profile_id,
+                        origin,
+                    },
                 ..
             } => {
+                assert_eq!(provider, Provider::Claude);
                 assert_eq!(profile_id, "profile-09");
                 assert_eq!(origin, RefreshOrigin::Manual);
             }

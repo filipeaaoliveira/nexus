@@ -84,14 +84,18 @@ pub(super) async fn handle_runtime_input_action(
         RuntimeAction::ImportCodexProfile => {
             if session.active_tab() == Workspace::Accounts {
                 session
-                    .run_accounts_effect(Effect::ImportCodexProfile)
+                    .run_accounts_effect(Effect::ImportProfile {
+                        provider: nexus_domain::accounts::Provider::Codex,
+                    })
                     .await;
             }
         }
         RuntimeAction::ImportClaudeProfile => {
             if session.active_tab() == Workspace::Accounts {
                 session
-                    .run_accounts_effect(Effect::ImportClaudeProfile)
+                    .run_accounts_effect(Effect::ImportProfile {
+                        provider: nexus_domain::accounts::Provider::Claude,
+                    })
                     .await;
             }
         }

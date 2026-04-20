@@ -438,7 +438,8 @@ fn sequence_quota_refresh_then_delete() {
     reduce_result(
         &mut state,
         &mut wf,
-        &EffectResult::CodexQuotaRefreshed {
+        &EffectResult::QuotaRefreshed {
+            provider: Provider::Codex,
             profile_id: "codex-01".into(),
             quota: quota_snapshot(),
             origin: RefreshOrigin::Manual,

@@ -76,47 +76,36 @@ impl RuntimeSession {
 
     pub(crate) fn apply_effect_result(&mut self, result: EffectResult) {
         let refreshed_quota = match &result {
-            EffectResult::CodexQuotaRefreshed {
-                profile_id, quota, ..
-            } => Some((Provider::Codex, profile_id.clone(), quota.clone())),
-            EffectResult::ClaudeQuotaRefreshed {
-                profile_id, quota, ..
-            } => Some((Provider::Claude, profile_id.clone(), quota.clone())),
+            EffectResult::QuotaRefreshed {
+                provider,
+                profile_id,
+                quota,
+                ..
+            } => Some((*provider, profile_id.clone(), quota.clone())),
             _ => None,
         };
         let refresh_state = match &result {
-            EffectResult::CodexQuotaRefreshed {
-                profile_id, origin, ..
-            } => Some((
-                AccountKey::new(Provider::Codex, profile_id.clone()),
-                *origin,
-            )),
-            EffectResult::ClaudeQuotaRefreshed {
-                profile_id, origin, ..
-            } => Some((
-                AccountKey::new(Provider::Claude, profile_id.clone()),
-                *origin,
-            )),
-            EffectResult::Failed {
-                effect: Effect::RefreshCodexQuota { profile_id, origin },
+            EffectResult::QuotaRefreshed {
+                provider,
+                profile_id,
+                origin,
                 ..
-            } => Some((
-                AccountKey::new(Provider::Codex, profile_id.clone()),
-                *origin,
-            )),
+            } => Some((AccountKey::new(*provider, profile_id.clone()), *origin)),
             EffectResult::Failed {
-                effect: Effect::RefreshClaudeQuota { profile_id, origin },
+                effect:
+                    Effect::RefreshQuota {
+                        provider,
+                        profile_id,
+                        origin,
+                    },
                 ..
-            } => Some((
-                AccountKey::new(Provider::Claude, profile_id.clone()),
-                *origin,
-            )),
+            } => Some((AccountKey::new(*provider, profile_id.clone()), *origin)),
             _ => None,
         };
         let background_refresh_failure = matches!(
             &result,
             EffectResult::Failed {
-                effect: Effect::RefreshCodexQuota { .. } | Effect::RefreshClaudeQuota { .. },
+                effect: Effect::RefreshQuota { .. },
                 ..
             }
         ) && matches!(

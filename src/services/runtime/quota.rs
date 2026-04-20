@@ -16,7 +16,11 @@ pub(super) async fn refresh_codex_quota(
     dispatch_effect(
         config,
         stores,
-        Effect::RefreshCodexQuota { profile_id, origin },
+        Effect::RefreshQuota {
+            provider: nexus_domain::accounts::Provider::Codex,
+            profile_id,
+            origin,
+        },
     )
     .await
 }
@@ -31,7 +35,11 @@ pub(super) async fn refresh_claude_quota(
     dispatch_effect(
         config,
         stores,
-        Effect::RefreshClaudeQuota { profile_id, origin },
+        Effect::RefreshQuota {
+            provider: nexus_domain::accounts::Provider::Claude,
+            profile_id,
+            origin,
+        },
     )
     .await
 }
@@ -162,7 +170,8 @@ mod tests {
             temp.path().to_path_buf(),
             tx,
             |pid, _| async move {
-                EffectResult::CodexQuotaRefreshed {
+                EffectResult::QuotaRefreshed {
+                    provider: nexus_domain::accounts::Provider::Codex,
                     profile_id: pid.into(),
                     quota: test_snapshot(),
                     origin: RefreshOrigin::Background,
@@ -177,11 +186,13 @@ mod tests {
             .expect("quota message");
 
         match result {
-            EffectResult::CodexQuotaRefreshed {
+            EffectResult::QuotaRefreshed {
+                provider,
                 profile_id,
                 quota,
                 origin,
             } => {
+                assert_eq!(provider, nexus_domain::accounts::Provider::Codex);
                 assert_eq!(profile_id, "profile-01");
                 assert_eq!(quota.summary, test_snapshot().summary);
                 assert_eq!(origin, RefreshOrigin::Background);
@@ -206,7 +217,8 @@ mod tests {
             tx,
             |pid, _| async move {
                 EffectResult::Failed {
-                    effect: Effect::RefreshCodexQuota {
+                    effect: Effect::RefreshQuota {
+                        provider: nexus_domain::accounts::Provider::Codex,
                         profile_id: pid.into(),
                         origin: RefreshOrigin::Background,
                     },
@@ -227,9 +239,15 @@ mod tests {
 
         match result {
             EffectResult::Failed {
-                effect: Effect::RefreshCodexQuota { profile_id, origin },
+                effect:
+                    Effect::RefreshQuota {
+                        provider,
+                        profile_id,
+                        origin,
+                    },
                 ..
             } => {
+                assert_eq!(provider, nexus_domain::accounts::Provider::Codex);
                 assert_eq!(profile_id, "profile-01");
                 assert_eq!(origin, RefreshOrigin::Background);
             }
@@ -252,7 +270,8 @@ mod tests {
             temp.path().to_path_buf(),
             tx,
             |pid, _| async move {
-                EffectResult::CodexQuotaRefreshed {
+                EffectResult::QuotaRefreshed {
+                    provider: nexus_domain::accounts::Provider::Codex,
                     profile_id: pid.into(),
                     quota: test_snapshot(),
                     origin: RefreshOrigin::Background,

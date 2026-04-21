@@ -127,7 +127,7 @@ async fn forward_agent_events(
         }
     }
 
-    // Wait for in-flight enrichment tasks to finish before exiting
+    // Drain in-flight enrichment tasks (don't abort — let them deliver results)
     while enrichment_tasks.join_next().await.is_some() {}
 }
 

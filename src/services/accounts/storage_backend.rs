@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use crate::profiles::StoredProfile;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::{codex as codex_service, claude as claude_service, storage as storage_service};
 use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
@@ -35,6 +36,16 @@ impl ProviderBackend {
     }
 }
 
+impl ProviderBackend {
+    fn load_stored_profile(&self, profile_dir: &Path) -> StoreResult<LoadOutcome<StoredProfile>> {
+        let load_fn = match self.provider {
+            Provider::Codex => storage_service::load_codex_profile,
+            Provider::Claude => storage_service::load_claude_profile,
+        };
+        load_fn(profile_dir).map_err(|e| ProfileStoreError::other("load_profile", e))
+    }
+}
+
 impl StorageBackend for ProviderBackend {
     fn provider(&self) -> Provider {
         self.provider
@@ -50,16 +61,7 @@ impl StorageBackend for ProviderBackend {
 
     fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let load_fn = match self.provider {
-            Provider::Codex => storage_service::load_codex_profile,
-            Provider::Claude => storage_service::load_claude_profile,
-        };
-        let label = match self.provider {
-            Provider::Codex => "load_codex_profile",
-            Provider::Claude => "load_claude_profile",
-        };
-        let outcome = load_fn(&profile_dir)
-            .map_err(|e| ProfileStoreError::other(label, e))?;
+        let outcome = self.load_stored_profile(&profile_dir)?;
         Ok(match outcome {
             LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(self.provider)),
             LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
@@ -71,17 +73,7 @@ impl StorageBackend for ProviderBackend {
 
     fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let load_fn = match self.provider {
-            Provider::Codex => storage_service::load_codex_profile,
-            Provider::Claude => storage_service::load_claude_profile,
-        };
-        let label = match self.provider {
-            Provider::Codex => "load_codex_profile",
-            Provider::Claude => "load_claude_profile",
-        };
-        let profile = load_fn(&profile_dir)
-            .map_err(|e| ProfileStoreError::other(label, e))?
-            .into_value();
+        let profile = self.load_stored_profile(&profile_dir)?.into_value();
         Ok(EditableProfile {
             label: profile.label,
             notes: profile.notes.unwrap_or_default(),
@@ -105,17 +97,7 @@ impl StorageBackend for ProviderBackend {
         )
         .map_err(|e| ProfileStoreError::other("save_profile_edits", e))?;
 
-        let load_fn = match self.provider {
-            Provider::Codex => storage_service::load_codex_profile,
-            Provider::Claude => storage_service::load_claude_profile,
-        };
-        let label = match self.provider {
-            Provider::Codex => "load_codex_profile",
-            Provider::Claude => "load_claude_profile",
-        };
-        let profile = load_fn(&profile_dir)
-            .map_err(|e| ProfileStoreError::other(label, e))?
-            .into_value();
+        let profile = self.load_stored_profile(&profile_dir)?.into_value();
         Ok(profile.to_domain(self.provider))
     }
 

@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn save_claude_profile_edits_persists_label_notes_and_enabled() {
+    fn save_profile_edits_with_preserve_persists_label_notes_and_enabled() {
         let temp = tempdir().unwrap();
         let profile_dir = temp.path().join("profile-05");
         fs::create_dir_all(&profile_dir).unwrap();

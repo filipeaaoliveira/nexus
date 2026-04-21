@@ -3,27 +3,27 @@ use crate::app::action::{Action, OverviewAction};
 use crate::app::reducer;
 
 impl AppState {
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn move_selection_down(&mut self) {
         self.run_overview_reducer_action(OverviewAction::SelectNext);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn move_selection_up(&mut self) {
         self.run_overview_reducer_action(OverviewAction::SelectPrevious);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn cycle_sort_mode(&mut self) {
         self.run_overview_reducer_action(OverviewAction::CycleSortMode);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn start_filter(&mut self) {
         self.run_overview_reducer_action(OverviewAction::StartFiltering);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn filter_push_char(&mut self, c: char) {
         let mut input = match &self.root.overview.mode {
             OverviewMode::Filtering { input } => input.clone(),
@@ -33,7 +33,7 @@ impl AppState {
         self.run_overview_reducer_action(OverviewAction::UpdateFilter(input));
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn confirm_filter(&mut self) {
         self.run_overview_reducer_action(OverviewAction::ConfirmFilter);
     }
@@ -45,12 +45,12 @@ impl AppState {
         self.run_overview_reducer_action(OverviewAction::StartRenaming { agent_id });
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn confirm_rename(&mut self) {
         self.run_overview_reducer_action(OverviewAction::ConfirmRename);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn cancel_rename(&mut self) {
         self.run_overview_reducer_action(OverviewAction::CancelMode);
     }

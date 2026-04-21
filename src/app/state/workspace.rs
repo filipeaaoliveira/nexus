@@ -15,7 +15,6 @@ impl Workspace {
         }
     }
 
-    #[allow(dead_code)]
     pub fn previous(self) -> Self {
         match self {
             Self::Overview => Self::Accounts,

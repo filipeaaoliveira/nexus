@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 use tracing::error;
 
 use nexus_domain::agents::ids::AgentId;
+use nexus_domain::system::DetectorKind;
 
 #[derive(Debug, Clone)]
 struct CachedWorktreeInfo {
@@ -145,6 +146,42 @@ where
     }
 }
 
+/// Like [`run_with_restart`], but also emits a [`AgentEvent::DetectorHealthChanged`]
+/// event on the first failure (healthy → unhealthy transition).
+async fn run_with_restart_reporting<F, Fut>(
+    name: &str,
+    detector: DetectorKind,
+    health_tx: mpsc::Sender<AgentEvent>,
+    mut make_future: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<(), error::DetectorError>>,
+{
+    let mut backoff = Duration::from_secs(1);
+    let max_backoff = Duration::from_secs(60);
+    let mut reported_unhealthy = false;
+    loop {
+        match make_future().await {
+            Ok(()) => break,
+            Err(e) => {
+                error!("{name} failed: {e}, restarting in {backoff:?}");
+                if !reported_unhealthy {
+                    reported_unhealthy = true;
+                    let _ = health_tx
+                        .send(AgentEvent::DetectorHealthChanged {
+                            detector,
+                            healthy: false,
+                            message: format!("{name} failed: {e}"),
+                        })
+                        .await;
+                }
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(max_backoff);
+            }
+        }
+    }
+}
+
 /// Owned handles for all detector background tasks.
 ///
 /// Aborting on drop ensures detectors do not outlive the event channel.
@@ -188,49 +225,67 @@ pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentE
 
     // Claude detector — pass registry so it can resolve CWD→PID
     let claude_tx = raw_tx.clone();
+    let claude_health_tx = raw_tx.clone();
     let claude_dir = config.claude_data_dir.clone();
     let claude_registry = registry.clone();
     let claude = tokio::spawn(async move {
-        run_with_restart("Claude detector", || {
-            claude::run_claude_detector(
-                claude_tx.clone(),
-                claude_dir.clone(),
-                poll,
-                claude_registry.clone(),
-            )
-        })
+        run_with_restart_reporting(
+            "Claude detector",
+            DetectorKind::Claude,
+            claude_health_tx,
+            || {
+                claude::run_claude_detector(
+                    claude_tx.clone(),
+                    claude_dir.clone(),
+                    poll,
+                    claude_registry.clone(),
+                )
+            },
+        )
         .await;
     });
 
     // OpenCode detector
     let oc_tx = raw_tx.clone();
+    let oc_health_tx = raw_tx.clone();
     let oc_dir = config.opencode_data_dir.clone();
     let oc_registry = registry.clone();
     let opencode = tokio::spawn(async move {
-        run_with_restart("OpenCode detector", || {
-            opencode::run_opencode_detector(
-                oc_tx.clone(),
-                oc_dir.clone(),
-                poll,
-                oc_registry.clone(),
-            )
-        })
+        run_with_restart_reporting(
+            "OpenCode detector",
+            DetectorKind::OpenCode,
+            oc_health_tx,
+            || {
+                opencode::run_opencode_detector(
+                    oc_tx.clone(),
+                    oc_dir.clone(),
+                    poll,
+                    oc_registry.clone(),
+                )
+            },
+        )
         .await;
     });
 
     // Codex detector
     let codex_tx = raw_tx.clone();
+    let codex_health_tx = raw_tx.clone();
     let codex_dir = config.codex_data_dir.clone();
     let codex_registry = registry.clone();
     let codex = tokio::spawn(async move {
-        run_with_restart("Codex detector", || {
-            codex::run_codex_detector(
-                codex_tx.clone(),
-                codex_dir.clone(),
-                poll,
-                codex_registry.clone(),
-            )
-        })
+        run_with_restart_reporting(
+            "Codex detector",
+            DetectorKind::Codex,
+            codex_health_tx,
+            || {
+                codex::run_codex_detector(
+                    codex_tx.clone(),
+                    codex_dir.clone(),
+                    poll,
+                    codex_registry.clone(),
+                )
+            },
+        )
         .await;
     });
 
@@ -290,6 +345,40 @@ mod tests {
                 .any(|item| matches!(item, AgentEvent::SessionInfo { .. })),
             "expected detector-side session enrichment"
         );
+    }
+
+    #[tokio::test]
+    async fn run_with_restart_reporting_emits_health_on_failure() {
+        use crate::event::AgentEvent;
+        use nexus_domain::system::DetectorKind;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let (health_tx, mut health_rx) = mpsc::channel::<AgentEvent>(8);
+
+        let count = call_count.clone();
+        super::run_with_restart_reporting(
+            "test-detector",
+            DetectorKind::Codex,
+            health_tx,
+            || {
+                let n = count.fetch_add(1, Ordering::SeqCst);
+                let result: Result<(), super::error::DetectorError> = if n == 0 {
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, "boom").into())
+                } else {
+                    Ok(())
+                };
+                async move { result }
+            },
+        )
+        .await;
+
+        let event = health_rx.try_recv().expect("expected health event");
+        assert!(matches!(
+            event,
+            AgentEvent::DetectorHealthChanged { healthy: false, .. }
+        ));
     }
 
     #[tokio::test]

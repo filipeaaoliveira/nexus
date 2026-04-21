@@ -70,7 +70,7 @@ impl AppState {
         crate::app::projection::visible_agents(&self.agents, self.root.overview())
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn count_by_status(&self, status: PrimaryStatus) -> usize {
         crate::app::projection::count_by_status(&self.agents, self.root.overview(), status)
     }

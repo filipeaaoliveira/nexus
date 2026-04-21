@@ -5,7 +5,8 @@ pub use nexus_domain::accounts::Provider;
 pub use nexus_domain::accounts::{AccountEntry, ProviderFilter};
 pub use nexus_domain::agents::ids::AgentId;
 #[cfg(test)]
-pub use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
+pub use nexus_domain::agents::status::{NormalizedState, NormalizedStatus};
+pub use nexus_domain::agents::status::PrimaryStatus;
 
 pub use agent::{ActivityEvent, ActivityEventKind, Agent};
 #[cfg(test)]

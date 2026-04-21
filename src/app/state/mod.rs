@@ -8,7 +8,7 @@ pub use accounts::{
     EditableProfile,
 };
 pub use overview::{OverviewMode, OverviewState};
-#[cfg(test)]
+#[allow(unused_imports)]
 pub use system::DetectorHealth;
 pub use system::{Overlay, SystemState, Workflow};
 pub use workspace::{Workspace, WorkspaceState};
@@ -22,7 +22,7 @@ pub struct RootState {
 }
 
 impl RootState {
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn switch_workspace(&mut self, workspace: Workspace) {
         self.workspace.switch_to(workspace);
     }
@@ -51,7 +51,7 @@ impl RootState {
         self.workspace.previous();
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn show_overlay(&mut self, overlay: Overlay) {
         self.system.show_overlay(overlay);
     }

@@ -376,11 +376,12 @@ mod tests {
             r#"{"email":"draft@example.com","plan":"team"}"#,
         )
         .unwrap();
-        crate::services::accounts::storage::save_codex_profile_metadata(
+        crate::services::accounts::storage::save_profile_edits(
             &profile_dir,
             "profile-03",
             "Draft Label",
             Some("editable".to_string()),
+            false,
             false,
         )
         .unwrap();

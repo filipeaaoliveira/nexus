@@ -204,52 +204,38 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredProfi
     }
 }
 
-pub fn save_codex_profile_metadata(
+pub fn save_profile_edits(
     profile_dir: &Path,
     profile_id: &str,
     label: &str,
     notes: Option<String>,
     enabled: bool,
+    preserve_existing_metadata: bool,
 ) -> Result<()> {
-    let metadata = ProfileMetadata {
-        id: profile_id.to_string(),
-        label: Some(label.to_string()),
-        email: None,
-        plan: None,
-        notes,
-        enabled,
-        created_at: None,
-        updated_at: Some(Utc::now()),
-    };
-    profile_io::save_profile_metadata(profile_dir, &metadata)
-}
-
-pub fn save_claude_profile_edits(
-    profile_dir: &Path,
-    profile_id: &str,
-    label: &str,
-    notes: Option<String>,
-    enabled: bool,
-) -> Result<()> {
-    let existing = match profile_io::load_profile_metadata(profile_dir) {
-        Ok(m) => m,
-        Err(error) => {
-            tracing::warn!(
-                profile_dir = %profile_dir.display(),
-                error = %error,
-                "corrupted profile.json during save, starting from defaults"
-            );
-            ProfileMetadata::default()
+    let (existing_email, existing_plan, existing_created_at) = if preserve_existing_metadata {
+        match profile_io::load_profile_metadata(profile_dir) {
+            Ok(m) => (m.email, m.plan, m.created_at),
+            Err(error) => {
+                tracing::warn!(
+                    profile_dir = %profile_dir.display(),
+                    error = %error,
+                    "corrupted profile.json during save, starting from defaults"
+                );
+                (None, None, None)
+            }
         }
+    } else {
+        (None, None, None)
     };
+
     let metadata = ProfileMetadata {
         id: profile_id.to_string(),
         label: Some(label.to_string()),
-        email: existing.email,
-        plan: existing.plan,
+        email: existing_email,
+        plan: existing_plan,
         notes,
         enabled,
-        created_at: existing.created_at,
+        created_at: existing_created_at,
         updated_at: Some(Utc::now()),
     };
     profile_io::save_profile_metadata(profile_dir, &metadata)
@@ -295,7 +281,7 @@ mod tests {
 
     use crate::services::accounts::storage::{
         delete_profile_dir, load_claude_profile, load_codex_profile, next_profile_id,
-        save_claude_profile_edits, save_codex_profile_metadata, scan_profile_ids, LoadOutcome,
+        save_profile_edits, scan_profile_ids, LoadOutcome,
     };
 
     #[test]
@@ -309,11 +295,12 @@ mod tests {
         )
         .unwrap();
 
-        save_codex_profile_metadata(
+        save_profile_edits(
             &profile_dir,
             "profile-01",
             "Main Profile",
             Some("notes from metadata".to_string()),
+            false,
             false,
         )
         .unwrap();
@@ -356,11 +343,12 @@ mod tests {
         fs::create_dir_all(&profile_dir).unwrap();
         fs::write(profile_dir.join("auth.json"), "{not-json").unwrap();
 
-        save_codex_profile_metadata(
+        save_profile_edits(
             &profile_dir,
             "profile-08",
             "Saved Label",
             Some("persisted notes".to_string()),
+            false,
             false,
         )
         .unwrap();
@@ -415,12 +403,13 @@ mod tests {
         )
         .unwrap();
 
-        save_claude_profile_edits(
+        save_profile_edits(
             &profile_dir,
             "profile-05",
             "Edited Claude",
             Some("saved notes".to_string()),
             false,
+            true,
         )
         .unwrap();
 
@@ -550,5 +539,46 @@ mod tests {
             }
             _ => panic!("expected Degraded outcome"),
         }
+    }
+
+    #[test]
+    fn save_profile_edits_without_preserve_overwrites_metadata() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-20");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(
+            profile_dir.join("profile.json"),
+            r#"{"id":"profile-20","label":"Old","email":"old@example.com","plan":"old-plan","enabled":true}"#,
+        )
+        .unwrap();
+
+        save_profile_edits(&profile_dir, "profile-20", "New Label", Some("new notes".to_string()), false, false).unwrap();
+
+        let meta = crate::profiles::io::load_profile_metadata(&profile_dir).unwrap();
+        assert_eq!(meta.label.as_deref(), Some("New Label"));
+        assert_eq!(meta.notes.as_deref(), Some("new notes"));
+        assert_eq!(meta.email, None);
+        assert_eq!(meta.plan, None);
+    }
+
+    #[test]
+    fn save_profile_edits_with_preserve_keeps_existing_email_and_plan() {
+        let temp = tempdir().unwrap();
+        let profile_dir = temp.path().join("profile-21");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(
+            profile_dir.join("profile.json"),
+            r#"{"id":"profile-21","label":"Old","email":"keep@example.com","plan":"max","enabled":true}"#,
+        )
+        .unwrap();
+
+        save_profile_edits(&profile_dir, "profile-21", "Updated", Some("updated notes".to_string()), false, true).unwrap();
+
+        let meta = crate::profiles::io::load_profile_metadata(&profile_dir).unwrap();
+        assert_eq!(meta.label.as_deref(), Some("Updated"));
+        assert_eq!(meta.notes.as_deref(), Some("updated notes"));
+        assert!(!meta.enabled);
+        assert_eq!(meta.email.as_deref(), Some("keep@example.com"));
+        assert_eq!(meta.plan.as_deref(), Some("max"));
     }
 }

@@ -64,14 +64,15 @@ impl StorageBackend for CodexStorageBackend {
 
     fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        storage_service::save_codex_profile_metadata(
+        storage_service::save_profile_edits(
             &profile_dir,
             profile_id,
             &draft.label,
             notes_option(&draft.notes),
             draft.enabled,
+            false,
         )
-        .map_err(|e| ProfileStoreError::other("save_codex_profile_metadata", e))?;
+        .map_err(|e| ProfileStoreError::other("save_profile_edits", e))?;
         let profile = storage_service::load_codex_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
             .into_value();
@@ -138,14 +139,15 @@ impl StorageBackend for ClaudeStorageBackend {
 
     fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        storage_service::save_claude_profile_edits(
+        storage_service::save_profile_edits(
             &profile_dir,
             profile_id,
             &draft.label,
             notes_option(&draft.notes),
             draft.enabled,
+            true,
         )
-        .map_err(|e| ProfileStoreError::other("save_claude_profile_edits", e))?;
+        .map_err(|e| ProfileStoreError::other("save_profile_edits", e))?;
         let profile = storage_service::load_claude_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?
             .into_value();

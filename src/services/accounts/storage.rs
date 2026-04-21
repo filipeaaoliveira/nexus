@@ -2,9 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use crate::claude_profiles::auth::ClaudeAuth;
-use crate::claude_profiles::profile::StoredClaudeProfile;
-use crate::codex_profiles::profile::{extract_auth_metadata, AuthMetadata, StoredCodexProfile};
-use crate::profiles::{io as profile_io, ProfileMetadata};
+use crate::codex_profiles::profile::{extract_auth_metadata, AuthMetadata};
+use crate::profiles::{io as profile_io, ProfileMetadata, StoredProfile};
 use anyhow::{Context, Result};
 use chrono::Utc;
 
@@ -104,7 +103,7 @@ pub fn scan_claude_profile_ids(profiles_dir: &Path) -> Vec<String> {
     scan_profile_ids(profiles_dir, ".credentials.json")
 }
 
-pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredCodexProfile>> {
+pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredProfile>> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join("auth.json");
     let mut warnings = Vec::new();
@@ -126,7 +125,7 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredCodexP
     };
 
     let now = Utc::now();
-    let profile = StoredCodexProfile {
+    let profile = StoredProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: auth_metadata.email.or(metadata.email),
@@ -164,7 +163,7 @@ fn load_codex_auth_metadata_strict(auth_path: &Path) -> Result<AuthMetadata> {
     Ok(extract_auth_metadata(&auth_json))
 }
 
-pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredClaudeProfile>> {
+pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredProfile>> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join(".credentials.json");
     let mut warnings = Vec::new();
@@ -186,7 +185,7 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredClaud
     };
 
     let now = Utc::now();
-    let profile = StoredClaudeProfile {
+    let profile = StoredProfile {
         id: profile_id.clone(),
         label: metadata.label.unwrap_or(profile_id.clone()),
         email: metadata.email,

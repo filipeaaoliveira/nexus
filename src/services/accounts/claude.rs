@@ -4,8 +4,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use tempfile::TempPath;
 
-use crate::claude_profiles::profile::{self as claude_profile, StoredClaudeProfile};
-use crate::profiles::{io as profile_io, ProfileMetadata};
+use crate::claude_profiles::profile::{self as claude_profile};
+use crate::profiles::{io as profile_io, ProfileMetadata, StoredProfile};
 use crate::runtime_support::run_blocking_compatible;
 
 use super::storage;
@@ -13,7 +13,7 @@ use super::storage;
 pub fn import_profile_from_home(
     profiles_dir: &Path,
     home_dir: &Path,
-) -> Result<StoredClaudeProfile> {
+) -> Result<StoredProfile> {
     let (credentials_source, _temp_path) = credentials_source_from_home(home_dir)?;
     import_profile_from_credentials(profiles_dir, &credentials_source)
 }
@@ -21,7 +21,7 @@ pub fn import_profile_from_home(
 pub fn import_profile_from_credentials(
     profiles_dir: &Path,
     credentials_source: &Path,
-) -> Result<StoredClaudeProfile> {
+) -> Result<StoredProfile> {
     fs::create_dir_all(profiles_dir)
         .with_context(|| format!("failed to create {}", profiles_dir.display()))?;
 

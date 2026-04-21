@@ -5,14 +5,14 @@ use std::path::Path;
 
 use crate::claude_profiles::auth::ClaudeAuth;
 
-pub use crate::profiles::StoredProfile as StoredClaudeProfile;
+use crate::profiles::StoredProfile;
 
 pub fn import_from_credentials(
     id: &str,
     label: &str,
     profile_dir: &Path,
     credentials_source: &Path,
-) -> Result<StoredClaudeProfile> {
+) -> Result<StoredProfile> {
     if id.trim().is_empty() {
         bail!("id cannot be empty or whitespace");
     }
@@ -43,7 +43,7 @@ pub fn import_from_credentials(
     let now = Utc::now();
     let plan = auth.subscription_type().map(str::to_string);
 
-    Ok(StoredClaudeProfile {
+    Ok(StoredProfile {
         id: id.to_string(),
         label: label.to_string(),
         email: None,

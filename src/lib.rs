@@ -61,12 +61,9 @@ pub mod testing {
     pub use crate::profiles::{io as profile_io, ProfileMetadata};
     pub use crate::profiles::StoredProfile;
 
-    // ── Profiles: Claude ───────────────────────────────────────
-    pub use crate::claude_profiles::profile::StoredClaudeProfile;
-
     // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{
-        extract_auth_metadata, import_from_auth as import_codex_from_auth, StoredCodexProfile,
+        extract_auth_metadata, import_from_auth as import_codex_from_auth,
     };
     pub use crate::codex_profiles::quota::{parse_legacy_status_output, parse_quota_from_sessions};
     pub use crate::codex_profiles::runtime::{

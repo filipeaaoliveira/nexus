@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-pub use crate::profiles::StoredProfile as StoredCodexProfile;
+use crate::profiles::StoredProfile;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AuthMetadata {
@@ -18,7 +18,7 @@ pub fn import_from_auth(
     label: &str,
     profile_dir: &Path,
     auth_source: &Path,
-) -> Result<StoredCodexProfile> {
+) -> Result<StoredProfile> {
     if id.trim().is_empty() {
         bail!("id cannot be empty or whitespace");
     }
@@ -45,7 +45,7 @@ pub fn import_from_auth(
 
     let now = Utc::now();
 
-    Ok(StoredCodexProfile {
+    Ok(StoredProfile {
         id: id.to_string(),
         label: label.to_string(),
         email: metadata.email,

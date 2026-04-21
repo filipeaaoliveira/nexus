@@ -142,17 +142,16 @@ pub enum EffectResult {
 mod tests {
     use chrono::Utc;
 
-    use crate::claude_profiles::profile::StoredClaudeProfile;
-    use crate::codex_profiles::profile::StoredCodexProfile;
+    use crate::profiles::StoredProfile;
     use nexus_domain::accounts::{
         AccountEntry, Confidence, LimitState, Provider, QuotaSnapshot,
     };
 
     use super::*;
 
-    fn codex_profile(id: &str) -> StoredCodexProfile {
+    fn codex_profile(id: &str) -> StoredProfile {
         let now = Utc::now();
-        StoredCodexProfile {
+        StoredProfile {
             id: id.to_string(),
             label: format!("Codex {id}"),
             email: Some(format!("{id}@example.com")),
@@ -165,9 +164,9 @@ mod tests {
         }
     }
 
-    fn claude_profile(id: &str) -> StoredClaudeProfile {
+    fn claude_profile(id: &str) -> StoredProfile {
         let now = Utc::now();
-        StoredClaudeProfile {
+        StoredProfile {
             id: id.to_string(),
             label: format!("Claude {id}"),
             email: Some(format!("{id}@example.com")),

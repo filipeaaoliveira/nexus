@@ -3,15 +3,15 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::codex_profiles::profile::{self as codex_profile, StoredCodexProfile};
-use crate::profiles::{io as profile_io, ProfileMetadata};
+use crate::codex_profiles::profile::{self as codex_profile};
+use crate::profiles::{io as profile_io, ProfileMetadata, StoredProfile};
 
 use super::storage;
 
 pub fn import_profile_from_home(
     profiles_dir: &Path,
     home_dir: &Path,
-) -> Result<StoredCodexProfile> {
+) -> Result<StoredProfile> {
     let auth_source = home_dir.join(".codex").join("auth.json");
     if !auth_source.is_file() {
         bail!("{} does not exist", auth_source.display());
@@ -22,7 +22,7 @@ pub fn import_profile_from_home(
 pub fn import_profile_from_auth(
     profiles_dir: &Path,
     auth_source: &Path,
-) -> Result<StoredCodexProfile> {
+) -> Result<StoredProfile> {
     fs::create_dir_all(profiles_dir)
         .with_context(|| format!("failed to create {}", profiles_dir.display()))?;
 

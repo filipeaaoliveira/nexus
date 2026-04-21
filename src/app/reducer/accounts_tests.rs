@@ -1,17 +1,16 @@
 use super::*;
 use crate::app::effect::{AppError, RefreshOrigin, StorageError};
 use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
-use crate::claude_profiles::profile::StoredClaudeProfile;
-use crate::codex_profiles::profile::StoredCodexProfile;
+use crate::profiles::StoredProfile;
 use chrono::Utc;
 use nexus_domain::accounts::ProfileId;
 use nexus_domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
 
 // ── helpers ──────────────────────────────────────────────────────
 
-fn codex_profile(id: &str) -> StoredCodexProfile {
+fn codex_profile(id: &str) -> StoredProfile {
     let now = Utc::now();
-    StoredCodexProfile {
+    StoredProfile {
         id: id.to_string(),
         label: format!("Codex {id}"),
         email: Some(format!("{id}@example.com")),
@@ -24,9 +23,9 @@ fn codex_profile(id: &str) -> StoredCodexProfile {
     }
 }
 
-fn claude_profile(id: &str) -> StoredClaudeProfile {
+fn claude_profile(id: &str) -> StoredProfile {
     let now = Utc::now();
-    StoredClaudeProfile {
+    StoredProfile {
         id: id.to_string(),
         label: format!("Claude {id}"),
         email: Some(format!("{id}@example.com")),

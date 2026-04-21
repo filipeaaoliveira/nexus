@@ -28,14 +28,17 @@ async fn dispatch_effect_inner(
     effect: &Effect,
 ) -> Result<EffectResult, AppError> {
     match effect {
-        Effect::LoadProfiles => load_profiles(stores.codex_store(), stores.claude_store()).await,
+        Effect::LoadProfiles => {
+            load_profiles(
+                stores.store_for(Provider::Codex),
+                stores.store_for(Provider::Claude),
+            )
+            .await
+        }
         Effect::LoadEditableProfile {
             provider,
             profile_id,
-        } => match provider {
-            Provider::Codex => load_profile_draft(stores.codex_store(), profile_id).await,
-            Provider::Claude => load_profile_draft(stores.claude_store(), profile_id).await,
-        },
+        } => load_profile_draft(stores.store_for(*provider), profile_id).await,
         Effect::RefreshQuota {
             provider,
             profile_id,
@@ -44,32 +47,22 @@ async fn dispatch_effect_inner(
             Provider::Codex => refresh_codex_quota(config, profile_id, *origin).await,
             Provider::Claude => refresh_claude_quota(config, profile_id, *origin).await,
         },
-        Effect::ImportProfile { provider } => match provider {
-            Provider::Codex => import_profile(stores.codex_store()).await,
-            Provider::Claude => import_profile(stores.claude_store()).await,
-        },
+        Effect::ImportProfile { provider } => {
+            import_profile(stores.store_for(*provider)).await
+        }
         Effect::SaveProfileEdits {
             provider,
             profile_id,
             draft,
-        } => match provider {
-            Provider::Codex => save_profile_edits(stores.codex_store(), profile_id, draft).await,
-            Provider::Claude => save_profile_edits(stores.claude_store(), profile_id, draft).await,
-        },
+        } => save_profile_edits(stores.store_for(*provider), profile_id, draft).await,
         Effect::WriteProfileToHome {
             provider,
             profile_id,
-        } => match provider {
-            Provider::Codex => write_profile_to_home(stores.codex_store(), profile_id).await,
-            Provider::Claude => write_profile_to_home(stores.claude_store(), profile_id).await,
-        },
+        } => write_profile_to_home(stores.store_for(*provider), profile_id).await,
         Effect::DeleteProfile {
             provider,
             profile_id,
-        } => match provider {
-            Provider::Codex => delete_profile(stores.codex_store(), profile_id).await,
-            Provider::Claude => delete_profile(stores.claude_store(), profile_id).await,
-        },
+        } => delete_profile(stores.store_for(*provider), profile_id).await,
     }
 }
 

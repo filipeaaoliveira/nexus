@@ -9,8 +9,7 @@ use super::traits::ProfileStore;
 
 /// Supplies ProfileStore implementations by provider type.
 pub trait StoreProvider: Send + Sync {
-    fn codex_store(&self) -> Box<dyn ProfileStore>;
-    fn claude_store(&self) -> Box<dyn ProfileStore>;
+    fn store_for(&self, provider: Provider) -> Box<dyn ProfileStore>;
 }
 
 #[derive(Clone)]
@@ -29,17 +28,14 @@ impl ConfigStoreProvider {
 }
 
 impl StoreProvider for ConfigStoreProvider {
-    fn codex_store(&self) -> Box<dyn ProfileStore> {
+    fn store_for(&self, provider: Provider) -> Box<dyn ProfileStore> {
+        let profiles_dir = match provider {
+            Provider::Codex => &self.codex_profiles_dir,
+            Provider::Claude => &self.claude_profiles_dir,
+        };
         Box::new(GenericProfileStore::new(ProviderBackend::new(
-            Provider::Codex,
-            self.codex_profiles_dir.clone(),
-        )))
-    }
-
-    fn claude_store(&self) -> Box<dyn ProfileStore> {
-        Box::new(GenericProfileStore::new(ProviderBackend::new(
-            Provider::Claude,
-            self.claude_profiles_dir.clone(),
+            provider,
+            profiles_dir.clone(),
         )))
     }
 }

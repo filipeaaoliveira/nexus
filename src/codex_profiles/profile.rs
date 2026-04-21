@@ -13,37 +13,7 @@ pub struct AuthMetadata {
     pub plan: Option<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProfileMetadata {
-    pub id: String,
-    pub label: Option<String>,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    pub notes: Option<String>,
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    pub created_at: Option<chrono::DateTime<Utc>>,
-    pub updated_at: Option<chrono::DateTime<Utc>>,
-}
-
-impl Default for ProfileMetadata {
-    fn default() -> Self {
-        Self {
-            id: String::new(),
-            label: None,
-            email: None,
-            plan: None,
-            notes: None,
-            enabled: true,
-            created_at: None,
-            updated_at: None,
-        }
-    }
-}
+pub use crate::profiles::ProfileMetadata;
 
 pub fn import_from_auth(
     id: &str,

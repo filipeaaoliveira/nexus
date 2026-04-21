@@ -29,3 +29,74 @@ pub fn detect_live_profile_id(
 
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn match_returns_profile_id() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        fs::write(p1.join("auth.json"), b"{\"email\":\"a@b.com\"}").unwrap();
+
+        let home_auth = tmp.path().join("auth.json");
+        fs::write(&home_auth, b"{\"email\":\"a@b.com\"}").unwrap();
+
+        assert_eq!(
+            detect_live_profile_id(&profiles_dir, &home_auth, "auth.json"),
+            Some("profile-01".to_string())
+        );
+    }
+
+    #[test]
+    fn no_match_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        fs::write(p1.join("auth.json"), b"{\"email\":\"a@b.com\"}").unwrap();
+
+        let home_auth = tmp.path().join("auth.json");
+        fs::write(&home_auth, b"{\"email\":\"other@b.com\"}").unwrap();
+
+        assert_eq!(
+            detect_live_profile_id(&profiles_dir, &home_auth, "auth.json"),
+            None
+        );
+    }
+
+    #[test]
+    fn missing_home_auth_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        fs::write(p1.join("auth.json"), b"{\"email\":\"a@b.com\"}").unwrap();
+
+        let home_auth = tmp.path().join("nonexistent-auth.json");
+        assert_eq!(
+            detect_live_profile_id(&profiles_dir, &home_auth, "auth.json"),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_profiles_dir_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let profiles_dir = tmp.path().join("profiles");
+        fs::create_dir_all(&profiles_dir).unwrap();
+
+        let home_auth = tmp.path().join("auth.json");
+        fs::write(&home_auth, b"{\"email\":\"a@b.com\"}").unwrap();
+
+        assert_eq!(
+            detect_live_profile_id(&profiles_dir, &home_auth, "auth.json"),
+            None
+        );
+    }
+}

@@ -4,10 +4,8 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use tempfile::TempPath;
 
-use crate::claude_profiles::profile::{
-    self as claude_profile, save_claude_profile_metadata, ClaudeProfileMetadata,
-    StoredClaudeProfile,
-};
+use crate::claude_profiles::profile::{self as claude_profile, StoredClaudeProfile};
+use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::runtime_support::run_blocking_compatible;
 
 use super::storage;
@@ -36,7 +34,7 @@ pub fn import_profile_from_credentials(
         credentials_source,
     )?;
 
-    let metadata = ClaudeProfileMetadata {
+    let metadata = ProfileMetadata {
         id: profile.id.clone(),
         label: Some(profile.label.clone()),
         email: profile.email.clone(),
@@ -46,7 +44,7 @@ pub fn import_profile_from_credentials(
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_claude_profile_metadata(&profile_dir, &metadata)?;
+    profile_io::save_profile_metadata(&profile_dir, &metadata)?;
 
     Ok(profile)
 }
@@ -114,7 +112,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::claude_profiles::profile::load_claude_profile_metadata;
+    use crate::profiles::io as profile_io;
     use crate::services::accounts::claude::{
         import_profile_from_credentials, write_profile_to_home,
     };
@@ -133,7 +131,7 @@ mod tests {
 
         let profile = import_profile_from_credentials(&profiles_dir, &creds_source).unwrap();
         let profile_dir = profiles_dir.join(&profile.id);
-        let metadata = load_claude_profile_metadata(&profile_dir).unwrap();
+        let metadata = profile_io::load_profile_metadata(&profile_dir).unwrap();
 
         assert_eq!(profile.id, "profile-01");
         assert!(profile_dir.join(".credentials.json").is_file());

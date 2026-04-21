@@ -3,7 +3,8 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::codex_profiles::profile::{self as codex_profile, save_profile_metadata, ProfileMetadata, StoredCodexProfile};
+use crate::codex_profiles::profile::{self as codex_profile, StoredCodexProfile};
+use crate::profiles::{io as profile_io, ProfileMetadata};
 
 use super::storage;
 
@@ -40,7 +41,7 @@ pub fn import_profile_from_auth(
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_profile_metadata(&profile_dir, &metadata)?;
+    profile_io::save_profile_metadata(&profile_dir, &metadata)?;
 
     Ok(profile)
 }

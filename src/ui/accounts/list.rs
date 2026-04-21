@@ -5,8 +5,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 use crate::app::state::AccountKey;
-use crate::claude_profiles::profile::detect_live_claude_profile_id;
-use crate::codex_profiles::profile::detect_live_profile_id;
+use crate::profiles::detection::detect_live_profile_id;
 use crate::services::runtime::RuntimeSession;
 use nexus_domain::accounts::{Provider, ProviderFilter};
 
@@ -17,10 +16,12 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let codex_live = detect_live_profile_id(
         &state.config().codex_profiles_dir,
         &state.config().codex_data_dir.join("auth.json"),
+        "auth.json",
     );
-    let claude_live = detect_live_claude_profile_id(
+    let claude_live = detect_live_profile_id(
         &state.config().claude_profiles_dir,
         &state.config().claude_data_dir.join(".credentials.json"),
+        ".credentials.json",
     );
 
     let accounts = state.root().accounts();

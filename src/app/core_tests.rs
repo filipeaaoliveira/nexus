@@ -1,8 +1,7 @@
 use super::*;
 use crate::app::state::AccountsState;
-use crate::codex_profiles::profile::{
-    self as codex_profile, load_profile_metadata, save_profile_metadata, ProfileMetadata,
-};
+use crate::codex_profiles::profile::{self as codex_profile};
+use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::event::AgentEvent;
 use crate::services::accounts::storage::next_profile_id;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -314,9 +313,9 @@ fn test_import_codex_auth_writes_profile_json() {
         created_at: Some(profile.created_at),
         updated_at: Some(profile.updated_at),
     };
-    save_profile_metadata(&profile_dir, &metadata).unwrap();
+    profile_io::save_profile_metadata(&profile_dir, &metadata).unwrap();
 
-    let written = load_profile_metadata(&profile_dir).unwrap();
+    let written = profile_io::load_profile_metadata(&profile_dir).unwrap();
     assert!(
         written.enabled,
         "imported profile must have enabled=true in profile.json"

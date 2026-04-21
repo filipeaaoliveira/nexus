@@ -2,14 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::claude_profiles::auth::ClaudeAuth;
-use crate::claude_profiles::profile::{
-    load_claude_profile_metadata, save_claude_profile_metadata, ClaudeProfileMetadata,
-    StoredClaudeProfile,
-};
-use crate::codex_profiles::profile::{
-    extract_auth_metadata, load_profile_metadata, save_profile_metadata, AuthMetadata,
-    ProfileMetadata, StoredCodexProfile,
-};
+use crate::claude_profiles::profile::StoredClaudeProfile;
+use crate::codex_profiles::profile::{extract_auth_metadata, AuthMetadata, StoredCodexProfile};
+use crate::profiles::{io as profile_io, ProfileMetadata};
 use anyhow::{Context, Result};
 use chrono::Utc;
 
@@ -122,7 +117,7 @@ pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredCodexP
         }
     };
 
-    let metadata = match load_profile_metadata(profile_dir) {
+    let metadata = match profile_io::load_profile_metadata(profile_dir) {
         Ok(m) => m,
         Err(error) => {
             warnings.push(format!("corrupted profile.json: {error}"));
@@ -182,11 +177,11 @@ pub fn load_claude_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredClaud
         }
     };
 
-    let metadata = match load_claude_profile_metadata(profile_dir) {
+    let metadata = match profile_io::load_profile_metadata(profile_dir) {
         Ok(m) => m,
         Err(error) => {
             warnings.push(format!("corrupted profile.json: {error}"));
-            ClaudeProfileMetadata::default()
+            ProfileMetadata::default()
         }
     };
 
@@ -235,7 +230,7 @@ pub fn save_codex_profile_metadata(
         created_at: None,
         updated_at: Some(Utc::now()),
     };
-    save_profile_metadata(profile_dir, &metadata)
+    profile_io::save_profile_metadata(profile_dir, &metadata)
 }
 
 pub fn save_claude_profile_edits(
@@ -245,7 +240,7 @@ pub fn save_claude_profile_edits(
     notes: Option<String>,
     enabled: bool,
 ) -> Result<()> {
-    let existing = match load_claude_profile_metadata(profile_dir) {
+    let existing = match profile_io::load_profile_metadata(profile_dir) {
         Ok(m) => m,
         Err(error) => {
             tracing::warn!(
@@ -253,10 +248,10 @@ pub fn save_claude_profile_edits(
                 error = %error,
                 "corrupted profile.json during save, starting from defaults"
             );
-            ClaudeProfileMetadata::default()
+            ProfileMetadata::default()
         }
     };
-    let metadata = ClaudeProfileMetadata {
+    let metadata = ProfileMetadata {
         id: profile_id.to_string(),
         label: Some(label.to_string()),
         email: existing.email,
@@ -266,7 +261,7 @@ pub fn save_claude_profile_edits(
         created_at: existing.created_at,
         updated_at: Some(Utc::now()),
     };
-    save_claude_profile_metadata(profile_dir, &metadata)
+    profile_io::save_profile_metadata(profile_dir, &metadata)
 }
 
 pub fn delete_profile_dir(profile_dir: &Path) -> Result<()> {

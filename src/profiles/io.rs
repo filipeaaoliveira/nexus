@@ -22,3 +22,43 @@ pub fn save_profile_metadata(profile_dir: &Path, metadata: &ProfileMetadata) -> 
     fs::write(&metadata_path, content)
         .with_context(|| format!("failed to write {}", metadata_path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn default_metadata_has_enabled_true() {
+        let m = ProfileMetadata::default();
+        assert!(m.enabled);
+    }
+
+    #[test]
+    fn absent_file_returns_default_with_enabled_true() {
+        let tmp = TempDir::new().unwrap();
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(result.enabled);
+    }
+
+    #[test]
+    fn missing_enabled_field_defaults_to_true() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("profile.json"), b"{\"id\":\"x\"}").unwrap();
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(result.enabled);
+    }
+
+    #[test]
+    fn explicit_false_preserved() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(
+            tmp.path().join("profile.json"),
+            b"{\"id\":\"x\",\"enabled\":false}",
+        )
+        .unwrap();
+        let result = load_profile_metadata(tmp.path()).unwrap();
+        assert!(!result.enabled);
+    }
+}

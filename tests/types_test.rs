@@ -1,12 +1,11 @@
 use nexus::testing::{
     extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339,
-    import_codex_from_auth, load_profile_metadata, load_quota_cache,
-    parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata,
-    save_quota_cache, Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
-    ClaudeProfileMetadata, CodexBackendHealth, Confidence, DetectorKind, DetectorNotification,
-    LimitState, NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
-    ProfileMetadata, QuotaCache, QuotaSnapshot, SortMode, TodoItem,
-    TodoPriority, TodoStatus,
+    import_codex_from_auth, load_quota_cache, parse_legacy_status_output,
+    parse_quota_from_sessions, profile_io, save_quota_cache, Activity, Agent, AgentDetail, AgentId,
+    AgentIdent, AgentLifecycle, AgentTool, CodexBackendHealth, Confidence, DetectorKind,
+    DetectorNotification, LimitState, NormalizedReason, NormalizedState, NormalizedStatus,
+    PrimaryStatus, ProfileMetadata, QuotaCache, QuotaSnapshot, SortMode, TodoItem, TodoPriority,
+    TodoStatus,
 };
 use serde_json::json;
 use std::fs;
@@ -557,8 +556,8 @@ fn profile_metadata_save_load_round_trip() {
         updated_at: None,
     };
 
-    save_profile_metadata(&profile_dir, &metadata).unwrap();
-    let loaded = load_profile_metadata(&profile_dir).unwrap();
+    profile_io::save_profile_metadata(&profile_dir, &metadata).unwrap();
+    let loaded = profile_io::load_profile_metadata(&profile_dir).unwrap();
 
     assert_eq!(loaded.label, metadata.label);
     assert_eq!(loaded.notes, metadata.notes);
@@ -641,7 +640,7 @@ fn test_detector_domain_types_encode_health_without_stringly_identifiers() {
 #[test]
 fn test_metadata_defaults_keep_profiles_enabled_until_explicitly_disabled() {
     let codex = ProfileMetadata::default();
-    let claude = ClaudeProfileMetadata::default();
+    let claude = ProfileMetadata::default();
 
     assert!(codex.enabled);
     assert!(claude.enabled);

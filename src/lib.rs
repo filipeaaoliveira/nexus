@@ -57,15 +57,16 @@ pub mod testing {
     pub use crate::services::accounts::quota::{load_quota_cache, save_quota_cache};
     pub use crate::services::accounts::storage::{ProfileStoreError, StoreResult};
 
+    // ── Profiles: shared ─────────────────────────────────────────
+    pub use crate::profiles::{io as profile_io, ProfileMetadata};
+    pub use crate::profiles::StoredProfile;
+
     // ── Profiles: Claude ───────────────────────────────────────
-    pub use crate::claude_profiles::profile::{
-        load_claude_profile_metadata, ClaudeProfileMetadata,
-    };
+    pub use crate::claude_profiles::profile::StoredClaudeProfile;
 
     // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{
-        extract_auth_metadata, import_from_auth as import_codex_from_auth, load_profile_metadata,
-        save_profile_metadata, ProfileMetadata, StoredCodexProfile,
+        extract_auth_metadata, import_from_auth as import_codex_from_auth, StoredCodexProfile,
     };
     pub use crate::codex_profiles::quota::{parse_legacy_status_output, parse_quota_from_sessions};
     pub use crate::codex_profiles::runtime::{

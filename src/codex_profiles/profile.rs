@@ -13,8 +13,6 @@ pub struct AuthMetadata {
     pub plan: Option<String>,
 }
 
-pub use crate::profiles::ProfileMetadata;
-
 pub fn import_from_auth(
     id: &str,
     label: &str,
@@ -106,114 +104,9 @@ pub fn extract_auth_metadata(value: &Value) -> AuthMetadata {
     AuthMetadata { email, plan }
 }
 
-pub fn load_profile_metadata(profile_dir: &Path) -> Result<ProfileMetadata> {
-    crate::profiles::io::load_profile_metadata(profile_dir)
-}
-
-pub fn save_profile_metadata(profile_dir: &Path, metadata: &ProfileMetadata) -> Result<()> {
-    crate::profiles::io::save_profile_metadata(profile_dir, metadata)
-}
-
-/// Detects which stored profile is currently "live" by comparing
-/// `~/.codex/auth.json` bytes against each profile's `auth.json`.
-pub fn detect_live_profile_id(profiles_dir: &Path, codex_home_auth: &Path) -> Option<String> {
-    crate::profiles::detection::detect_live_profile_id(profiles_dir, codex_home_auth, "auth.json")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn write_file(dir: &std::path::Path, name: &str, content: &[u8]) {
-        fs::write(dir.join(name), content).unwrap();
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_match() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        let p1 = profiles_dir.join("profile-01");
-        fs::create_dir_all(&p1).unwrap();
-        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
-
-        let home_auth = tmp.path().join("auth.json");
-        fs::write(&home_auth, b"{\"email\":\"a@b.com\"}").unwrap();
-
-        let result = detect_live_profile_id(&profiles_dir, &home_auth);
-        assert_eq!(result, Some("profile-01".to_string()));
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_no_match() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        let p1 = profiles_dir.join("profile-01");
-        fs::create_dir_all(&p1).unwrap();
-        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
-
-        let home_auth = tmp.path().join("auth.json");
-        fs::write(&home_auth, b"{\"email\":\"other@b.com\"}").unwrap();
-
-        let result = detect_live_profile_id(&profiles_dir, &home_auth);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_missing_home_auth() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        let p1 = profiles_dir.join("profile-01");
-        fs::create_dir_all(&p1).unwrap();
-        write_file(&p1, "auth.json", b"{\"email\":\"a@b.com\"}");
-
-        let home_auth = tmp.path().join("nonexistent-auth.json");
-
-        let result = detect_live_profile_id(&profiles_dir, &home_auth);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_empty_profiles_dir() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        fs::create_dir_all(&profiles_dir).unwrap();
-
-        let home_auth = tmp.path().join("auth.json");
-        write_file(tmp.path(), "auth.json", b"{\"email\":\"a@b.com\"}");
-
-        let result = detect_live_profile_id(&profiles_dir, &home_auth);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn test_profile_metadata_default_enabled_true() {
-        let m = ProfileMetadata::default();
-        assert!(m.enabled, "default ProfileMetadata must have enabled=true");
-    }
-
-    #[test]
-    fn test_load_profile_metadata_absent_file_enabled_true() {
-        let tmp = TempDir::new().unwrap();
-        // profile dir exists but no profile.json inside
-        let result = load_profile_metadata(tmp.path()).unwrap();
-        assert!(
-            result.enabled,
-            "missing profile.json must yield enabled=true"
-        );
-    }
-
-    #[test]
-    fn test_load_profile_metadata_missing_enabled_field_defaults_true() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join("profile.json"), b"{\"id\":\"x\"}").unwrap();
-        let result = load_profile_metadata(tmp.path()).unwrap();
-        assert!(
-            result.enabled,
-            "profile.json without enabled field must yield enabled=true"
-        );
-    }
 
     // Synthetic JWT token for testing JWT parsing — all fields are fake, no real user data.
     // Payload is 1319 base64url chars (mod4=3), which requires one '=' when padded.
@@ -241,18 +134,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_load_profile_metadata_explicit_false_preserved() {
-        let tmp = TempDir::new().unwrap();
-        fs::write(
-            tmp.path().join("profile.json"),
-            b"{\"id\":\"x\",\"enabled\":false}",
-        )
-        .unwrap();
-        let result = load_profile_metadata(tmp.path()).unwrap();
-        assert!(
-            !result.enabled,
-            "profile.json with enabled=false must be preserved"
-        );
-    }
 }

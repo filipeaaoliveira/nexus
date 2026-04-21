@@ -7,8 +7,6 @@ use crate::claude_profiles::auth::ClaudeAuth;
 
 pub use crate::profiles::StoredProfile as StoredClaudeProfile;
 
-pub use crate::profiles::ProfileMetadata as ClaudeProfileMetadata;
-
 pub fn import_from_credentials(
     id: &str,
     label: &str,
@@ -58,30 +56,6 @@ pub fn import_from_credentials(
     })
 }
 
-pub fn load_claude_profile_metadata(profile_dir: &Path) -> Result<ClaudeProfileMetadata> {
-    crate::profiles::io::load_profile_metadata(profile_dir)
-}
-
-pub fn save_claude_profile_metadata(
-    profile_dir: &Path,
-    metadata: &ClaudeProfileMetadata,
-) -> Result<()> {
-    crate::profiles::io::save_profile_metadata(profile_dir, metadata)
-}
-
-/// Detects which stored Claude profile is currently "live" by comparing
-/// `~/.claude/.credentials.json` bytes against each profile's `.credentials.json`.
-pub fn detect_live_claude_profile_id(
-    profiles_dir: &Path,
-    claude_home_creds: &Path,
-) -> Option<String> {
-    crate::profiles::detection::detect_live_profile_id(
-        profiles_dir,
-        claude_home_creds,
-        ".credentials.json",
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,52 +94,5 @@ mod tests {
         let result =
             import_from_credentials("   ", "label", tmp.path(), &source);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_match() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        let p1 = profiles_dir.join("profile-01");
-        fs::create_dir_all(&p1).unwrap();
-        fs::write(p1.join(".credentials.json"), b"creds").unwrap();
-
-        let home_creds = tmp.path().join(".credentials.json");
-        fs::write(&home_creds, b"creds").unwrap();
-
-        assert_eq!(
-            detect_live_claude_profile_id(&profiles_dir, &home_creds),
-            Some("profile-01".to_string())
-        );
-    }
-
-    #[test]
-    fn test_detect_live_profile_id_no_match() {
-        let tmp = TempDir::new().unwrap();
-        let profiles_dir = tmp.path().join("profiles");
-        let p1 = profiles_dir.join("profile-01");
-        fs::create_dir_all(&p1).unwrap();
-        fs::write(p1.join(".credentials.json"), b"creds-a").unwrap();
-
-        let home_creds = tmp.path().join(".credentials.json");
-        fs::write(&home_creds, b"creds-b").unwrap();
-
-        assert_eq!(
-            detect_live_claude_profile_id(&profiles_dir, &home_creds),
-            None
-        );
-    }
-
-    #[test]
-    fn test_metadata_default_enabled_true() {
-        let m = ClaudeProfileMetadata::default();
-        assert!(m.enabled);
-    }
-
-    #[test]
-    fn test_load_metadata_absent_file_enabled_true() {
-        let tmp = TempDir::new().unwrap();
-        let result = load_claude_profile_metadata(tmp.path()).unwrap();
-        assert!(result.enabled);
     }
 }

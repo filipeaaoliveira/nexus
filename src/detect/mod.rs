@@ -377,7 +377,7 @@ mod tests {
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
                 let result: Result<(), super::error::DetectorError> = if n == 0 {
-                    Err(std::io::Error::new(std::io::ErrorKind::Other, "boom").into())
+                    Err(std::io::Error::other("boom").into())
                 } else {
                     Ok(())
                 };

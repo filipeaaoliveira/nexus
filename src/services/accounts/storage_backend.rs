@@ -24,27 +24,46 @@ fn notes_option(notes: &str) -> Option<String> {
 }
 
 #[derive(Clone)]
-pub struct CodexStorageBackend {
-    pub(crate) profiles_dir: PathBuf,
+pub struct ProviderBackend {
+    provider: Provider,
+    profiles_dir: PathBuf,
 }
 
-impl StorageBackend for CodexStorageBackend {
+impl ProviderBackend {
+    pub fn new(provider: Provider, profiles_dir: PathBuf) -> Self {
+        Self { provider, profiles_dir }
+    }
+}
+
+impl StorageBackend for ProviderBackend {
     fn provider(&self) -> Provider {
-        Provider::Codex
+        self.provider
     }
 
     fn scan_profile_ids(&self) -> Vec<String> {
-        storage_service::scan_profile_ids(&self.profiles_dir, "auth.json")
+        let auth_file = match self.provider {
+            Provider::Codex => "auth.json",
+            Provider::Claude => ".credentials.json",
+        };
+        storage_service::scan_profile_ids(&self.profiles_dir, auth_file)
     }
 
     fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let outcome = storage_service::load_codex_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?;
+        let load_fn = match self.provider {
+            Provider::Codex => storage_service::load_codex_profile,
+            Provider::Claude => storage_service::load_claude_profile,
+        };
+        let label = match self.provider {
+            Provider::Codex => "load_codex_profile",
+            Provider::Claude => "load_claude_profile",
+        };
+        let outcome = load_fn(&profile_dir)
+            .map_err(|e| ProfileStoreError::other(label, e))?;
         Ok(match outcome {
-            LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(Provider::Codex)),
+            LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(self.provider)),
             LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
-                value: value.to_domain(Provider::Codex),
+                value: value.to_domain(self.provider),
                 warnings,
             },
         })
@@ -52,8 +71,16 @@ impl StorageBackend for CodexStorageBackend {
 
     fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        let profile = storage_service::load_codex_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
+        let load_fn = match self.provider {
+            Provider::Codex => storage_service::load_codex_profile,
+            Provider::Claude => storage_service::load_claude_profile,
+        };
+        let label = match self.provider {
+            Provider::Codex => "load_codex_profile",
+            Provider::Claude => "load_claude_profile",
+        };
+        let profile = load_fn(&profile_dir)
+            .map_err(|e| ProfileStoreError::other(label, e))?
             .into_value();
         Ok(EditableProfile {
             label: profile.label,
@@ -64,30 +91,51 @@ impl StorageBackend for CodexStorageBackend {
 
     fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let profile_dir = self.profiles_dir.join(profile_id);
+        let preserve = match self.provider {
+            Provider::Codex => false,
+            Provider::Claude => true,
+        };
         storage_service::save_profile_edits(
             &profile_dir,
             profile_id,
             &draft.label,
             notes_option(&draft.notes),
             draft.enabled,
-            false,
+            preserve,
         )
         .map_err(|e| ProfileStoreError::other("save_profile_edits", e))?;
-        let profile = storage_service::load_codex_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
+
+        let load_fn = match self.provider {
+            Provider::Codex => storage_service::load_codex_profile,
+            Provider::Claude => storage_service::load_claude_profile,
+        };
+        let label = match self.provider {
+            Provider::Codex => "load_codex_profile",
+            Provider::Claude => "load_claude_profile",
+        };
+        let profile = load_fn(&profile_dir)
+            .map_err(|e| ProfileStoreError::other(label, e))?
             .into_value();
-        Ok(profile.to_domain(Provider::Codex))
+        Ok(profile.to_domain(self.provider))
     }
 
     fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
-        let profile = codex_service::import_profile_from_home(&self.profiles_dir, home)
+        let import_fn = match self.provider {
+            Provider::Codex => codex_service::import_profile_from_home as fn(&Path, &Path) -> anyhow::Result<_>,
+            Provider::Claude => claude_service::import_profile_from_home,
+        };
+        let profile = import_fn(&self.profiles_dir, home)
             .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
-        Ok(profile.to_domain(Provider::Codex))
+        Ok(profile.to_domain(self.provider))
     }
 
     fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
         let profile_dir = self.profiles_dir.join(profile_id);
-        codex_service::write_profile_to_home(&profile_dir, home)
+        let write_fn = match self.provider {
+            Provider::Codex => codex_service::write_profile_to_home as fn(&Path, &Path) -> anyhow::Result<()>,
+            Provider::Claude => claude_service::write_profile_to_home,
+        };
+        write_fn(&profile_dir, home)
             .map_err(|e| ProfileStoreError::other("write_profile_to_home", e))
     }
 
@@ -98,77 +146,42 @@ impl StorageBackend for CodexStorageBackend {
     }
 }
 
-#[derive(Clone)]
-pub struct ClaudeStorageBackend {
-    pub(crate) profiles_dir: PathBuf,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use std::fs;
 
-impl StorageBackend for ClaudeStorageBackend {
-    fn provider(&self) -> Provider {
-        Provider::Claude
+    #[test]
+    fn provider_backend_returns_correct_provider() {
+        let tmp = TempDir::new().unwrap();
+        let codex = ProviderBackend::new(Provider::Codex, tmp.path().to_path_buf());
+        let claude = ProviderBackend::new(Provider::Claude, tmp.path().to_path_buf());
+        assert_eq!(codex.provider(), Provider::Codex);
+        assert_eq!(claude.provider(), Provider::Claude);
     }
 
-    fn scan_profile_ids(&self) -> Vec<String> {
-        storage_service::scan_profile_ids(&self.profiles_dir, ".credentials.json")
+    #[test]
+    fn provider_backend_scans_codex_profiles_by_auth_json() {
+        let tmp = TempDir::new().unwrap();
+        let profile_dir = tmp.path().join("my-profile");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(profile_dir.join("auth.json"), "{}").unwrap();
+
+        let backend = ProviderBackend::new(Provider::Codex, tmp.path().to_path_buf());
+        let ids = backend.scan_profile_ids();
+        assert_eq!(ids, vec!["my-profile"]);
     }
 
-    fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
-        let profile_dir = self.profiles_dir.join(profile_id);
-        let outcome = storage_service::load_claude_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?;
-        Ok(match outcome {
-            LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(Provider::Claude)),
-            LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
-                value: value.to_domain(Provider::Claude),
-                warnings,
-            },
-        })
-    }
+    #[test]
+    fn provider_backend_scans_claude_profiles_by_credentials() {
+        let tmp = TempDir::new().unwrap();
+        let profile_dir = tmp.path().join("claude-prof");
+        fs::create_dir_all(&profile_dir).unwrap();
+        fs::write(profile_dir.join(".credentials.json"), "{}").unwrap();
 
-    fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
-        let profile_dir = self.profiles_dir.join(profile_id);
-        let profile = storage_service::load_claude_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?
-            .into_value();
-        Ok(EditableProfile {
-            label: profile.label,
-            notes: profile.notes.unwrap_or_default(),
-            enabled: profile.enabled,
-        })
-    }
-
-    fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
-        let profile_dir = self.profiles_dir.join(profile_id);
-        storage_service::save_profile_edits(
-            &profile_dir,
-            profile_id,
-            &draft.label,
-            notes_option(&draft.notes),
-            draft.enabled,
-            true,
-        )
-        .map_err(|e| ProfileStoreError::other("save_profile_edits", e))?;
-        let profile = storage_service::load_claude_profile(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?
-            .into_value();
-        Ok(profile.to_domain(Provider::Claude))
-    }
-
-    fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
-        let profile = claude_service::import_profile_from_home(&self.profiles_dir, home)
-            .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
-        Ok(profile.to_domain(Provider::Claude))
-    }
-
-    fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
-        let profile_dir = self.profiles_dir.join(profile_id);
-        claude_service::write_profile_to_home(&profile_dir, home)
-            .map_err(|e| ProfileStoreError::other("write_profile_to_home", e))
-    }
-
-    fn delete(&self, profile_id: &str) -> StoreResult<()> {
-        let profile_dir = self.profiles_dir.join(profile_id);
-        storage_service::delete_profile_dir(&profile_dir)
-            .map_err(|e| ProfileStoreError::other("delete_profile_dir", e))
+        let backend = ProviderBackend::new(Provider::Claude, tmp.path().to_path_buf());
+        let ids = backend.scan_profile_ids();
+        assert_eq!(ids, vec!["claude-prof"]);
     }
 }

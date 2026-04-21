@@ -34,7 +34,7 @@ impl StorageBackend for CodexStorageBackend {
     }
 
     fn scan_profile_ids(&self) -> Vec<String> {
-        storage_service::scan_codex_profile_ids(&self.profiles_dir)
+        storage_service::scan_profile_ids(&self.profiles_dir, "auth.json")
     }
 
     fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
@@ -108,7 +108,7 @@ impl StorageBackend for ClaudeStorageBackend {
     }
 
     fn scan_profile_ids(&self) -> Vec<String> {
-        storage_service::scan_claude_profile_ids(&self.profiles_dir)
+        storage_service::scan_profile_ids(&self.profiles_dir, ".credentials.json")
     }
 
     fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {

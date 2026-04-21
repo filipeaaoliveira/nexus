@@ -95,14 +95,6 @@ pub fn next_profile_id(profiles_dir: &Path) -> String {
     format!("profile-{next:02}")
 }
 
-pub fn scan_codex_profile_ids(profiles_dir: &Path) -> Vec<String> {
-    scan_profile_ids(profiles_dir, "auth.json")
-}
-
-pub fn scan_claude_profile_ids(profiles_dir: &Path) -> Vec<String> {
-    scan_profile_ids(profiles_dir, ".credentials.json")
-}
-
 pub fn load_codex_profile(profile_dir: &Path) -> Result<LoadOutcome<StoredProfile>> {
     let profile_id = profile_id_from_dir(profile_dir)?;
     let auth_path = profile_dir.join("auth.json");
@@ -271,7 +263,7 @@ pub fn delete_profile_dir(profile_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn scan_profile_ids(profiles_dir: &Path, auth_file_name: &str) -> Vec<String> {
+pub fn scan_profile_ids(profiles_dir: &Path, auth_file_name: &str) -> Vec<String> {
     let mut profile_ids = Vec::new();
     if let Ok(entries) = fs::read_dir(profiles_dir) {
         for entry in entries.flatten() {
@@ -303,7 +295,7 @@ mod tests {
 
     use crate::services::accounts::storage::{
         delete_profile_dir, load_claude_profile, load_codex_profile, next_profile_id,
-        save_claude_profile_edits, save_codex_profile_metadata, LoadOutcome,
+        save_claude_profile_edits, save_codex_profile_metadata, scan_profile_ids, LoadOutcome,
     };
 
     #[test]
@@ -517,6 +509,31 @@ mod tests {
             }
             _ => panic!("expected Degraded outcome"),
         }
+    }
+
+    #[test]
+    fn scan_profile_ids_finds_profiles_by_auth_file() {
+        let temp = tempdir().unwrap();
+        let profiles_dir = temp.path();
+
+        let p1 = profiles_dir.join("profile-01");
+        fs::create_dir_all(&p1).unwrap();
+        fs::write(p1.join("auth.json"), "{}").unwrap();
+
+        let p2 = profiles_dir.join("profile-02");
+        fs::create_dir_all(&p2).unwrap();
+        fs::write(p2.join(".credentials.json"), "{}").unwrap();
+
+        let p3 = profiles_dir.join("profile-03");
+        fs::create_dir_all(&p3).unwrap();
+        fs::write(p3.join("auth.json"), "{}").unwrap();
+        fs::write(p3.join(".credentials.json"), "{}").unwrap();
+
+        let codex_ids = scan_profile_ids(profiles_dir, "auth.json");
+        assert_eq!(codex_ids, vec!["profile-01", "profile-03"]);
+
+        let claude_ids = scan_profile_ids(profiles_dir, ".credentials.json");
+        assert_eq!(claude_ids, vec!["profile-02", "profile-03"]);
     }
 
     #[test]

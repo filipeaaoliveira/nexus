@@ -47,7 +47,6 @@ impl RootState {
         self.workspace.next();
     }
 
-    #[cfg(test)]
     pub fn previous_workspace(&mut self) {
         self.workspace.previous();
     }

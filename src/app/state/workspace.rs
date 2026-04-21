@@ -15,7 +15,7 @@ impl Workspace {
         }
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn previous(self) -> Self {
         match self {
             Self::Overview => Self::Accounts,
@@ -41,7 +41,7 @@ impl WorkspaceState {
         self.active
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn switch_to(&mut self, workspace: Workspace) {
         self.active = workspace;
     }
@@ -50,7 +50,6 @@ impl WorkspaceState {
         self.active = self.active.next();
     }
 
-    #[cfg(test)]
     pub fn previous(&mut self) {
         self.active = self.active.previous();
     }

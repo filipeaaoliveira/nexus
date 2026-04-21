@@ -25,6 +25,7 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceAction {
     Next,
+    Previous,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

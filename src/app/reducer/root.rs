@@ -24,6 +24,7 @@ pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
         Action::Workspace(action) => {
             match action {
                 WorkspaceAction::Next => app.root.next_workspace(),
+                WorkspaceAction::Previous => app.root.previous_workspace(),
             }
             Vec::new()
         }

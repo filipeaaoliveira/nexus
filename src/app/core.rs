@@ -37,14 +37,14 @@ impl AppState {
         &self.agents
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn next_tab(&mut self) {
-        self.root.next_workspace();
+        self.run_workspace_reducer_action(super::action::WorkspaceAction::Next);
     }
 
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub fn previous_tab(&mut self) {
-        self.root.previous_workspace();
+        self.run_workspace_reducer_action(super::action::WorkspaceAction::Previous);
     }
 
     pub fn show_help(&self) -> bool {

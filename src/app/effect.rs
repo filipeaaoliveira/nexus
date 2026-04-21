@@ -10,14 +10,8 @@ pub enum RefreshOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
-    #[allow(dead_code)]
     NotFound {
         path: String,
-    },
-    #[allow(dead_code)]
-    CorruptedData {
-        path: String,
-        detail: String,
     },
     Io {
         detail: String,
@@ -48,7 +42,6 @@ impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound { path } => write!(f, "not found: {path}"),
-            Self::CorruptedData { path, detail } => write!(f, "corrupted {path}: {detail}"),
             Self::Io { detail } => write!(f, "I/O error: {detail}"),
         }
     }

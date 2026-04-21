@@ -76,7 +76,6 @@ fn store_to_app_error(error: crate::services::accounts::storage::ProfileStoreErr
     use crate::services::accounts::storage::ProfileStoreError;
     match error {
         ProfileStoreError::NotFound { profile_id } => AppError::Storage(StorageError::NotFound { path: profile_id }),
-        ProfileStoreError::Corrupted { path, detail } => AppError::Storage(StorageError::CorruptedData { path, detail }),
         ProfileStoreError::Io(e) => AppError::Storage(StorageError::Io { detail: e.to_string() }),
         ProfileStoreError::Other { context, source } => AppError::Storage(StorageError::Io { detail: format!("{context}: {source}") }),
     }

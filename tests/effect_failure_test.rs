@@ -10,14 +10,6 @@ fn profile_store_error_not_found_displays_profile_id() {
 }
 
 #[test]
-fn profile_store_error_corrupted_displays_path_and_detail() {
-    let err = ProfileStoreError::corrupted("/data/profile.json", "unexpected EOF");
-    let msg = err.to_string();
-    assert!(msg.contains("/data/profile.json"));
-    assert!(msg.contains("unexpected EOF"));
-}
-
-#[test]
 fn profile_store_error_io_wraps_std_io_error() {
     let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file gone");
     let err = ProfileStoreError::Io(io_err);

@@ -1,3 +1,5 @@
+pub mod detection;
+pub mod io;
 mod metadata;
 mod stored;
 pub use metadata::ProfileMetadata;

@@ -59,24 +59,14 @@ pub fn import_from_credentials(
 }
 
 pub fn load_claude_profile_metadata(profile_dir: &Path) -> Result<ClaudeProfileMetadata> {
-    let metadata_path = profile_dir.join("profile.json");
-    if !metadata_path.is_file() {
-        return Ok(ClaudeProfileMetadata::default());
-    }
-    let content = fs::read_to_string(&metadata_path)
-        .with_context(|| format!("failed to read {}", metadata_path.display()))?;
-    serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", metadata_path.display()))
+    crate::profiles::io::load_profile_metadata(profile_dir)
 }
 
 pub fn save_claude_profile_metadata(
     profile_dir: &Path,
     metadata: &ClaudeProfileMetadata,
 ) -> Result<()> {
-    let metadata_path = profile_dir.join("profile.json");
-    let content = serde_json::to_string_pretty(metadata)?;
-    fs::write(&metadata_path, content)
-        .with_context(|| format!("failed to write {}", metadata_path.display()))
+    crate::profiles::io::save_profile_metadata(profile_dir, metadata)
 }
 
 /// Detects which stored Claude profile is currently "live" by comparing
@@ -85,26 +75,11 @@ pub fn detect_live_claude_profile_id(
     profiles_dir: &Path,
     claude_home_creds: &Path,
 ) -> Option<String> {
-    let home_bytes = fs::read(claude_home_creds).ok()?;
-
-    let entries = fs::read_dir(profiles_dir).ok()?;
-    let mut ids: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .collect();
-    ids.sort();
-
-    for id in ids {
-        let profile_creds = profiles_dir.join(&id).join(".credentials.json");
-        if let Ok(profile_bytes) = fs::read(&profile_creds) {
-            if profile_bytes == home_bytes {
-                return Some(id);
-            }
-        }
-    }
-
-    None
+    crate::profiles::detection::detect_live_profile_id(
+        profiles_dir,
+        claude_home_creds,
+        ".credentials.json",
+    )
 }
 
 #[cfg(test)]

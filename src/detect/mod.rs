@@ -84,39 +84,51 @@ async fn forward_agent_events(
     cache_ttl: Duration,
 ) {
     let worktree_cache: WorktreeCache = Arc::new(Mutex::new(HashMap::new()));
+    let mut enrichment_tasks = tokio::task::JoinSet::new();
 
-    while let Some(event) = rx.recv().await {
-        if let AgentEvent::Discovered {
-            id,
-            pid,
-            cwd,
-            started_at,
-        } = &event
-        {
-            let enrichment_tx = tx.clone();
-            let enrichment_cache = worktree_cache.clone();
-            let id = id.clone();
-            let cwd = cwd.clone();
-            let started_at = *started_at;
-            let pid = *pid;
-            tokio::spawn(async move {
-                emit_enriched_session_info(
-                    enrichment_tx,
-                    enrichment_cache,
-                    cache_ttl,
+    loop {
+        tokio::select! {
+            event = rx.recv() => {
+                let Some(event) = event else { break };
+
+                if let AgentEvent::Discovered {
                     id,
                     pid,
                     cwd,
                     started_at,
-                )
-                .await;
-            });
-        }
+                } = &event
+                {
+                    let enrichment_tx = tx.clone();
+                    let enrichment_cache = worktree_cache.clone();
+                    let id = id.clone();
+                    let cwd = cwd.clone();
+                    let started_at = *started_at;
+                    let pid = *pid;
+                    enrichment_tasks.spawn(async move {
+                        emit_enriched_session_info(
+                            enrichment_tx,
+                            enrichment_cache,
+                            cache_ttl,
+                            id,
+                            pid,
+                            cwd,
+                            started_at,
+                        )
+                        .await;
+                    });
+                }
 
-        if tx.send(event).await.is_err() {
-            break;
+                if tx.send(event).await.is_err() {
+                    break;
+                }
+            }
+            // Drain completed enrichment tasks to avoid unbounded growth
+            Some(_result) = enrichment_tasks.join_next(), if !enrichment_tasks.is_empty() => {}
         }
     }
+
+    // Wait for in-flight enrichment tasks to finish before exiting
+    while enrichment_tasks.join_next().await.is_some() {}
 }
 
 /// Run a detector in a loop with exponential backoff on failure.

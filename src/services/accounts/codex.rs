@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use crate::codex_profiles::profile::{save_profile_metadata, ProfileMetadata, StoredCodexProfile};
+use crate::codex_profiles::profile::{self as codex_profile, save_profile_metadata, ProfileMetadata, StoredCodexProfile};
 
 use super::storage;
 
@@ -28,7 +28,7 @@ pub fn import_profile_from_auth(
     let profile_id = storage::next_profile_id(profiles_dir);
     let profile_dir = profiles_dir.join(&profile_id);
     let profile =
-        StoredCodexProfile::import_from_auth(&profile_id, &profile_id, &profile_dir, auth_source)?;
+        codex_profile::import_from_auth(&profile_id, &profile_id, &profile_dir, auth_source)?;
 
     let metadata = ProfileMetadata {
         id: profile.id.clone(),

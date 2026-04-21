@@ -6,18 +6,7 @@ use std::path::Path;
 
 use crate::claude_profiles::auth::ClaudeAuth;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StoredClaudeProfile {
-    pub id: String,
-    pub label: String,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    pub notes: Option<String>,
-    pub enabled: bool,
-    pub last_used: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+pub use crate::profiles::StoredProfile as StoredClaudeProfile;
 
 fn default_true() -> bool {
     true
@@ -51,71 +40,53 @@ impl Default for ClaudeProfileMetadata {
     }
 }
 
-impl From<StoredClaudeProfile> for nexus_domain::accounts::DomainProfile {
-    fn from(p: StoredClaudeProfile) -> Self {
-        Self {
-            id: nexus_domain::accounts::ProfileId::new(p.id),
-            provider: nexus_domain::accounts::Provider::Claude,
-            label: p.label,
-            email: p.email,
-            plan: p.plan,
-            notes: p.notes,
-            enabled: p.enabled,
-            created_at: p.created_at,
-            updated_at: p.updated_at,
-        }
+pub fn import_from_credentials(
+    id: &str,
+    label: &str,
+    profile_dir: &Path,
+    credentials_source: &Path,
+) -> Result<StoredClaudeProfile> {
+    if id.trim().is_empty() {
+        bail!("id cannot be empty or whitespace");
     }
-}
-
-impl StoredClaudeProfile {
-    pub fn import_from_credentials(
-        id: &str,
-        label: &str,
-        profile_dir: &Path,
-        credentials_source: &Path,
-    ) -> Result<Self> {
-        if id.trim().is_empty() {
-            bail!("id cannot be empty or whitespace");
-        }
-        if label.trim().is_empty() {
-            bail!("label cannot be empty or whitespace");
-        }
-
-        let auth = ClaudeAuth::load(credentials_source)?;
-
-        fs::create_dir_all(profile_dir)
-            .with_context(|| format!("failed to create {}", profile_dir.display()))?;
-
-        let auth_path = profile_dir.join(".credentials.json");
-        fs::copy(credentials_source, &auth_path).with_context(|| {
-            format!(
-                "failed to copy {} to {}",
-                credentials_source.display(),
-                auth_path.display()
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600))
-                .with_context(|| format!("failed to set permissions on {}", auth_path.display()))?;
-        }
-
-        let now = Utc::now();
-        let plan = auth.subscription_type().map(str::to_string);
-
-        Ok(Self {
-            id: id.to_string(),
-            label: label.to_string(),
-            email: None,
-            plan,
-            notes: None,
-            enabled: true,
-            last_used: None,
-            created_at: now,
-            updated_at: now,
-        })
+    if label.trim().is_empty() {
+        bail!("label cannot be empty or whitespace");
     }
+
+    let auth = ClaudeAuth::load(credentials_source)?;
+
+    fs::create_dir_all(profile_dir)
+        .with_context(|| format!("failed to create {}", profile_dir.display()))?;
+
+    let auth_path = profile_dir.join(".credentials.json");
+    fs::copy(credentials_source, &auth_path).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            credentials_source.display(),
+            auth_path.display()
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set permissions on {}", auth_path.display()))?;
+    }
+
+    let now = Utc::now();
+    let plan = auth.subscription_type().map(str::to_string);
+
+    Ok(StoredClaudeProfile {
+        id: id.to_string(),
+        label: label.to_string(),
+        email: None,
+        plan,
+        notes: None,
+        enabled: true,
+        last_used: None,
+        created_at: now,
+        updated_at: now,
+    })
 }
 
 pub fn load_claude_profile_metadata(profile_dir: &Path) -> Result<ClaudeProfileMetadata> {
@@ -184,7 +155,7 @@ mod tests {
         .unwrap();
 
         let profile_dir = tmp.path().join("profiles").join("profile-01");
-        let profile = StoredClaudeProfile::import_from_credentials(
+        let profile = import_from_credentials(
             "profile-01",
             "My Claude",
             &profile_dir,
@@ -203,7 +174,7 @@ mod tests {
         let source = tmp.path().join("c.json");
         fs::write(&source, r#"{}"#).unwrap();
         let result =
-            StoredClaudeProfile::import_from_credentials("   ", "label", tmp.path(), &source);
+            import_from_credentials("   ", "label", tmp.path(), &source);
         assert!(result.is_err());
     }
 

@@ -1,27 +1,16 @@
 use anyhow::{bail, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
+pub use crate::profiles::StoredProfile as StoredCodexProfile;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AuthMetadata {
     pub email: Option<String>,
     pub plan: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StoredCodexProfile {
-    pub id: String,
-    pub label: String,
-    pub email: Option<String>,
-    pub plan: Option<String>,
-    pub notes: Option<String>,
-    pub enabled: bool,
-    pub last_used: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
 fn default_true() -> bool {
@@ -37,8 +26,8 @@ pub struct ProfileMetadata {
     pub notes: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
-    pub created_at: Option<DateTime<Utc>>,
-    pub updated_at: Option<DateTime<Utc>>,
+    pub created_at: Option<chrono::DateTime<Utc>>,
+    pub updated_at: Option<chrono::DateTime<Utc>>,
 }
 
 impl Default for ProfileMetadata {
@@ -56,67 +45,49 @@ impl Default for ProfileMetadata {
     }
 }
 
-impl From<StoredCodexProfile> for nexus_domain::accounts::DomainProfile {
-    fn from(p: StoredCodexProfile) -> Self {
-        Self {
-            id: nexus_domain::accounts::ProfileId::new(p.id),
-            provider: nexus_domain::accounts::Provider::Codex,
-            label: p.label,
-            email: p.email,
-            plan: p.plan,
-            notes: p.notes,
-            enabled: p.enabled,
-            created_at: p.created_at,
-            updated_at: p.updated_at,
-        }
+pub fn import_from_auth(
+    id: &str,
+    label: &str,
+    profile_dir: &Path,
+    auth_source: &Path,
+) -> Result<StoredCodexProfile> {
+    if id.trim().is_empty() {
+        bail!("id cannot be empty or whitespace");
     }
-}
-
-impl StoredCodexProfile {
-    pub fn import_from_auth(
-        id: &str,
-        label: &str,
-        profile_dir: &Path,
-        auth_source: &Path,
-    ) -> Result<Self> {
-        if id.trim().is_empty() {
-            bail!("id cannot be empty or whitespace");
-        }
-        if label.trim().is_empty() {
-            bail!("label cannot be empty or whitespace");
-        }
-
-        let content = fs::read_to_string(auth_source)
-            .with_context(|| format!("failed to read {}", auth_source.display()))?;
-        let json: Value = serde_json::from_str(&content).context("invalid auth.json")?;
-        let metadata = extract_auth_metadata(&json);
-
-        fs::create_dir_all(profile_dir)
-            .with_context(|| format!("failed to create {}", profile_dir.display()))?;
-
-        let auth_path = profile_dir.join("auth.json");
-        fs::copy(auth_source, &auth_path).with_context(|| {
-            format!(
-                "failed to copy {} to {}",
-                auth_source.display(),
-                auth_path.display()
-            )
-        })?;
-
-        let now = Utc::now();
-
-        Ok(Self {
-            id: id.to_string(),
-            label: label.to_string(),
-            email: metadata.email,
-            plan: metadata.plan,
-            notes: None,
-            enabled: true,
-            last_used: None,
-            created_at: now,
-            updated_at: now,
-        })
+    if label.trim().is_empty() {
+        bail!("label cannot be empty or whitespace");
     }
+
+    let content = fs::read_to_string(auth_source)
+        .with_context(|| format!("failed to read {}", auth_source.display()))?;
+    let json: Value = serde_json::from_str(&content).context("invalid auth.json")?;
+    let metadata = extract_auth_metadata(&json);
+
+    fs::create_dir_all(profile_dir)
+        .with_context(|| format!("failed to create {}", profile_dir.display()))?;
+
+    let auth_path = profile_dir.join("auth.json");
+    fs::copy(auth_source, &auth_path).with_context(|| {
+        format!(
+            "failed to copy {} to {}",
+            auth_source.display(),
+            auth_path.display()
+        )
+    })?;
+
+    let now = Utc::now();
+
+    Ok(StoredCodexProfile {
+        id: id.to_string(),
+        label: label.to_string(),
+        email: metadata.email,
+        plan: metadata.plan,
+        notes: None,
+        enabled: true,
+        last_used: None,
+        created_at: now,
+        updated_at: now,
+    })
 }
 
 fn decode_jwt_payload(token: &str) -> Option<Value> {
@@ -314,8 +285,6 @@ mod tests {
 
     #[test]
     fn test_extract_auth_metadata_jwt_with_padding_needed() {
-        // The JWT payload is 1319 base64url chars (mod4=3), so decoding requires
-        // URL_SAFE_NO_PAD — the engine must not add '=' padding characters.
         let auth_json: Value = serde_json::json!({
             "auth_mode": "chatgpt",
             "tokens": {

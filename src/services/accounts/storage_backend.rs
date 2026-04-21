@@ -42,9 +42,9 @@ impl StorageBackend for CodexStorageBackend {
         let outcome = storage_service::load_codex_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?;
         Ok(match outcome {
-            LoadOutcome::Clean(v) => LoadOutcome::Clean(DomainProfile::from(v)),
+            LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(Provider::Codex)),
             LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
-                value: DomainProfile::from(value),
+                value: value.to_domain(Provider::Codex),
                 warnings,
             },
         })
@@ -75,13 +75,13 @@ impl StorageBackend for CodexStorageBackend {
         let profile = storage_service::load_codex_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_codex_profile", e))?
             .into_value();
-        Ok(DomainProfile::from(profile))
+        Ok(profile.to_domain(Provider::Codex))
     }
 
     fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
         let profile = codex_service::import_profile_from_home(&self.profiles_dir, home)
             .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
-        Ok(DomainProfile::from(profile))
+        Ok(profile.to_domain(Provider::Codex))
     }
 
     fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
@@ -116,9 +116,9 @@ impl StorageBackend for ClaudeStorageBackend {
         let outcome = storage_service::load_claude_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?;
         Ok(match outcome {
-            LoadOutcome::Clean(v) => LoadOutcome::Clean(DomainProfile::from(v)),
+            LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(Provider::Claude)),
             LoadOutcome::Degraded { value, warnings } => LoadOutcome::Degraded {
-                value: DomainProfile::from(value),
+                value: value.to_domain(Provider::Claude),
                 warnings,
             },
         })
@@ -149,13 +149,13 @@ impl StorageBackend for ClaudeStorageBackend {
         let profile = storage_service::load_claude_profile(&profile_dir)
             .map_err(|e| ProfileStoreError::other("load_claude_profile", e))?
             .into_value();
-        Ok(DomainProfile::from(profile))
+        Ok(profile.to_domain(Provider::Claude))
     }
 
     fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
         let profile = claude_service::import_profile_from_home(&self.profiles_dir, home)
             .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
-        Ok(DomainProfile::from(profile))
+        Ok(profile.to_domain(Provider::Claude))
     }
 
     fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {

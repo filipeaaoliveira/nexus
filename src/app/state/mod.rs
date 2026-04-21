@@ -89,8 +89,7 @@ mod tests {
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
     use nexus_domain::accounts::{
-        AccountEntry, Confidence, DomainProfile, LimitState, Provider, ProviderFilter,
-        QuotaSnapshot,
+        AccountEntry, Confidence, LimitState, Provider, ProviderFilter, QuotaSnapshot,
     };
     use nexus_domain::agents::model::SortMode;
 
@@ -248,12 +247,12 @@ mod tests {
             provider: Provider::Codex,
             profile_id: "codex-main".into(),
         });
-        let claude_dp = DomainProfile::from(claude_profile("claude-main"));
+        let claude_dp = claude_profile("claude-main").to_domain(Provider::Claude);
         let claude_key = AccountKey::for_profile(&claude_dp);
 
         state.profiles_by_key.insert(
             codex_key.clone(),
-            DomainProfile::from(codex_profile("codex-main")),
+            codex_profile("codex-main").to_domain(Provider::Codex),
         );
         state.profiles_by_key.insert(claude_key.clone(), claude_dp);
         state
@@ -274,7 +273,7 @@ mod tests {
             provider: Provider::Codex,
             profile_id: "codex-main".into(),
         };
-        let profile = DomainProfile::from(codex_profile("codex-main"));
+        let profile = codex_profile("codex-main").to_domain(Provider::Codex);
 
         assert_eq!(
             AccountKey::for_entry(&entry),

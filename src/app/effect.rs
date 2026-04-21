@@ -145,7 +145,7 @@ mod tests {
     use crate::claude_profiles::profile::StoredClaudeProfile;
     use crate::codex_profiles::profile::StoredCodexProfile;
     use nexus_domain::accounts::{
-        AccountEntry, Confidence, DomainProfile, LimitState, Provider, QuotaSnapshot,
+        AccountEntry, Confidence, LimitState, Provider, QuotaSnapshot,
     };
 
     use super::*;
@@ -198,8 +198,8 @@ mod tests {
     fn profiles_loaded_carries_profile_models_and_entries() {
         let result = EffectResult::ProfilesLoaded {
             profiles: vec![
-                DomainProfile::from(codex_profile("codex-main")),
-                DomainProfile::from(claude_profile("claude-main")),
+                codex_profile("codex-main").to_domain(Provider::Codex),
+                claude_profile("claude-main").to_domain(Provider::Claude),
             ],
             entries: vec![
                 AccountEntry {
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn domain_profile_exposes_provider_and_profile_id_for_state_keying() {
-        let profile = DomainProfile::from(claude_profile("claude-main"));
+        let profile = claude_profile("claude-main").to_domain(Provider::Claude);
 
         assert_eq!(profile.provider, Provider::Claude);
         assert_eq!(profile.profile_id(), "claude-main");
@@ -257,8 +257,8 @@ mod tests {
 
     #[test]
     fn domain_profile_from_provider_profiles_preserves_provider() {
-        let codex = DomainProfile::from(codex_profile("codex-main"));
-        let claude = DomainProfile::from(claude_profile("claude-main"));
+        let codex = codex_profile("codex-main").to_domain(Provider::Codex);
+        let claude = claude_profile("claude-main").to_domain(Provider::Claude);
 
         assert_eq!(codex.provider, Provider::Codex);
         assert_eq!(claude.provider, Provider::Claude);
@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn import_and_delete_results_carry_reducer_usable_data() {
         let imported = EffectResult::ProfileImported {
-            profile: DomainProfile::from(claude_profile("claude-main")),
+            profile: claude_profile("claude-main").to_domain(Provider::Claude),
         };
         let deleted = EffectResult::ProfileDeleted {
             entry: AccountEntry {

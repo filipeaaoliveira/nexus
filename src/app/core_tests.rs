@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::state::AccountsState;
 use crate::codex_profiles::profile::{
-    load_profile_metadata, save_profile_metadata, ProfileMetadata, StoredCodexProfile,
+    self as codex_profile, load_profile_metadata, save_profile_metadata, ProfileMetadata,
 };
 use crate::event::AgentEvent;
 use crate::services::accounts::storage::next_profile_id;
@@ -301,7 +301,7 @@ fn test_import_codex_auth_writes_profile_json() {
     let profile_id = "profile-01";
     let profile_dir = profiles_dir.join(profile_id);
     let profile =
-        StoredCodexProfile::import_from_auth(profile_id, profile_id, &profile_dir, &auth_source)
+        codex_profile::import_from_auth(profile_id, profile_id, &profile_dir, &auth_source)
             .unwrap();
 
     let metadata = ProfileMetadata {

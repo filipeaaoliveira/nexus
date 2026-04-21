@@ -72,9 +72,9 @@ fn make_entries() -> Vec<AccountEntry> {
 
 fn make_profiles() -> Vec<DomainProfile> {
     vec![
-        DomainProfile::from(codex_profile("codex-01")),
-        DomainProfile::from(codex_profile("codex-02")),
-        DomainProfile::from(claude_profile("claude-01")),
+        codex_profile("codex-01").to_domain(Provider::Codex),
+        codex_profile("codex-02").to_domain(Provider::Codex),
+        claude_profile("claude-01").to_domain(Provider::Claude),
     ]
 }
 
@@ -240,7 +240,7 @@ fn profile_imported_adds_entry_and_profile() {
         &mut state,
         &mut wf,
         &EffectResult::ProfileImported {
-            profile: DomainProfile::from(codex_profile("codex-03")),
+            profile: codex_profile("codex-03").to_domain(Provider::Codex),
         },
     );
     assert_invariants(&state);
@@ -375,7 +375,7 @@ fn sequence_load_start_editing_confirm_save() {
         &mut state,
         &mut wf,
         &EffectResult::ProfileSaved {
-            profile: DomainProfile::from(codex_profile("codex-01")),
+            profile: codex_profile("codex-01").to_domain(Provider::Codex),
         },
     );
     assert_invariants(&state);
@@ -394,7 +394,7 @@ fn sequence_import_then_immediately_delete() {
         &mut state,
         &mut wf,
         &EffectResult::ProfileImported {
-            profile: DomainProfile::from(claude_profile("claude-02")),
+            profile: claude_profile("claude-02").to_domain(Provider::Claude),
         },
     );
     assert_invariants(&state);
@@ -485,7 +485,7 @@ fn workflow_idle_to_saving_to_idle() {
         &mut state,
         &mut wf,
         &EffectResult::ProfileSaved {
-            profile: DomainProfile::from(codex_profile("codex-01")),
+            profile: codex_profile("codex-01").to_domain(Provider::Codex),
         },
     );
     assert_eq!(wf, Workflow::Idle);

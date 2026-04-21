@@ -4,6 +4,7 @@
 mod app;
 mod claude_profiles;
 mod codex_profiles;
+mod profiles;
 pub mod config;
 mod detect;
 mod event;
@@ -63,8 +64,8 @@ pub mod testing {
 
     // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{
-        extract_auth_metadata, load_profile_metadata, save_profile_metadata, ProfileMetadata,
-        StoredCodexProfile,
+        extract_auth_metadata, import_from_auth as import_codex_from_auth, load_profile_metadata,
+        save_profile_metadata, ProfileMetadata, StoredCodexProfile,
     };
     pub use crate::codex_profiles::quota::{parse_legacy_status_output, parse_quota_from_sessions};
     pub use crate::codex_profiles::runtime::{

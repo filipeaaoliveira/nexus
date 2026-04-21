@@ -1,10 +1,11 @@
 use nexus::testing::{
-    extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339, load_profile_metadata,
-    load_quota_cache, parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata,
+    extract_auth_metadata, from_epoch_millis, from_epoch_secs, from_rfc3339,
+    import_codex_from_auth, load_profile_metadata, load_quota_cache,
+    parse_legacy_status_output, parse_quota_from_sessions, save_profile_metadata,
     save_quota_cache, Activity, Agent, AgentDetail, AgentId, AgentIdent, AgentLifecycle, AgentTool,
     ClaudeProfileMetadata, CodexBackendHealth, Confidence, DetectorKind, DetectorNotification,
     LimitState, NormalizedReason, NormalizedState, NormalizedStatus, PrimaryStatus,
-    ProfileMetadata, QuotaCache, QuotaSnapshot, SortMode, StoredCodexProfile, TodoItem,
+    ProfileMetadata, QuotaCache, QuotaSnapshot, SortMode, TodoItem,
     TodoPriority, TodoStatus,
 };
 use serde_json::json;
@@ -326,8 +327,7 @@ fn codex_profile_imports_auth_and_sets_defaults() {
     fs::write(&source, auth_json).unwrap();
 
     let profile =
-        StoredCodexProfile::import_from_auth("profile-1", "Primary", &profile_dir, &source)
-            .unwrap();
+        import_codex_from_auth("profile-1", "Primary", &profile_dir, &source).unwrap();
 
     assert_eq!(profile.id, "profile-1");
     assert_eq!(profile.label, "Primary");
@@ -353,8 +353,7 @@ fn codex_profile_import_rejects_invalid_auth_without_partial_state() {
 
     fs::write(&source, "{invalid json").unwrap();
 
-    let result =
-        StoredCodexProfile::import_from_auth("profile-1", "Primary", &profile_dir, &source);
+    let result = import_codex_from_auth("profile-1", "Primary", &profile_dir, &source);
 
     assert!(result.is_err());
     assert!(!profile_dir.exists());
@@ -368,9 +367,8 @@ fn codex_profile_import_rejects_blank_id_or_label() {
 
     fs::write(&source, r#"{"email":"dev@example.com"}"#).unwrap();
 
-    let blank_id = StoredCodexProfile::import_from_auth("   ", "Primary", &profile_dir, &source);
-    let blank_label =
-        StoredCodexProfile::import_from_auth("profile-1", "\n\t", &profile_dir, &source);
+    let blank_id = import_codex_from_auth("   ", "Primary", &profile_dir, &source);
+    let blank_label = import_codex_from_auth("profile-1", "\n\t", &profile_dir, &source);
 
     assert!(blank_id.is_err());
     assert!(blank_label.is_err());

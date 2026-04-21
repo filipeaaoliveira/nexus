@@ -5,7 +5,8 @@ use anyhow::{bail, Context, Result};
 use tempfile::TempPath;
 
 use crate::claude_profiles::profile::{
-    save_claude_profile_metadata, ClaudeProfileMetadata, StoredClaudeProfile,
+    self as claude_profile, save_claude_profile_metadata, ClaudeProfileMetadata,
+    StoredClaudeProfile,
 };
 use crate::runtime_support::run_blocking_compatible;
 
@@ -28,7 +29,7 @@ pub fn import_profile_from_credentials(
 
     let profile_id = storage::next_profile_id(profiles_dir);
     let profile_dir = profiles_dir.join(&profile_id);
-    let profile = StoredClaudeProfile::import_from_credentials(
+    let profile = claude_profile::import_from_credentials(
         &profile_id,
         &profile_id,
         &profile_dir,

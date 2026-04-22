@@ -217,7 +217,7 @@ pub fn extract_plan_todos(events: &[RolloutEvent]) -> Vec<TodoItem> {
                         let status = item
                             .get("status")
                             .and_then(|v| v.as_str())
-                            .map(TodoStatus::parse_str)
+                            .map(|s| s.parse().unwrap_or(TodoStatus::Pending))
                             .unwrap_or(TodoStatus::Pending);
 
                         Some(TodoItem {

@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Local};
 
 use super::status::{NormalizedReason, PrimaryStatus};
@@ -39,22 +41,36 @@ pub struct Subagent {
     pub ended_at: Option<DateTime<Local>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TodoStatus {
+    #[default]
     Pending,
     InProgress,
     Completed,
     Cancelled,
 }
 
-impl TodoStatus {
-    pub fn parse_str(s: &str) -> Self {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseTodoStatusError;
+
+impl std::fmt::Display for ParseTodoStatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("unknown todo status")
+    }
+}
+
+impl std::error::Error for ParseTodoStatusError {}
+
+impl FromStr for TodoStatus {
+    type Err = ParseTodoStatusError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "pending" => Self::Pending,
-            "in_progress" => Self::InProgress,
-            "completed" => Self::Completed,
-            "cancelled" => Self::Cancelled,
-            _ => Self::Pending,
+            "pending" => Ok(Self::Pending),
+            "in_progress" => Ok(Self::InProgress),
+            "completed" => Ok(Self::Completed),
+            "cancelled" => Ok(Self::Cancelled),
+            _ => Err(ParseTodoStatusError),
         }
     }
 }
@@ -66,13 +82,31 @@ pub enum TodoPriority {
     Low,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseTodoPriorityError;
+
+impl std::fmt::Display for ParseTodoPriorityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("unknown todo priority")
+    }
+}
+
+impl std::error::Error for ParseTodoPriorityError {}
+
 impl TodoPriority {
-    pub fn parse_str(s: &str) -> Self {
+    /// Default priority used when parsing fails.
+    pub const DEFAULT: Self = Self::Medium;
+}
+
+impl FromStr for TodoPriority {
+    type Err = ParseTodoPriorityError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "high" => Self::High,
-            "medium" => Self::Medium,
-            "low" => Self::Low,
-            _ => Self::Medium,
+            "high" => Ok(Self::High),
+            "medium" => Ok(Self::Medium),
+            "low" => Ok(Self::Low),
+            _ => Err(ParseTodoPriorityError),
         }
     }
 }

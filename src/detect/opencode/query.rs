@@ -187,8 +187,8 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoI
         .filter_map(|r| r.ok())
         .map(|(content, status, priority)| TodoItem {
             content,
-            status: TodoStatus::parse_str(&status),
-            priority: TodoPriority::parse_str(&priority),
+            status: status.parse().unwrap_or(TodoStatus::Pending),
+            priority: priority.parse().unwrap_or(TodoPriority::DEFAULT),
         })
         .collect();
     Ok(todos)
@@ -328,8 +328,8 @@ pub fn query_session_todos_conn(
         .filter_map(|r| r.ok())
         .map(|(content, status, priority)| TodoItem {
             content,
-            status: TodoStatus::parse_str(&status),
-            priority: TodoPriority::parse_str(&priority),
+            status: status.parse().unwrap_or(TodoStatus::Pending),
+            priority: priority.parse().unwrap_or(TodoPriority::DEFAULT),
         })
         .collect();
     Ok(todos)

@@ -13,6 +13,21 @@ impl AgentTool {
             AgentTool::Codex => "codex",
         }
     }
+
+    /// Whether a subagent name matches, accounting for tool-specific conventions.
+    ///
+    /// Codex uses the subagent description as an alternative match target because
+    /// the thread spawn metadata sometimes stores the task description rather than
+    /// the agent nickname.
+    pub fn matches_subagent_name(
+        &self,
+        subagent_name: &str,
+        subagent_description: Option<&str>,
+        candidate: &str,
+    ) -> bool {
+        subagent_name == candidate
+            || (*self == AgentTool::Codex && subagent_description == Some(candidate))
+    }
 }
 
 impl std::fmt::Display for AgentTool {

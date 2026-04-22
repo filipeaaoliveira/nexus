@@ -182,17 +182,11 @@ fn reduce_subagent_completed(
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
-        let matching_subagent = if id.tool() == AgentTool::Codex {
-            agent.subagents_mut().iter_mut().find(|s| {
-                s.name == subagent_name
-                    || s.description.as_deref() == Some(subagent_name)
-            })
-        } else {
-            agent
-                .subagents_mut()
-                .iter_mut()
-                .find(|s| s.name == subagent_name)
-        };
+        let tool = id.tool();
+        let matching_subagent = agent
+            .subagents_mut()
+            .iter_mut()
+            .find(|s| tool.matches_subagent_name(&s.name, s.description.as_deref(), subagent_name));
         if let Some(sub) = matching_subagent {
             sub.status = PrimaryStatus::Done;
             sub.ended_at = Some(now);

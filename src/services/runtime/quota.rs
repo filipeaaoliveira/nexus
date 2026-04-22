@@ -36,7 +36,7 @@ pub(super) fn spawn_manual_quota_refresh(
     let profile_id = profile_id.to_string();
     session.begin_manual_quota_refresh(provider, &profile_id);
     let tx = effect_tx.clone();
-    let config = session.config().clone();
+    let config = session.config_arc();
     let stores = ConfigStoreProvider::from_config(&config);
     tokio::spawn(async move {
         let result = refresh_quota(&config, &stores, provider, profile_id, RefreshOrigin::Manual).await;

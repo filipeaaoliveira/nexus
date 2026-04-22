@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::app::dispatch::effects::dispatch_effect;
@@ -11,7 +12,7 @@ use nexus_domain::accounts::{QuotaCache, QuotaSnapshot};
 
 pub(crate) struct RuntimeSession {
     app: AppState,
-    config: Config,
+    config: Arc<Config>,
     stores: ConfigStoreProvider,
     interactive_quota_refreshes: BTreeSet<AccountKey>,
     accounts_status_message_expires_at: Option<Instant>,
@@ -23,7 +24,7 @@ impl RuntimeSession {
         let stores = ConfigStoreProvider::from_config(&config);
         Self {
             app,
-            config,
+            config: Arc::new(config),
             stores,
             interactive_quota_refreshes: BTreeSet::new(),
             accounts_status_message_expires_at: None,
@@ -44,10 +45,8 @@ impl RuntimeSession {
         &self.config
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn config_mut(&mut self) -> &mut Config {
-        &mut self.config
+    pub(crate) fn config_arc(&self) -> Arc<Config> {
+        Arc::clone(&self.config)
     }
 
     pub(crate) fn started_at(&self) -> Instant {

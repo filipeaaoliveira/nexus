@@ -5,6 +5,8 @@ mod quota;
 mod session;
 pub mod terminal;
 
+use std::sync::Arc;
+
 use futures_util::StreamExt;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -64,7 +66,7 @@ async fn run_loop(
     let (effect_tx, mut effect_rx) = tokio::sync::mpsc::channel::<EffectResult>(16);
 
     let token = CancellationToken::new();
-    let config = session.config().clone();
+    let config = session.config_arc();
 
     let stores = accounts::provider::ConfigStoreProvider::from_config(&config);
 
@@ -72,10 +74,10 @@ async fn run_loop(
         config.codex_profiles_dir.clone(),
         effect_tx.clone(),
         {
-            let config = config.clone();
+            let config = Arc::clone(&config);
             let stores = stores.clone();
             move |pid, _profile_dir| {
-                let config = config.clone();
+                let config = Arc::clone(&config);
                 let stores = stores.clone();
                 async move {
                     quota::refresh_quota(
@@ -96,10 +98,10 @@ async fn run_loop(
         config.claude_profiles_dir.clone(),
         effect_tx.clone(),
         {
-            let config = config.clone();
+            let config = Arc::clone(&config);
             let stores = stores.clone();
             move |pid, _profile_dir| {
-                let config = config.clone();
+                let config = Arc::clone(&config);
                 let stores = stores.clone();
                 async move {
                     quota::refresh_quota(

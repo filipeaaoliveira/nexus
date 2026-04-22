@@ -100,7 +100,7 @@ pub fn reduce(
 }
 
 fn visible_count(agents: &[Agent], state: &OverviewState) -> usize {
-    crate::app::projection::visible_agents(agents, state).len()
+    crate::app::projection::visible_count(agents, state)
 }
 
 fn clamp_selection(agents: &[Agent], state: &mut OverviewState) {

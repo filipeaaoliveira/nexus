@@ -693,8 +693,8 @@ fn apply_session_info(
 }
 
 fn clamp_selection(agents: &[Agent], overview: &mut OverviewState) {
-    let visible_count = crate::app::projection::visible_agents(agents, overview).len();
-    overview.clamp_selection(visible_count);
+    let count = crate::app::projection::visible_count(agents, overview);
+    overview.clamp_selection(count);
 }
 
 #[cfg(test)]

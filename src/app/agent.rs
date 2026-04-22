@@ -12,14 +12,14 @@ use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 /// Stable identity fields that remain constant across the agent's lifetime.
 #[derive(Debug, Clone)]
 pub struct AgentIdent {
-    pub(crate) id: AgentId,
-    pub(crate) pid: Option<u32>,
-    pub(crate) session_id: Option<String>,
-    pub(crate) alias: Option<String>,
-    pub(crate) cwd: Option<PathBuf>,
-    pub(crate) branch: Option<String>,
-    pub(crate) is_worktree: bool,
-    pub(crate) started_at: DateTime<Local>,
+    pub id: AgentId,
+    pub pid: Option<u32>,
+    pub session_id: Option<String>,
+    pub alias: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub branch: Option<String>,
+    pub is_worktree: bool,
+    pub started_at: DateTime<Local>,
 }
 
 /// Mutable lifecycle state that changes as the agent progresses.
@@ -91,30 +91,6 @@ impl Agent {
     }
 }
 
-impl AgentIdent {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: AgentId,
-        pid: Option<u32>,
-        session_id: Option<String>,
-        alias: Option<String>,
-        cwd: Option<PathBuf>,
-        branch: Option<String>,
-        is_worktree: bool,
-        started_at: DateTime<Local>,
-    ) -> Self {
-        Self {
-            id,
-            pid,
-            session_id,
-            alias,
-            cwd,
-            branch,
-            is_worktree,
-            started_at,
-        }
-    }
-}
 
 impl AgentLifecycle {
     pub fn new(

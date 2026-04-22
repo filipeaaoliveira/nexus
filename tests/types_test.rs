@@ -122,16 +122,16 @@ fn test_agent_id_process_and_session_are_distinct() {
 #[test]
 fn test_agent_elapsed_time() {
     let agent = Agent::new(
-        AgentIdent::new(
-            AgentId::new(AgentTool::Claude, 1000),
-            Some(1000),
-            None,
-            None,
-            Some(std::path::PathBuf::from("/tmp/test")),
-            Some("main".to_string()),
-            false,
-            chrono::Local::now() - chrono::Duration::minutes(5),
-        ),
+        AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 1000),
+            pid: Some(1000),
+            session_id: None,
+            alias: None,
+            cwd: Some(std::path::PathBuf::from("/tmp/test")),
+            branch: Some("main".to_string()),
+            is_worktree: false,
+            started_at: chrono::Local::now() - chrono::Duration::minutes(5),
+        },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
@@ -199,16 +199,16 @@ fn test_activity_compacting_as_str() {
 #[test]
 fn test_display_name_without_alias() {
     let agent = Agent::new(
-        AgentIdent::new(
-            AgentId::new(AgentTool::Claude, 100),
-            Some(100),
-            None,
-            None,
-            Some(std::path::PathBuf::from("/tmp")),
-            None,
-            false,
-            chrono::Local::now(),
-        ),
+        AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 100),
+            pid: Some(100),
+            session_id: None,
+            alias: None,
+            cwd: Some(std::path::PathBuf::from("/tmp")),
+            branch: None,
+            is_worktree: false,
+            started_at: chrono::Local::now(),
+        },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
@@ -223,16 +223,16 @@ fn test_display_name_without_alias() {
 #[test]
 fn test_display_name_with_alias() {
     let agent = Agent::new(
-        AgentIdent::new(
-            AgentId::new(AgentTool::OpenCode, 200),
-            Some(200),
-            None,
-            Some("my-agent".to_string()),
-            Some(std::path::PathBuf::from("/tmp")),
-            None,
-            false,
-            chrono::Local::now(),
-        ),
+        AgentIdent {
+            id: AgentId::new(AgentTool::OpenCode, 200),
+            pid: Some(200),
+            session_id: None,
+            alias: Some("my-agent".to_string()),
+            cwd: Some(std::path::PathBuf::from("/tmp")),
+            branch: None,
+            is_worktree: false,
+            started_at: chrono::Local::now(),
+        },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
@@ -571,16 +571,16 @@ fn test_agent_model_preserves_alias_elapsed_and_runtime_state() {
 
     let started_at = chrono::Local::now() - chrono::Duration::minutes(5);
     let agent = Agent::new(
-        AgentIdent::new(
-            AgentId::new(AgentTool::Claude, 100),
-            Some(100),
-            Some("thread-1".into()),
-            Some("review-me".into()),
-            Some(PathBuf::from("/tmp/repo")),
-            Some("main".into()),
-            false,
+        AgentIdent {
+            id: AgentId::new(AgentTool::Claude, 100),
+            pid: Some(100),
+            session_id: Some("thread-1".into()),
+            alias: Some("review-me".into()),
+            cwd: Some(PathBuf::from("/tmp/repo")),
+            branch: Some("main".into()),
+            is_worktree: false,
             started_at,
-        ),
+        },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),

@@ -24,16 +24,16 @@ fn agent_id_projection_tracks_process_and_session_identity() {
 #[test]
 fn agent_display_projection_prefers_alias_over_tool_name() {
     let agent = Agent::new(
-        AgentIdent::new(
-            AgentId::new(AgentTool::OpenCode, 7),
-            Some(7),
-            Some("thread-7".into()),
-            Some("focused-runner".into()),
-            Some(PathBuf::from("/tmp/repo")),
-            Some("main".into()),
-            false,
-            chrono::Local::now(),
-        ),
+        AgentIdent {
+            id: AgentId::new(AgentTool::OpenCode, 7),
+            pid: Some(7),
+            session_id: Some("thread-7".into()),
+            alias: Some("focused-runner".into()),
+            cwd: Some(PathBuf::from("/tmp/repo")),
+            branch: Some("main".into()),
+            is_worktree: false,
+            started_at: chrono::Local::now(),
+        },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),

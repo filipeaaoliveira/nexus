@@ -7,7 +7,7 @@ use crate::app::agent::{
     ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
 };
 use crate::app::state::{OverviewState, SystemState};
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::Subagent;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
@@ -84,8 +84,7 @@ pub fn reduce(
             reduce_session_info(
                 agents,
                 overview,
-                &agent.id,
-                agent.pid,
+                agent,
                 session_id.clone(),
                 branch.clone(),
                 *is_worktree,
@@ -486,20 +485,19 @@ fn reduce_discovered(
 fn reduce_session_info(
     agents: &mut Vec<Agent>,
     overview: &mut OverviewState,
-    id: &AgentId,
-    pid: Option<u32>,
+    agent: &AgentRef,
     session_id: Option<String>,
     branch: Option<String>,
     is_worktree: bool,
     started_at: Option<DateTime<Local>>,
     now: DateTime<Local>,
 ) {
-    let pid = pid.or_else(|| id.pid());
+    let pid = agent.pid.or_else(|| agent.id.pid());
 
-    if id.is_session() {
-        if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if agent.id.is_session() {
+        if let Some(a) = find_agent_mut_by_id(agents, &agent.id) {
             apply_session_info(
-                agent,
+                a,
                 pid,
                 session_id,
                 branch,
@@ -507,16 +505,16 @@ fn reduce_session_info(
                 started_at,
                 now,
             );
-            let absorbed_pid = agent.pid();
+            let absorbed_pid = a.pid();
             remove_redundant_codex_process_agents(agents, absorbed_pid);
             return;
         }
 
         if let Some(pid_val) = pid {
-            if let Some(agent) = find_process_agent_mut(agents, id.tool(), pid_val) {
-                agent.set_id(id.clone());
+            if let Some(a) = find_process_agent_mut(agents, agent.id.tool(), pid_val) {
+                a.set_id(agent.id.clone());
                 apply_session_info(
-                    agent,
+                    a,
                     Some(pid_val),
                     session_id,
                     branch,
@@ -529,8 +527,8 @@ fn reduce_session_info(
             }
         }
 
-        let agent = insert_placeholder_agent(agents, id.clone(), pid, now);
-        apply_session_info(agent, pid, session_id, branch, is_worktree, started_at, now);
+        let a = insert_placeholder_agent(agents, agent.id.clone(), pid, now);
+        apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
         remove_redundant_codex_process_agents(agents, pid);
         // Selection set by insert_placeholder_agent if needed; top-level clamp handles the rest
         if overview.selected_index.is_none() {
@@ -540,11 +538,11 @@ fn reduce_session_info(
     }
 
     // Non-session id
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
-        apply_session_info(agent, pid, session_id, branch, is_worktree, started_at, now);
+    if let Some(a) = find_agent_mut_by_id(agents, &agent.id) {
+        apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
     } else {
-        let agent = insert_placeholder_agent(agents, id.clone(), pid, now);
-        apply_session_info(agent, pid, session_id, branch, is_worktree, started_at, now);
+        let a = insert_placeholder_agent(agents, agent.id.clone(), pid, now);
+        apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
     }
 }
 

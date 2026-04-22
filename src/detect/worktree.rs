@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::process::Command;
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -53,15 +54,20 @@ pub fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
     worktrees
 }
 
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub async fn lookup_branch_info(cwd: &Path) -> (Option<String>, bool) {
     let is_wt = is_git_worktree(cwd);
-    let branch = match Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(cwd)
-        .output()
-        .await
+    let branch = match tokio::time::timeout(
+        GIT_COMMAND_TIMEOUT,
+        Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(cwd)
+            .output(),
+    )
+    .await
     {
-        Ok(output) if output.status.success() => {
+        Ok(Ok(output)) if output.status.success() => {
             let b = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if b == "HEAD" {
                 None
@@ -69,7 +75,11 @@ pub async fn lookup_branch_info(cwd: &Path) -> (Option<String>, bool) {
                 Some(b)
             }
         }
-        _ => None,
+        Ok(Ok(_)) | Ok(Err(_)) => None,
+        Err(_elapsed) => {
+            tracing::warn!("git rev-parse timed out for {}", cwd.display());
+            None
+        }
     };
     (branch, is_wt)
 }

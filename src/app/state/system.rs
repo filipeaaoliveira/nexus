@@ -51,6 +51,10 @@ impl SystemState {
         &self.overlay
     }
 
+    pub fn workflow(&self) -> &Workflow {
+        &self.workflow
+    }
+
     pub fn detector_health(&self) -> &BTreeMap<DetectorKind, DetectorHealth> {
         &self.detector_health
     }

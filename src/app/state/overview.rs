@@ -46,6 +46,10 @@ impl OverviewState {
         self.sort_mode
     }
 
+    pub fn filter(&self) -> Option<&str> {
+        self.filter.as_deref()
+    }
+
     pub fn clamp_selection(&mut self, visible_count: usize) {
         if visible_count == 0 {
             self.selected_index = None;

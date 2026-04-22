@@ -37,6 +37,22 @@ impl AppState {
         &self.agents
     }
 
+    pub fn overview(&self) -> &super::state::OverviewState {
+        self.root.overview()
+    }
+
+    pub fn accounts(&self) -> &super::state::AccountsState {
+        self.root.accounts()
+    }
+
+    pub fn system(&self) -> &super::state::SystemState {
+        self.root.system()
+    }
+
+    pub fn filter(&self) -> Option<&str> {
+        self.root.overview().filter()
+    }
+
     #[allow(dead_code)]
     pub fn next_tab(&mut self) {
         self.run_workspace_reducer_action(super::action::WorkspaceAction::Next);

@@ -132,6 +132,14 @@ impl AccountsState {
         self.provider_filter
     }
 
+    pub fn entries(&self) -> &[AccountEntry] {
+        &self.entries
+    }
+
+    pub fn quota_loading(&self) -> bool {
+        self.quota_loading
+    }
+
     pub fn status_message(&self) -> Option<&str> {
         self.status_message.as_deref()
     }

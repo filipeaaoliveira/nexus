@@ -565,6 +565,7 @@ fn insert_placeholder_agent(
     } else {
         NormalizedState::new(NormalizedStatus::Working, None)
     };
+    let idx = agents.len();
     agents.push(Agent {
         ident: AgentIdent {
             id,
@@ -588,9 +589,7 @@ fn insert_placeholder_agent(
             todos: Vec::new(),
         },
     });
-    agents
-        .last_mut()
-        .expect("placeholder agent was just inserted")
+    &mut agents[idx]
 }
 
 fn mark_agent_exited(agent: &mut Agent, pid: Option<u32>, now: DateTime<Local>) {

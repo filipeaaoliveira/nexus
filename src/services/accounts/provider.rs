@@ -4,12 +4,13 @@ use crate::config::Config;
 
 use super::generic_store::GenericProfileStore;
 use super::storage_backend::ProviderBackend;
-use nexus_domain::accounts::Provider;
 use super::traits::ProfileStore;
+use nexus_domain::accounts::Provider;
 
 /// Supplies ProfileStore implementations by provider type.
 pub trait StoreProvider: Send + Sync {
-    fn store_for(&self, provider: Provider) -> Box<dyn ProfileStore>;
+    type Store: ProfileStore;
+    fn store_for(&self, provider: Provider) -> Self::Store;
 }
 
 #[derive(Clone)]
@@ -28,14 +29,13 @@ impl ConfigStoreProvider {
 }
 
 impl StoreProvider for ConfigStoreProvider {
-    fn store_for(&self, provider: Provider) -> Box<dyn ProfileStore> {
+    type Store = GenericProfileStore<ProviderBackend>;
+
+    fn store_for(&self, provider: Provider) -> Self::Store {
         let profiles_dir = match provider {
             Provider::Codex => &self.codex_profiles_dir,
             Provider::Claude => &self.claude_profiles_dir,
         };
-        Box::new(GenericProfileStore::new(ProviderBackend::new(
-            provider,
-            profiles_dir.clone(),
-        )))
+        GenericProfileStore::new(ProviderBackend::new(provider, profiles_dir.clone()))
     }
 }

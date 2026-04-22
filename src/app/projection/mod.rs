@@ -157,7 +157,7 @@ fn agent_matches_filter(agent: &Agent, filter: &str) -> bool {
 mod tests {
     use super::*;
     use crate::app::AppState;
-    use crate::event::AgentEvent;
+    use crate::event::{AgentEvent, AgentRef};
     use nexus_domain::agents::activity::Activity;
     use nexus_domain::agents::ids::{AgentId, AgentTool};
     use nexus_domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
@@ -167,14 +167,12 @@ mod tests {
     fn project_visible_agents_produces_views_without_mutating_store() {
         let mut state = AppState::new();
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             cwd: PathBuf::from("/tmp/opencode"),
             started_at: None,
         });
@@ -195,14 +193,12 @@ mod tests {
     fn agent_view_status_label_includes_reason_when_present() {
         let mut state = AppState::new();
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             state: NormalizedState::new(
                 NormalizedStatus::NeedsInput,
                 Some(NormalizedReason::Review),
@@ -217,19 +213,16 @@ mod tests {
     fn agent_view_status_label_shows_tool_call_hint() {
         let mut state = AppState::new();
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             state: NormalizedState::new(NormalizedStatus::Working, None),
         });
         state.handle_event(AgentEvent::ActivityChanged {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             activity: Some(Activity::ToolCall),
         });
 
@@ -241,20 +234,17 @@ mod tests {
     fn overview_projection_sorts_by_urgency_without_mutating_agent_store() {
         let mut state = AppState::new();
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             cwd: PathBuf::from("/tmp/opencode"),
             started_at: None,
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             state: NormalizedState::new(
                 NormalizedStatus::NeedsInput,
                 Some(NormalizedReason::Review),

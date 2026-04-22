@@ -27,7 +27,7 @@ pub mod testing {
 
     // ── App state & events ─────────────────────────────────────
     pub use crate::app::{AppState, RootState};
-    pub use crate::event::AgentEvent;
+    pub use crate::event::{AgentEvent, AgentRef};
 
     // ── Domain: accounts ───────────────────────────────────────
     pub use nexus_domain::accounts::{

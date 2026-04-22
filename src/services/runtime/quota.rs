@@ -8,7 +8,7 @@ use super::RuntimeSession;
 
 pub(super) async fn refresh_quota(
     config: &Config,
-    stores: &dyn StoreProvider,
+    stores: &(impl StoreProvider + ?Sized),
     provider: nexus_domain::accounts::Provider,
     profile_id: String,
     origin: RefreshOrigin,

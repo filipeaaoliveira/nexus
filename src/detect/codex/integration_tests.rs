@@ -1,6 +1,6 @@
 use crate::detect::codex::*;
 use crate::detect::registry::RegistrySnapshot;
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::{
     Activity, AgentId, AgentTool, NormalizedReason, NormalizedStatus, PrimaryStatus, TodoItem,
     TodoPriority, TodoStatus,
@@ -881,9 +881,9 @@ fn test_reconcile_codex_snapshots_emits_backend_recovery_exit() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        AgentEvent::ProcessExited { id, pid }
-            if id == &AgentId::session(AgentTool::Codex, "codex-backend")
-                && pid == &Some(0)
+        AgentEvent::ProcessExited { agent }
+            if agent.id == AgentId::session(AgentTool::Codex, "codex-backend")
+                && agent.pid == Some(0)
     )));
 }
 
@@ -1399,7 +1399,7 @@ fn test_reconcile_live_completed_session_does_not_emit_generating_activity() {
         !matches!(
             event,
             AgentEvent::ActivityChanged {
-                id,
+                agent: AgentRef { id, pid: _ },
                 activity: Some(Activity::Generating),
                 ..
             } if id == &AgentId::session(AgentTool::Codex, "session-a")
@@ -1479,14 +1479,14 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
 
     assert!(matches!(
         &events[0],
-        AgentEvent::Discovered { id, pid, cwd, .. }
+        AgentEvent::Discovered { agent: AgentRef { id, pid }, cwd, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && pid == &Some(41)
                 && cwd == &PathBuf::from("/tmp/project")
     ));
     assert!(matches!(
         &events[1],
-        AgentEvent::SessionInfo { id, pid, session_id, branch, .. }
+        AgentEvent::SessionInfo { agent: AgentRef { id, pid }, session_id, branch, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && pid == &Some(41)
                 && session_id.as_deref() == Some("session-a")
@@ -1494,14 +1494,14 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     ));
     assert!(matches!(
         &events[2],
-        AgentEvent::StatusChanged { id, old, new, .. }
+        AgentEvent::StatusChanged { agent: AgentRef { id, pid: _ }, old, new, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && old == &PrimaryStatus::Running
                 && new == &PrimaryStatus::Done
     ));
     assert!(matches!(
         &events[3],
-        AgentEvent::NormalizedStateChanged { id, state, .. }
+        AgentEvent::NormalizedStateChanged { agent: AgentRef { id, pid: _ }, state, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && state.status == NormalizedStatus::Working
                 && state.reason == Some(NormalizedReason::Subagent)
@@ -1509,7 +1509,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     assert!(events.iter().any(|event| {
         matches!(
             event,
-            AgentEvent::ToolCallStarted { id, tool_name, .. }
+            AgentEvent::ToolCallStarted { agent: AgentRef { id, pid: _ }, tool_name, .. }
                 if id == &AgentId::session(AgentTool::Codex, "session-a")
                     && tool_name == "shell"
         )
@@ -1517,7 +1517,7 @@ fn test_reconcile_codex_snapshots_emits_session_keyed_top_level_events() {
     assert!(events.iter().any(|event| {
         matches!(
             event,
-            AgentEvent::SubagentSpawned { id, subagent, .. }
+            AgentEvent::SubagentSpawned { agent: AgentRef { id, pid: _ }, subagent, .. }
                 if id == &AgentId::session(AgentTool::Codex, "session-a")
                     && subagent.name == "Nash"
                     && subagent.status == PrimaryStatus::Running
@@ -1550,12 +1550,12 @@ fn test_reconcile_codex_snapshots_emits_tool_completion_and_restart() {
 
     assert!(matches!(
         &events[0],
-        AgentEvent::ToolCallCompleted { id, .. }
+        AgentEvent::ToolCallCompleted { agent: AgentRef { id, pid: _ }, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
     ));
     assert!(matches!(
         &events[1],
-        AgentEvent::ToolCallStarted { id, tool_name, .. }
+        AgentEvent::ToolCallStarted { agent: AgentRef { id, pid: _ }, tool_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && tool_name == "apply_patch"
     ));
@@ -1596,7 +1596,7 @@ fn test_reconcile_codex_snapshots_emits_todos_updated_for_plan_changes() {
     assert!(events.iter().any(|event| {
         matches!(
             event,
-            AgentEvent::TodosUpdated { id, todos, .. }
+            AgentEvent::TodosUpdated { agent: AgentRef { id, pid: _ }, todos, .. }
                 if id == &AgentId::session(AgentTool::Codex, "session-a")
                     && todos.len() == 2
                     && todos[0].status == TodoStatus::Completed
@@ -1640,19 +1640,19 @@ fn test_reconcile_codex_snapshots_emits_child_completion_from_snapshot_delta() {
 
     assert!(matches!(
         events.iter().find(|e| matches!(e, AgentEvent::NormalizedStateChanged { .. })),
-        Some(AgentEvent::NormalizedStateChanged { id, state, .. })
+        Some(AgentEvent::NormalizedStateChanged { agent: AgentRef { id, pid: _ }, state, .. })
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && state.status == NormalizedStatus::Working
                 && state.reason.is_none()
     ));
     assert!(events.iter().any(|e| matches!(
         e,
-        AgentEvent::ActivityChanged { id, .. }
+        AgentEvent::ActivityChanged { agent: AgentRef { id, pid: _ }, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
     )));
     assert!(events.iter().any(|e| matches!(
         e,
-        AgentEvent::SubagentCompleted { id, subagent_name, .. }
+        AgentEvent::SubagentCompleted { agent: AgentRef { id, pid: _ }, subagent_name, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagent_name == "child-a"
     )));
@@ -1716,7 +1716,7 @@ fn test_reconcile_codex_snapshots_completes_duplicate_nickname_child_by_thread_i
     assert_eq!(events.len(), 2);
     assert!(events.iter().any(|event| matches!(
         event,
-        AgentEvent::SubagentsUpdated { id, subagents, .. }
+        AgentEvent::SubagentsUpdated { agent: AgentRef { id, pid: _ }, subagents, .. }
             if id == &AgentId::session(AgentTool::Codex, "session-a")
                 && subagents.len() == 2
     )));

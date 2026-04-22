@@ -13,7 +13,7 @@ use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider};
 
 pub async fn dispatch_effect(
     config: &Config,
-    stores: &dyn StoreProvider,
+    stores: &(impl StoreProvider + ?Sized),
     effect: Effect,
 ) -> EffectResult {
     match dispatch_effect_inner(config, stores, &effect).await {
@@ -24,7 +24,7 @@ pub async fn dispatch_effect(
 
 async fn dispatch_effect_inner(
     config: &Config,
-    stores: &dyn StoreProvider,
+    stores: &(impl StoreProvider + ?Sized),
     effect: &Effect,
 ) -> Result<EffectResult, AppError> {
     match effect {
@@ -88,15 +88,15 @@ fn quota_auth_missing(profile_id: &str) -> AppError {
 }
 
 async fn load_profiles(
-    codex: Box<dyn ProfileStore>,
-    claude: Box<dyn ProfileStore>,
+    codex: impl ProfileStore,
+    claude: impl ProfileStore,
 ) -> Result<EffectResult, AppError> {
     let (profiles, entries) = tokio::task::spawn_blocking(move || {
         let mut profiles = Vec::new();
         let mut entries = Vec::new();
 
-        load_all_from_store(codex.as_ref(), &mut profiles, &mut entries);
-        load_all_from_store(claude.as_ref(), &mut profiles, &mut entries);
+        load_all_from_store(&codex, &mut profiles, &mut entries);
+        load_all_from_store(&claude, &mut profiles, &mut entries);
 
         (profiles, entries)
     })
@@ -107,7 +107,7 @@ async fn load_profiles(
 }
 
 fn load_all_from_store(
-    store: &dyn ProfileStore,
+    store: &(impl ProfileStore + ?Sized),
     profiles: &mut Vec<DomainProfile>,
     entries: &mut Vec<AccountEntry>,
 ) {
@@ -134,7 +134,7 @@ fn load_all_from_store(
 }
 
 async fn load_profile_draft(
-    store: Box<dyn ProfileStore>,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
@@ -203,9 +203,9 @@ async fn refresh_claude_quota(
     })
 }
 
-async fn import_profile(store: Box<dyn ProfileStore>) -> Result<EffectResult, AppError> {
+async fn import_profile(store: impl ProfileStore) -> Result<EffectResult, AppError> {
     let home = dirs::home_dir().ok_or_else(|| storage_err("home directory not found"))?;
-    let profile = tokio::task::spawn_blocking(move || (*store).import_from_home(&home))
+    let profile = tokio::task::spawn_blocking(move || store.import_from_home(&home))
         .await
         .map_err(storage_err)?
         .map_err(store_to_app_error)?;
@@ -213,7 +213,7 @@ async fn import_profile(store: Box<dyn ProfileStore>) -> Result<EffectResult, Ap
 }
 
 async fn save_profile_edits(
-    store: Box<dyn ProfileStore>,
+    store: impl ProfileStore,
     profile_id: &str,
     draft: &EditableProfile,
 ) -> Result<EffectResult, AppError> {
@@ -229,7 +229,7 @@ async fn save_profile_edits(
 }
 
 async fn write_profile_to_home(
-    store: Box<dyn ProfileStore>,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();
@@ -250,7 +250,7 @@ async fn write_profile_to_home(
 }
 
 async fn delete_profile(
-    store: Box<dyn ProfileStore>,
+    store: impl ProfileStore,
     profile_id: &str,
 ) -> Result<EffectResult, AppError> {
     let profile_id = profile_id.to_string();

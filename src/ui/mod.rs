@@ -99,7 +99,7 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::app::AppState;
-    use crate::event::AgentEvent;
+    use crate::event::{AgentEvent, AgentRef};
     use crate::services::runtime::RuntimeSession;
     use nexus_domain::agents::status::{NormalizedReason, NormalizedState, NormalizedStatus};
     use nexus_domain::agents::{AgentId, AgentTool};
@@ -137,14 +137,12 @@ mod tests {
         let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/visible"),
             started_at: None,
         });
         state.handle_event(AgentEvent::SessionInfo {
-            id: AgentId::session(AgentTool::Codex, "hidden-codex"),
-            pid: None,
+            agent: AgentRef::new(AgentId::session(AgentTool::Codex, "hidden-codex"), None),
             session_id: Some("hidden-codex".to_string()),
             branch: Some("main".to_string()),
             is_worktree: false,
@@ -163,20 +161,17 @@ mod tests {
         let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             cwd: PathBuf::from("/tmp/opencode"),
             started_at: None,
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             state: NormalizedState::new(
                 NormalizedStatus::NeedsInput,
                 Some(NormalizedReason::Review),
@@ -200,41 +195,35 @@ mod tests {
         let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             cwd: PathBuf::from("/tmp/opencode"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Codex, 12),
-            pid: Some(12),
+            agent: AgentRef::new(AgentId::new(AgentTool::Codex, 12), Some(12)),
             cwd: PathBuf::from("/tmp/codex"),
             started_at: None,
         });
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Codex, 13),
-            pid: Some(13),
+            agent: AgentRef::new(AgentId::new(AgentTool::Codex, 13), Some(13)),
             cwd: PathBuf::from("/tmp/codex-unknown"),
             started_at: None,
         });
 
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             state: NormalizedState::new(
                 NormalizedStatus::NeedsInput,
                 Some(NormalizedReason::Review),
             ),
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::OpenCode, 11),
-            pid: Some(11),
+            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 11), Some(11)),
             state: NormalizedState::new(
                 NormalizedStatus::Done,
                 Some(NormalizedReason::ReadyForNextTask),
@@ -255,14 +244,12 @@ mod tests {
         let mut state = AppState::new();
 
         state.handle_event(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             cwd: PathBuf::from("/tmp/claude"),
             started_at: None,
         });
         state.handle_event(AgentEvent::NormalizedStateChanged {
-            id: AgentId::new(AgentTool::Claude, 10),
-            pid: Some(10),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             state: NormalizedState::new(
                 NormalizedStatus::Blocked,
                 Some(NormalizedReason::Approval),

@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 use crate::app::state::{OverviewState, SystemState};
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use chrono::{DateTime, Local, TimeZone};
 use nexus_domain::agents::activity::Activity;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -87,37 +87,31 @@ fn arb_event() -> impl Strategy<Value = AgentEvent> {
     (arb_tool(), 1u32..100).prop_flat_map(|(tool, pid)| {
         prop_oneof![
             Just(AgentEvent::Discovered {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                 cwd: PathBuf::from("/tmp/test"),
                 started_at: None,
             }),
             (arb_status(), arb_status()).prop_map(move |(old, new)| {
                 AgentEvent::StatusChanged {
-                    id: AgentId::new(tool, pid),
-                    pid: Some(pid),
+                    agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                     old,
                     new,
                 }
             }),
             arb_activity().prop_map(move |activity| AgentEvent::ActivityChanged {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                 activity,
             }),
             Just(AgentEvent::ToolCallStarted {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                 tool_name: "Read".to_string(),
                 args_summary: None,
             }),
             Just(AgentEvent::ToolCallCompleted {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
             }),
             Just(AgentEvent::ProcessExited {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
             }),
         ]
     })

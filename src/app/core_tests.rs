@@ -2,7 +2,7 @@ use super::*;
 use crate::app::state::AccountsState;
 use crate::codex_profiles::profile::{self as codex_profile};
 use crate::profiles::{io as profile_io, ProfileMetadata};
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use crate::services::accounts::storage::next_profile_id;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::model::SortMode;
@@ -42,8 +42,7 @@ fn test_next_profile_id_nonexistent_dir() {
 
 fn discovered(tool: AgentTool, pid: u32, cwd: &str) -> AgentEvent {
     AgentEvent::Discovered {
-        id: AgentId::new(tool, pid),
-        pid: Some(pid),
+        agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
         cwd: PathBuf::from(cwd),
         started_at: None,
     }
@@ -78,8 +77,7 @@ fn visible_agent_indices_refresh_when_sort_changes() {
     assert_eq!(state.visible_agents()[0].pid(), Some(2));
 
     state.handle_event(AgentEvent::StatusChanged {
-        id: AgentId::new(AgentTool::OpenCode, 2),
-        pid: Some(2),
+        agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, 2), Some(2)),
         old: PrimaryStatus::Running,
         new: PrimaryStatus::Waiting,
     });
@@ -269,8 +267,7 @@ fn overview_invariants_hold_after_agent_exits() {
     assert_overview_invariants(&state);
 
     state.handle_event(AgentEvent::ProcessExited {
-        id: AgentId::new(AgentTool::Claude, 1),
-        pid: Some(1),
+        agent: AgentRef::new(AgentId::new(AgentTool::Claude, 1), Some(1)),
     });
     assert_overview_invariants(&state);
 }

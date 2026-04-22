@@ -1,5 +1,5 @@
 use crate::detect::heuristics::looks_like_review_output;
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::{Activity, Subagent};
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::{
@@ -190,8 +190,7 @@ pub fn collect_subagent_events(
                     .unwrap_or("unknown")
                     .to_string();
                 events.push(AgentEvent::SubagentCompleted {
-                    id: AgentId::new(tool, pid),
-                    pid: Some(pid),
+                    agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                     subagent_name: name,
                 });
                 state.completed_subagent_ids.insert(sub.id.clone());
@@ -205,8 +204,7 @@ pub fn collect_subagent_events(
                 .unwrap_or("unknown")
                 .to_string();
             events.push(AgentEvent::SubagentSpawned {
-                id: AgentId::new(tool, pid),
-                pid: Some(pid),
+                agent: AgentRef::new(AgentId::new(tool, pid), Some(pid)),
                 subagent: Subagent {
                     name: subagent_type,
                     status: if sub.time_archived.is_some() {

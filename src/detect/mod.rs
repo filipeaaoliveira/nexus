@@ -8,7 +8,7 @@ pub mod registry;
 pub mod worktree;
 
 use crate::config::Config;
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,8 +68,7 @@ async fn emit_enriched_session_info(
     let (branch, is_worktree) = lookup_branch_info_cached(cwd, cache_ttl, cache).await;
     let _ = tx
         .send(AgentEvent::SessionInfo {
-            id,
-            pid,
+            agent: AgentRef::new(id, pid),
             session_id: None,
             branch,
             is_worktree,
@@ -92,18 +91,17 @@ async fn forward_agent_events(
                 let Some(event) = event else { break };
 
                 if let AgentEvent::Discovered {
-                    id,
-                    pid,
+                    agent,
                     cwd,
                     started_at,
                 } = &event
                 {
                     let enrichment_tx = tx.clone();
                     let enrichment_cache = worktree_cache.clone();
-                    let id = id.clone();
+                    let id = agent.id.clone();
+                    let pid = agent.pid;
                     let cwd = cwd.clone();
                     let started_at = *started_at;
-                    let pid = *pid;
                     enrichment_tasks.spawn(async move {
                         emit_enriched_session_info(
                             enrichment_tx,
@@ -319,7 +317,7 @@ pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentE
 #[cfg(test)]
 mod tests {
     use super::forward_agent_events;
-    use crate::event::AgentEvent;
+    use crate::event::{AgentEvent, AgentRef};
     use chrono::Local;
     use nexus_domain::agents::ids::{AgentId, AgentTool};
     use std::path::PathBuf;
@@ -338,8 +336,10 @@ mod tests {
         ));
 
         let event = AgentEvent::Discovered {
-            id: AgentId::session(AgentTool::Codex, "thread-1"),
-            pid: Some(42),
+            agent: AgentRef::new(
+                AgentId::session(AgentTool::Codex, "thread-1"),
+                Some(42),
+            ),
             cwd: PathBuf::from("/definitely/not/a/repo"),
             started_at: Some(Local::now()),
         };

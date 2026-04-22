@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::Local;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::{Activity, Subagent};
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::PrimaryStatus;
@@ -29,8 +29,7 @@ pub fn reconcile_codex_snapshots(
 
         if previous_session.is_none() {
             events.push(AgentEvent::Discovered {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 cwd: session.cwd.clone(),
                 started_at: session.started_at,
             });
@@ -43,8 +42,7 @@ pub fn reconcile_codex_snapshots(
         });
         if session_info_changed {
             events.push(AgentEvent::SessionInfo {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 session_id: Some(session_id.to_string()),
                 branch: session.branch.clone(),
                 is_worktree: false,
@@ -57,8 +55,7 @@ pub fn reconcile_codex_snapshots(
             && !(previous_status.is_none() && session.status == PrimaryStatus::Running)
         {
             events.push(AgentEvent::StatusChanged {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 old: previous_status.unwrap_or(PrimaryStatus::Running),
                 new: session.status,
             });
@@ -70,8 +67,7 @@ pub fn reconcile_codex_snapshots(
         });
         if previous_normalized_state.as_ref() != Some(&normalized_state) {
             events.push(AgentEvent::NormalizedStateChanged {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 state: normalized_state,
             });
         }
@@ -79,8 +75,7 @@ pub fn reconcile_codex_snapshots(
         let previous_todos = previous_session.map(|session| &session.todos);
         if previous_todos != Some(&session.todos) {
             events.push(AgentEvent::TodosUpdated {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 todos: session.todos.clone(),
             });
         }
@@ -97,8 +92,7 @@ pub fn reconcile_codex_snapshots(
         };
         if activity_changed {
             events.push(AgentEvent::ActivityChanged {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 activity: current_activity,
             });
         }
@@ -110,26 +104,22 @@ pub fn reconcile_codex_snapshots(
                 if previous_tool_call != current_tool_call =>
             {
                 events.push(AgentEvent::ToolCallCompleted {
-                    id: session.agent_id.clone(),
-                    pid: session.pid,
+                    agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 });
                 events.push(AgentEvent::ToolCallStarted {
-                    id: session.agent_id.clone(),
-                    pid: session.pid,
+                    agent: AgentRef::new(session.agent_id.clone(), session.pid),
                     tool_name: current_tool_call.name.clone(),
                     args_summary: current_tool_call.args_summary.clone(),
                 });
             }
             (Some(_previous_tool_call), None) => {
                 events.push(AgentEvent::ToolCallCompleted {
-                    id: session.agent_id.clone(),
-                    pid: session.pid,
+                    agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 });
             }
             (None, Some(current_tool_call)) => {
                 events.push(AgentEvent::ToolCallStarted {
-                    id: session.agent_id.clone(),
-                    pid: session.pid,
+                    agent: AgentRef::new(session.agent_id.clone(), session.pid),
                     tool_name: current_tool_call.name.clone(),
                     args_summary: current_tool_call.args_summary.clone(),
                 });
@@ -188,8 +178,7 @@ pub fn reconcile_codex_snapshots(
             .collect::<Vec<_>>();
         if previous_subagents_vec != current_subagents_vec {
             events.push(AgentEvent::SubagentsUpdated {
-                id: session.agent_id.clone(),
-                pid: session.pid,
+                agent: AgentRef::new(session.agent_id.clone(), session.pid),
                 subagents: current_subagents,
             });
         }
@@ -198,8 +187,7 @@ pub fn reconcile_codex_snapshots(
             match previous_subagents.get(subagent.thread_id.as_str()).copied() {
                 None => {
                     events.push(AgentEvent::SubagentSpawned {
-                        id: session.agent_id.clone(),
-                        pid: session.pid,
+                        agent: AgentRef::new(session.agent_id.clone(), session.pid),
                         subagent: Subagent {
                             name: subagent.name.clone(),
                             status: subagent.status,
@@ -215,8 +203,7 @@ pub fn reconcile_codex_snapshots(
                         && subagent.status == PrimaryStatus::Done =>
                 {
                     events.push(AgentEvent::SubagentCompleted {
-                        id: session.agent_id.clone(),
-                        pid: session.pid,
+                        agent: AgentRef::new(session.agent_id.clone(), session.pid),
                         subagent_name: subagent.thread_id.clone(),
                     });
                 }
@@ -232,8 +219,10 @@ pub fn reconcile_codex_snapshots(
             .any(|session| session.agent_id.session_id() == Some("codex-backend"))
     {
         events.push(AgentEvent::ProcessExited {
-            id: AgentId::session(AgentTool::Codex, "codex-backend"),
-            pid: Some(0),
+            agent: AgentRef::new(
+                AgentId::session(AgentTool::Codex, "codex-backend"),
+                Some(0),
+            ),
         });
     }
 

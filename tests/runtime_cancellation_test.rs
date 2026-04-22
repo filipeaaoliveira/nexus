@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use nexus::testing::{AgentEvent, AgentId, AgentTool};
+use nexus::testing::{AgentEvent, AgentId, AgentRef, AgentTool};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -15,8 +15,7 @@ async fn cancellation_drains_pending_events_then_stops() {
 
     for i in 1..=5u32 {
         tx.send(AgentEvent::Discovered {
-            id: AgentId::new(AgentTool::Claude, i),
-            pid: Some(i),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, i), Some(i)),
             cwd: PathBuf::from(format!("/tmp/{i}")),
             started_at: None,
         })
@@ -46,8 +45,8 @@ async fn cancellation_drains_pending_events_then_stops() {
     assert_eq!(received.len(), 5, "expected all buffered events to be drained");
     for (i, event) in received.iter().enumerate() {
         match event {
-            AgentEvent::Discovered { pid, .. } => {
-                assert_eq!(*pid, Some((i + 1) as u32));
+            AgentEvent::Discovered { agent, .. } => {
+                assert_eq!(agent.pid, Some((i + 1) as u32));
             }
             other => panic!("unexpected event type: {other:?}"),
         }
@@ -61,9 +60,8 @@ async fn sender_drop_exits_loop_cleanly() {
     let token = CancellationToken::new();
 
     tx.send(AgentEvent::Discovered {
-        id: AgentId::new(AgentTool::Claude, 1),
-        pid: Some(1),
-        cwd: PathBuf::from("/tmp/1"),
+            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 1), Some(1)),
+            cwd: PathBuf::from("/tmp/1"),
         started_at: None,
     })
     .await
@@ -103,9 +101,8 @@ async fn concurrent_events_and_effects_interleave_then_cancel() {
     for i in 1..=3u32 {
         event_tx
             .send(AgentEvent::Discovered {
-                id: AgentId::new(AgentTool::Codex, i),
-                pid: Some(i),
-                cwd: PathBuf::from(format!("/tmp/{i}")),
+            agent: AgentRef::new(AgentId::new(AgentTool::Codex, i), Some(i)),
+            cwd: PathBuf::from(format!("/tmp/{i}")),
                 started_at: None,
             })
             .await

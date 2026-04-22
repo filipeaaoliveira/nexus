@@ -1,5 +1,5 @@
 use crate::detect::registry::RegistryHandle;
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use chrono::{DateTime, Local, NaiveDateTime};
 use nexus_domain::agents::ids::AgentId;
 use nexus_domain::agents::ids::AgentTool;
@@ -528,8 +528,7 @@ pub async fn run_process_scanner(
                 }
                 let _ = tx
                     .send(AgentEvent::Discovered {
-                        id: AgentId::new(proc.tool, proc.pid),
-                        pid: Some(proc.pid),
+                        agent: AgentRef::new(AgentId::new(proc.tool, proc.pid), Some(proc.pid)),
                         cwd: cwd.clone(),
                         started_at: proc.started_at,
                     })
@@ -543,8 +542,7 @@ pub async fn run_process_scanner(
             cwd_cache.remove(pid);
             let _ = tx
                 .send(AgentEvent::ProcessExited {
-                    id: AgentId::new(*tool, *pid),
-                    pid: Some(*pid),
+                    agent: AgentRef::new(AgentId::new(*tool, *pid), Some(*pid)),
                 })
                 .await;
         }

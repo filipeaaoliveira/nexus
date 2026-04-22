@@ -31,59 +31,51 @@ pub fn reduce(
             system.record_detector_health(*detector, *healthy, message);
         }
         AgentEvent::Discovered {
-            id,
-            pid,
+            agent,
             cwd,
             started_at,
         } => {
-            reduce_discovered(agents, overview, id, *pid, cwd, *started_at, now);
+            reduce_discovered(agents, overview, &agent.id, agent.pid, cwd, *started_at, now);
         }
-        AgentEvent::StatusChanged { id, pid, old, new } => {
-            reduce_status_changed(agents, id, *pid, *old, *new, now);
+        AgentEvent::StatusChanged { agent, old, new } => {
+            reduce_status_changed(agents, &agent.id, agent.pid, *old, *new, now);
         }
-        AgentEvent::ActivityChanged { id, pid, activity } => {
-            reduce_activity_changed(agents, id, *pid, *activity, now);
+        AgentEvent::ActivityChanged { agent, activity } => {
+            reduce_activity_changed(agents, &agent.id, agent.pid, *activity, now);
         }
-        AgentEvent::NormalizedStateChanged { id, pid, state } => {
-            reduce_normalized_state_changed(agents, id, *pid, state.clone(), now);
+        AgentEvent::NormalizedStateChanged { agent, state } => {
+            reduce_normalized_state_changed(agents, &agent.id, agent.pid, state.clone(), now);
         }
-        AgentEvent::SubagentSpawned { id, pid, subagent } => {
-            reduce_subagent_spawned(agents, id, *pid, subagent, now);
+        AgentEvent::SubagentSpawned { agent, subagent } => {
+            reduce_subagent_spawned(agents, &agent.id, agent.pid, subagent, now);
         }
         AgentEvent::SubagentCompleted {
-            id,
-            pid,
+            agent,
             subagent_name,
         } => {
-            reduce_subagent_completed(agents, id, *pid, subagent_name, now);
+            reduce_subagent_completed(agents, &agent.id, agent.pid, subagent_name, now);
         }
-        AgentEvent::SubagentsUpdated {
-            id,
-            pid,
-            subagents,
-        } => {
-            reduce_subagents_updated(agents, id, *pid, subagents, now);
+        AgentEvent::SubagentsUpdated { agent, subagents } => {
+            reduce_subagents_updated(agents, &agent.id, agent.pid, subagents, now);
         }
         AgentEvent::ToolCallStarted {
-            id,
-            pid,
+            agent,
             tool_name,
             args_summary,
         } => {
-            reduce_tool_call_started(agents, id, *pid, tool_name, args_summary.as_deref(), now);
+            reduce_tool_call_started(agents, &agent.id, agent.pid, tool_name, args_summary.as_deref(), now);
         }
-        AgentEvent::ToolCallCompleted { id, pid } => {
-            reduce_tool_call_completed(agents, id, *pid, now);
+        AgentEvent::ToolCallCompleted { agent } => {
+            reduce_tool_call_completed(agents, &agent.id, agent.pid, now);
         }
-        AgentEvent::ProcessExited { id, pid } => {
-            reduce_process_exited(agents, id, *pid, now);
+        AgentEvent::ProcessExited { agent } => {
+            reduce_process_exited(agents, &agent.id, agent.pid, now);
         }
-        AgentEvent::TodosUpdated { id, pid, todos } => {
-            reduce_todos_updated(agents, id, *pid, todos, now);
+        AgentEvent::TodosUpdated { agent, todos } => {
+            reduce_todos_updated(agents, &agent.id, agent.pid, todos, now);
         }
         AgentEvent::SessionInfo {
-            id,
-            pid,
+            agent,
             session_id,
             branch,
             is_worktree,
@@ -92,8 +84,8 @@ pub fn reduce(
             reduce_session_info(
                 agents,
                 overview,
-                id,
-                *pid,
+                &agent.id,
+                agent.pid,
                 session_id.clone(),
                 branch.clone(),
                 *is_worktree,

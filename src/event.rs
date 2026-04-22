@@ -7,6 +7,19 @@ use nexus_domain::agents::ids::AgentId;
 use nexus_domain::agents::status::{NormalizedState, PrimaryStatus};
 use nexus_domain::system::DetectorKind;
 
+/// Identifies an agent instance across events.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentRef {
+    pub id: AgentId,
+    pub pid: Option<u32>,
+}
+
+impl AgentRef {
+    pub fn new(id: AgentId, pid: Option<u32>) -> Self {
+        Self { id, pid }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
     DetectorHealthChanged {
@@ -15,64 +28,52 @@ pub enum AgentEvent {
         message: String,
     },
     Discovered {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         cwd: PathBuf,
         started_at: Option<DateTime<Local>>,
     },
     StatusChanged {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         old: PrimaryStatus,
         new: PrimaryStatus,
     },
     ActivityChanged {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         activity: Option<Activity>,
     },
     NormalizedStateChanged {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         state: NormalizedState,
     },
     SubagentSpawned {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         subagent: Subagent,
     },
     SubagentCompleted {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         subagent_name: String,
     },
     SubagentsUpdated {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         subagents: Vec<Subagent>,
     },
     ToolCallStarted {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         tool_name: String,
         args_summary: Option<String>,
     },
     ToolCallCompleted {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
     },
     ProcessExited {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
     },
     TodosUpdated {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         todos: Vec<TodoItem>,
     },
     SessionInfo {
-        id: AgentId,
-        pid: Option<u32>,
+        agent: AgentRef,
         session_id: Option<String>,
         branch: Option<String>,
         is_worktree: bool,

@@ -108,10 +108,12 @@ struct MockStoreProvider {
 }
 
 impl StoreProvider for MockStoreProvider {
-    fn store_for(&self, provider: Provider) -> Box<dyn ProfileStore> {
+    type Store = MockProfileStore;
+
+    fn store_for(&self, provider: Provider) -> MockProfileStore {
         match provider {
-            Provider::Codex => Box::new(self.codex.clone()),
-            Provider::Claude => Box::new(self.claude.clone()),
+            Provider::Codex => self.codex.clone(),
+            Provider::Claude => self.claude.clone(),
         }
     }
 }

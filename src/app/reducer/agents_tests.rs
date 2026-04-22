@@ -1,7 +1,7 @@
 use super::*;
 use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 use crate::app::state::{OverviewState, SystemState};
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, AgentRef};
 use chrono::Local;
 use nexus_domain::agents::activity::Activity;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -71,8 +71,7 @@ fn reduce_discovered_creates_new_agent() {
     let now = Local::now();
 
     let event = AgentEvent::Discovered {
-        id: AgentId::new(AgentTool::Claude, 42),
-        pid: Some(42),
+        agent: AgentRef::new(AgentId::new(AgentTool::Claude, 42), Some(42)),
         cwd: PathBuf::from("/tmp/project"),
         started_at: None,
     };
@@ -94,8 +93,7 @@ fn reduce_discovered_updates_existing_agent() {
     let now = Local::now();
 
     let event = AgentEvent::Discovered {
-        id: agents[0].id().clone(),
-        pid: Some(10),
+        agent: AgentRef::new(agents[0].id().clone(), Some(10)),
         cwd: PathBuf::from("/new/path"),
         started_at: None,
     };
@@ -114,8 +112,7 @@ fn reduce_status_changed_updates_agent_status() {
     let now = Local::now();
 
     let event = AgentEvent::StatusChanged {
-        id: agents[0].id().clone(),
-        pid: Some(10),
+        agent: AgentRef::new(agents[0].id().clone(), Some(10)),
         old: PrimaryStatus::Running,
         new: PrimaryStatus::Done,
     };
@@ -144,8 +141,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
     let now = Local::now();
 
     let event = AgentEvent::ProcessExited {
-        id: process_id,
-        pid: Some(50),
+        agent: AgentRef::new(process_id, Some(50)),
     };
 
     reduce(&mut agents, &mut overview, &mut system, &event, now);
@@ -164,8 +160,7 @@ fn reduce_process_exited_removes_claude_process_agents() {
     let now = Local::now();
 
     let event = AgentEvent::ProcessExited {
-        id: agent_id,
-        pid: Some(10),
+        agent: AgentRef::new(agent_id, Some(10)),
     };
 
     reduce(&mut agents, &mut overview, &mut system, &event, now);
@@ -182,8 +177,7 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
     let now = Local::now();
 
     let event = AgentEvent::ToolCallStarted {
-        id: agent_id,
-        pid: Some(10),
+        agent: AgentRef::new(agent_id, Some(10)),
         tool_name: "read_file".to_string(),
         args_summary: Some("foo.rs".to_string()),
     };
@@ -237,26 +231,22 @@ fn reduce_is_deterministic_same_input_same_output() {
 
         let events = vec![
             AgentEvent::Discovered {
-                id: AgentId::new(AgentTool::Claude, 10),
-                pid: Some(10),
+                agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
                 cwd: PathBuf::from("/tmp/project"),
                 started_at: None,
             },
             AgentEvent::StatusChanged {
-                id: AgentId::new(AgentTool::Claude, 10),
-                pid: Some(10),
+                agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
                 old: PrimaryStatus::Running,
                 new: PrimaryStatus::Done,
             },
             AgentEvent::ToolCallStarted {
-                id: AgentId::new(AgentTool::Claude, 10),
-                pid: Some(10),
+                agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
                 tool_name: "edit".to_string(),
                 args_summary: None,
             },
             AgentEvent::ToolCallCompleted {
-                id: AgentId::new(AgentTool::Claude, 10),
-                pid: Some(10),
+                agent: AgentRef::new(AgentId::new(AgentTool::Claude, 10), Some(10)),
             },
         ];
 

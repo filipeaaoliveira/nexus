@@ -176,7 +176,8 @@ async fn run_with_restart_reporting<F, Fut>(
         match make_future().await {
             Ok(()) => break,
             Err(e) => {
-                error!("{name} failed: {e}, restarting in {backoff:?}");
+                let transient = e.is_transient();
+                error!("{name} failed: {e}, transient={transient}");
                 if !reported_unhealthy {
                     reported_unhealthy = true;
                     let _ = health_tx
@@ -186,6 +187,10 @@ async fn run_with_restart_reporting<F, Fut>(
                             message: format!("{name} failed: {e}"),
                         })
                         .await;
+                }
+                if !transient {
+                    error!("{name} hit permanent error, stopping");
+                    break;
                 }
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(max_backoff);
@@ -377,7 +382,7 @@ mod tests {
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
                 let result: Result<(), super::error::DetectorError> = if n == 0 {
-                    Err(std::io::Error::other("boom").into())
+                    Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "boom").into())
                 } else {
                     Ok(())
                 };

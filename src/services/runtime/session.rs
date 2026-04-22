@@ -8,7 +8,7 @@ use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult
 use crate::config::Config;
 use crate::services::accounts::provider::ConfigStoreProvider;
 use crate::services::accounts::quota as quota_service;
-use nexus_domain::accounts::{QuotaCache, QuotaSnapshot};
+use nexus_domain::accounts::{ProfileId, QuotaCache, QuotaSnapshot};
 
 pub(crate) struct RuntimeSession {
     app: AppState,
@@ -62,7 +62,7 @@ impl RuntimeSession {
     pub(crate) fn begin_manual_quota_refresh(&mut self, provider: Provider, profile_id: &str) {
         self.app.set_accounts_quota_loading(true);
         self.interactive_quota_refreshes
-            .insert(AccountKey::new(provider, profile_id.to_string()));
+            .insert(AccountKey::new(provider, ProfileId::new_unchecked(profile_id)));
     }
 
     pub(crate) fn clear_expired_accounts_status(&mut self) {

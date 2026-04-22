@@ -113,3 +113,36 @@ impl AgentId {
         self.identity.is_session()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matches_subagent_name_exact_match() {
+        assert!(AgentTool::Claude.matches_subagent_name("worker-1", None, "worker-1"));
+    }
+
+    #[test]
+    fn matches_subagent_name_no_match() {
+        assert!(!AgentTool::Claude.matches_subagent_name("worker-1", None, "worker-2"));
+    }
+
+    #[test]
+    fn matches_subagent_name_codex_falls_back_to_description() {
+        assert!(AgentTool::Codex.matches_subagent_name(
+            "thread-abc",
+            Some("fix the tests"),
+            "fix the tests",
+        ));
+    }
+
+    #[test]
+    fn matches_subagent_name_non_codex_ignores_description() {
+        assert!(!AgentTool::Claude.matches_subagent_name(
+            "thread-abc",
+            Some("fix the tests"),
+            "fix the tests",
+        ));
+    }
+}

@@ -46,17 +46,6 @@ impl fmt::Display for ProfileId {
     }
 }
 
-impl From<String> for ProfileId {
-    fn from(s: String) -> Self {
-        Self(s)
-    }
-}
-
-impl From<&str> for ProfileId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
 
 impl AsRef<str> for ProfileId {
     fn as_ref(&self) -> &str {

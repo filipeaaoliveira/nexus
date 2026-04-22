@@ -73,11 +73,11 @@ impl RootState {
     pub(crate) fn load_cached_quota(
         &mut self,
         provider: nexus_domain::accounts::Provider,
-        profile_id: impl Into<String>,
+        profile_id: &str,
         quota: nexus_domain::accounts::QuotaSnapshot,
     ) {
         self.accounts
-            .upsert_quota(AccountKey::new(provider, profile_id.into()), quota);
+            .upsert_quota(AccountKey::new(provider, nexus_domain::accounts::ProfileId::new_unchecked(profile_id)), quota);
     }
 }
 
@@ -88,7 +88,7 @@ mod tests {
     use super::*;
     use crate::profiles::StoredProfile;
     use nexus_domain::accounts::{
-        AccountEntry, Confidence, LimitState, Provider, ProviderFilter, QuotaSnapshot,
+        AccountEntry, Confidence, LimitState, ProfileId, Provider, ProviderFilter, QuotaSnapshot,
     };
     use nexus_domain::agents::model::SortMode;
 
@@ -226,7 +226,7 @@ mod tests {
         let mut state = AccountsState::default();
         state.entries.push(AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".into(),
+            profile_id: ProfileId::new_unchecked("codex-main"),
         });
         state.selected_index = Some(0);
 
@@ -234,7 +234,7 @@ mod tests {
             state.entries.get(state.selected_index.unwrap()),
             Some(&AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-main".into(),
+                profile_id: ProfileId::new_unchecked("codex-main"),
             })
         );
     }
@@ -244,7 +244,7 @@ mod tests {
         let mut state = AccountsState::default();
         let codex_key = AccountKey::for_entry(&AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".into(),
+            profile_id: ProfileId::new_unchecked("codex-main"),
         });
         let claude_dp = claude_profile("claude-main").to_domain(Provider::Claude);
         let claude_key = AccountKey::for_profile(&claude_dp);
@@ -270,7 +270,7 @@ mod tests {
     fn account_keys_align_entries_profiles_and_quota_payloads() {
         let entry = AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-main".into(),
+            profile_id: ProfileId::new_unchecked("codex-main"),
         };
         let profile = codex_profile("codex-main").to_domain(Provider::Codex);
 
@@ -280,7 +280,7 @@ mod tests {
         );
         assert_ne!(
             AccountKey::for_entry(&entry),
-            AccountKey::new(Provider::Claude, "codex-main"),
+            AccountKey::new(Provider::Claude, ProfileId::new_unchecked("codex-main")),
         );
     }
 

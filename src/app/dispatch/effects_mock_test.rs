@@ -10,7 +10,7 @@ use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::traits::ProfileStore;
 use crate::app::EditableProfile;
-use nexus_domain::accounts::{DomainProfile, Provider};
+use nexus_domain::accounts::{DomainProfile, ProfileId, Provider};
 
 // ---------------------------------------------------------------------------
 // Mock ProfileStore
@@ -127,7 +127,7 @@ impl StoreProvider for MockStoreProvider {
 fn test_profile(provider: Provider, id: &str, label: &str) -> DomainProfile {
     let now = Utc::now();
     DomainProfile {
-        id: id.into(),
+        id: ProfileId::new_unchecked(id),
         provider,
         label: label.to_string(),
         email: Some(format!("{id}@example.com")),
@@ -196,7 +196,7 @@ async fn mock_save_edits_updates_profile() {
         &stores,
         Effect::SaveProfileEdits {
             provider: Provider::Codex,
-            profile_id: "codex-1".into(),
+            profile_id: ProfileId::new_unchecked("codex-1"),
             draft: EditableProfile {
                 label: "Renamed".to_string(),
                 notes: "new notes".to_string(),
@@ -231,7 +231,7 @@ async fn mock_delete_profile_returns_deleted_entry() {
         &stores,
         Effect::DeleteProfile {
             provider: Provider::Claude,
-            profile_id: "claude-1".into(),
+            profile_id: ProfileId::new_unchecked("claude-1"),
         },
     )
     .await;

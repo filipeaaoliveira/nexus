@@ -54,6 +54,7 @@ impl<S: StorageBackend> ProfileStore for GenericProfileStore<S> {
 mod tests {
     use super::*;
     use chrono::Utc;
+    use nexus_domain::accounts::ProfileId;
 
     struct FakeBackend;
 
@@ -62,7 +63,7 @@ mod tests {
         fn scan_profile_ids(&self) -> Vec<String> { vec!["p1".to_string()] }
         fn load_raw_profile(&self, _profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
             Ok(LoadOutcome::Clean(DomainProfile {
-                id: "p1".into(),
+                id: ProfileId::new_unchecked("p1"),
                 provider: Provider::Codex,
                 label: "Test".to_string(),
                 email: None,

@@ -7,7 +7,7 @@ use ratatui::Frame;
 use crate::app::state::AccountKey;
 use crate::app::AccountsMode;
 use crate::services::runtime::RuntimeSession;
-use nexus_domain::accounts::Provider;
+use nexus_domain::accounts::{ProfileId, Provider};
 use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot};
 
 use super::provider_badge_color;
@@ -76,7 +76,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
         return;
     };
 
-    let key = AccountKey::new(provider, profile_id.to_string());
+    let key = AccountKey::new(provider, ProfileId::new_unchecked(profile_id));
     let profile_details = state.root().accounts().profile_by_key(&key);
     let block = Block::default()
         .borders(Borders::NONE)

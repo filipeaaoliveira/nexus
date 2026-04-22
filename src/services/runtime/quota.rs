@@ -13,7 +13,7 @@ pub(super) async fn refresh_quota(
     profile_id: String,
     origin: RefreshOrigin,
 ) -> EffectResult {
-    let profile_id: ProfileId = profile_id.into();
+    let profile_id = ProfileId::new_unchecked(profile_id);
     dispatch_effect(
         config,
         stores,
@@ -106,7 +106,7 @@ mod tests {
 
     use super::poll_quota_loop;
     use crate::app::{Effect, EffectResult, RefreshOrigin};
-    use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot};
+    use nexus_domain::accounts::{Confidence, LimitState, ProfileId, QuotaSnapshot};
     use tokio_util::sync::CancellationToken;
 
     fn test_snapshot() -> QuotaSnapshot {
@@ -137,7 +137,7 @@ mod tests {
             |pid, _| async move {
                 EffectResult::QuotaRefreshed {
                     provider: nexus_domain::accounts::Provider::Codex,
-                    profile_id: pid.into(),
+                    profile_id: ProfileId::new_unchecked(pid),
                     quota: test_snapshot(),
                     origin: RefreshOrigin::Background,
                 }
@@ -184,7 +184,7 @@ mod tests {
                 EffectResult::Failed {
                     effect: Effect::RefreshQuota {
                         provider: nexus_domain::accounts::Provider::Codex,
-                        profile_id: pid.into(),
+                        profile_id: ProfileId::new_unchecked(pid),
                         origin: RefreshOrigin::Background,
                     },
                     error: crate::app::effect::AppError::QuotaRefresh(
@@ -237,7 +237,7 @@ mod tests {
             |pid, _| async move {
                 EffectResult::QuotaRefreshed {
                     provider: nexus_domain::accounts::Provider::Codex,
-                    profile_id: pid.into(),
+                    profile_id: ProfileId::new_unchecked(pid),
                     quota: test_snapshot(),
                     origin: RefreshOrigin::Background,
                 }

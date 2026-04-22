@@ -1,4 +1,5 @@
 use crate::app::{AccountsAction, AccountsConfirmAction, Effect, Workspace};
+use nexus_domain::accounts::ProfileId;
 use crate::input::{self, Context, RuntimeAction};
 
 use super::quota;
@@ -114,7 +115,7 @@ pub(super) async fn handle_runtime_input_action(
                     session
                         .run_accounts_effect(Effect::LoadEditableProfile {
                             provider,
-                            profile_id: profile_id.into(),
+                            profile_id: ProfileId::new_unchecked(profile_id),
                         })
                         .await;
                 }

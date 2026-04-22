@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::state::AccountsState;
+use nexus_domain::accounts::ProfileId;
 use crate::codex_profiles::profile::{self as codex_profile};
 use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::event::{AgentEvent, AgentRef};
@@ -331,15 +332,15 @@ fn accounts_state_visible_entries_respect_provider_filter() {
         entries: vec![
             AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "c1".into(),
+                profile_id: ProfileId::new_unchecked("c1"),
             },
             AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "c2".into(),
+                profile_id: ProfileId::new_unchecked("c2"),
             },
             AccountEntry {
                 provider: Provider::Claude,
-                profile_id: "cl1".into(),
+                profile_id: ProfileId::new_unchecked("cl1"),
             },
         ],
         ..AccountsState::default()

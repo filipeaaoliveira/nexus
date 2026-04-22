@@ -39,6 +39,10 @@ impl Default for WindowKind {
 }
 
 impl WindowKind {
+    /// Parse a window-kind label into a typed variant.
+    ///
+    /// The input is trimmed and **normalised to lowercase** before matching.
+    /// Unrecognised labels are stored as-is (lowercased) in the `Other` variant.
     pub fn from_label(label: &str) -> Self {
         match label.trim().to_ascii_lowercase().as_str() {
             "5h" | "5h window" | "primary" => Self::FiveHour,

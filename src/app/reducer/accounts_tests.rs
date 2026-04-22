@@ -56,15 +56,15 @@ fn make_entries() -> Vec<AccountEntry> {
     vec![
         AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-01".into(),
+            profile_id: ProfileId::new_unchecked("codex-01"),
         },
         AccountEntry {
             provider: Provider::Codex,
-            profile_id: "codex-02".into(),
+            profile_id: ProfileId::new_unchecked("codex-02"),
         },
         AccountEntry {
             provider: Provider::Claude,
-            profile_id: "claude-01".into(),
+            profile_id: ProfileId::new_unchecked("claude-01"),
         },
     ]
 }
@@ -205,7 +205,7 @@ fn profile_deleted_removes_entry_and_maps() {
     let (mut state, mut wf) = load_profiles(make_entries(), make_profiles());
     // Add quota for codex-01
     state.quota_by_key.insert(
-        AccountKey::new(Provider::Codex, ProfileId::from("codex-01")),
+        AccountKey::new(Provider::Codex, ProfileId::new_unchecked("codex-01")),
         quota_snapshot(),
     );
     assert_invariants(&state);
@@ -216,7 +216,7 @@ fn profile_deleted_removes_entry_and_maps() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );
@@ -224,10 +224,10 @@ fn profile_deleted_removes_entry_and_maps() {
     assert_eq!(state.entries.len(), 2);
     assert!(!state
         .profiles_by_key
-        .contains_key(&AccountKey::new(Provider::Codex, "codex-01")));
+        .contains_key(&AccountKey::new(Provider::Codex, ProfileId::new_unchecked("codex-01"))));
     assert!(!state
         .quota_by_key
-        .contains_key(&AccountKey::new(Provider::Codex, "codex-01")));
+        .contains_key(&AccountKey::new(Provider::Codex, ProfileId::new_unchecked("codex-01"))));
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn sequence_load_delete_first_select_next() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );
@@ -317,7 +317,7 @@ fn sequence_filter_to_codex_delete_last_codex_profile() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-02".into(),
+                profile_id: ProfileId::new_unchecked("codex-02"),
             },
         },
     );
@@ -331,7 +331,7 @@ fn sequence_filter_to_codex_delete_last_codex_profile() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );
@@ -406,7 +406,7 @@ fn sequence_import_then_immediately_delete() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Claude,
-                profile_id: "claude-02".into(),
+                profile_id: ProfileId::new_unchecked("claude-02"),
             },
         },
     );
@@ -439,7 +439,7 @@ fn sequence_quota_refresh_then_delete() {
         &mut wf,
         &EffectResult::QuotaRefreshed {
             provider: Provider::Codex,
-            profile_id: "codex-01".into(),
+            profile_id: ProfileId::new_unchecked("codex-01"),
             quota: quota_snapshot(),
             origin: RefreshOrigin::Manual,
         },
@@ -453,7 +453,7 @@ fn sequence_quota_refresh_then_delete() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );
@@ -518,7 +518,7 @@ fn workflow_idle_to_deleting_to_idle() {
         &EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );
@@ -552,7 +552,7 @@ fn workflow_idle_to_writing_home_to_idle() {
         &EffectResult::ProfileWrittenToHome {
             entry: AccountEntry {
                 provider: Provider::Codex,
-                profile_id: "codex-01".into(),
+                profile_id: ProfileId::new_unchecked("codex-01"),
             },
         },
     );

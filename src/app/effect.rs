@@ -196,11 +196,11 @@ mod tests {
             entries: vec![
                 AccountEntry {
                     provider: Provider::Codex,
-                    profile_id: "codex-main".into(),
+                    profile_id: ProfileId::new_unchecked("codex-main"),
                 },
                 AccountEntry {
                     provider: Provider::Claude,
-                    profile_id: "claude-main".into(),
+                    profile_id: ProfileId::new_unchecked("claude-main"),
                 },
             ],
         };
@@ -218,7 +218,7 @@ mod tests {
     fn quota_refresh_results_carry_refreshed_snapshot() {
         let result = EffectResult::QuotaRefreshed {
             provider: Provider::Codex,
-            profile_id: "codex-main".into(),
+            profile_id: ProfileId::new_unchecked("codex-main"),
             quota: quota_snapshot("fresh snapshot"),
             origin: RefreshOrigin::Manual,
         };
@@ -264,7 +264,7 @@ mod tests {
         let deleted = EffectResult::ProfileDeleted {
             entry: AccountEntry {
                 provider: Provider::Claude,
-                profile_id: "claude-main".into(),
+                profile_id: ProfileId::new_unchecked("claude-main"),
             },
         };
 
@@ -289,7 +289,7 @@ mod tests {
     fn profile_draft_loaded_carries_selected_profile_identity_and_draft() {
         let result = EffectResult::EditableProfileLoaded {
             provider: Provider::Codex,
-            profile_id: "codex-main".into(),
+            profile_id: ProfileId::new_unchecked("codex-main"),
             draft: EditableProfile {
                 label: "Main".to_string(),
                 notes: "notes".to_string(),

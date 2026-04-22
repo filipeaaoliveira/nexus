@@ -50,19 +50,19 @@ pub struct AccountKey {
 }
 
 impl AccountKey {
-    pub fn new(provider: Provider, profile_id: impl Into<ProfileId>) -> Self {
+    pub fn new(provider: Provider, profile_id: ProfileId) -> Self {
         Self {
             provider,
-            profile_id: profile_id.into(),
+            profile_id,
         }
     }
 
     pub fn for_entry(entry: &AccountEntry) -> Self {
-        Self::new(entry.provider, ProfileId::from(entry.profile_id.as_str()))
+        Self::new(entry.provider, ProfileId::new_unchecked(entry.profile_id.as_str()))
     }
 
     pub fn for_profile(profile: &DomainProfile) -> Self {
-        Self::new(profile.provider, ProfileId::from(profile.profile_id()))
+        Self::new(profile.provider, ProfileId::new_unchecked(profile.profile_id()))
     }
 }
 

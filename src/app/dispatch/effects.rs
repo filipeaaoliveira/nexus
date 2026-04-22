@@ -9,7 +9,7 @@ use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::traits::ProfileStore;
-use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider};
+use nexus_domain::accounts::{AccountEntry, DomainProfile, ProfileId, Provider};
 
 pub async fn dispatch_effect(
     config: &Config,
@@ -118,7 +118,7 @@ fn load_all_from_store(
             Ok(outcome) => {
                 entries.push(AccountEntry {
                     provider,
-                    profile_id: profile_id.clone().into(),
+                    profile_id: ProfileId::new_unchecked(profile_id.clone()),
                 });
                 profiles.push(outcome.into_value());
             }
@@ -148,7 +148,7 @@ async fn load_profile_draft(
 
     Ok(EffectResult::EditableProfileLoaded {
         provider,
-        profile_id: profile_id.into(),
+        profile_id: ProfileId::new_unchecked(profile_id),
         draft,
     })
 }
@@ -168,7 +168,7 @@ async fn refresh_codex_quota(
         .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
     Ok(EffectResult::QuotaRefreshed {
         provider: Provider::Codex,
-        profile_id: profile_id.into(),
+        profile_id: ProfileId::new_unchecked(profile_id),
         quota,
         origin,
     })
@@ -198,7 +198,7 @@ async fn refresh_claude_quota(
         .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
     Ok(EffectResult::QuotaRefreshed {
         provider: Provider::Claude,
-        profile_id: profile_id.into(),
+        profile_id: ProfileId::new_unchecked(profile_id),
         quota,
         origin,
     })
@@ -245,7 +245,7 @@ async fn write_profile_to_home(
     Ok(EffectResult::ProfileWrittenToHome {
         entry: AccountEntry {
             provider,
-            profile_id: profile_id.into(),
+            profile_id: ProfileId::new_unchecked(profile_id),
         },
     })
 }
@@ -264,7 +264,7 @@ async fn delete_profile(
     Ok(EffectResult::ProfileDeleted {
         entry: AccountEntry {
             provider,
-            profile_id: profile_id.into(),
+            profile_id: ProfileId::new_unchecked(profile_id),
         },
     })
 }
@@ -337,7 +337,7 @@ mod tests {
             &stores,
             Effect::SaveProfileEdits {
                 provider: Provider::Codex,
-                profile_id: "profile-01".into(),
+                profile_id: ProfileId::new_unchecked("profile-01"),
                 draft: EditableProfile {
                     label: "Renamed".to_string(),
                     notes: "saved".to_string(),
@@ -385,7 +385,7 @@ mod tests {
             &stores,
             Effect::LoadEditableProfile {
                 provider: Provider::Codex,
-                profile_id: "profile-03".into(),
+                profile_id: ProfileId::new_unchecked("profile-03"),
             },
         )
         .await;
@@ -420,7 +420,7 @@ mod tests {
             &stores,
             Effect::DeleteProfile {
                 provider: Provider::Claude,
-                profile_id: "profile-02".into(),
+                profile_id: ProfileId::new_unchecked("profile-02"),
             },
         )
         .await;
@@ -445,7 +445,7 @@ mod tests {
             &stores,
             Effect::RefreshQuota {
                 provider: Provider::Claude,
-                profile_id: "profile-09".into(),
+                profile_id: ProfileId::new_unchecked("profile-09"),
                 origin: RefreshOrigin::Manual,
             },
         )

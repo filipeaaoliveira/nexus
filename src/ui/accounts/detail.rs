@@ -43,11 +43,13 @@ pub(crate) fn quota_row(
             LimitState::Hit => "HIT",
             LimitState::Available => "ok",
             LimitState::Unknown => "?",
+            _ => "?",
         };
         let text_color = match limit_state {
             LimitState::Hit => theme::STATUS_ERROR,
             LimitState::Available => theme::STATUS_RUNNING,
             LimitState::Unknown => theme::FG_COMMENT,
+            _ => theme::FG_COMMENT,
         };
         let mut s = vec![
             Span::styled(label, Style::default().fg(theme::FG_COMMENT)),
@@ -89,6 +91,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     let provider_label = match provider {
         Provider::Codex => "Codex",
         Provider::Claude => "Claude",
+        _ => "Unknown",
     };
     lines.push(Line::from(vec![
         Span::styled("  provider:  ", Style::default().fg(theme::FG_COMMENT)),

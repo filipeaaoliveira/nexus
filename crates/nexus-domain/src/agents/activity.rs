@@ -5,6 +5,7 @@ use chrono::{DateTime, Local};
 use super::status::{NormalizedReason, PrimaryStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Activity {
     Generating,
     ToolCall,
@@ -42,6 +43,7 @@ pub struct Subagent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TodoStatus {
     #[default]
     Pending,
@@ -76,6 +78,7 @@ impl FromStr for TodoStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TodoPriority {
     High,
     Medium,

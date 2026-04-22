@@ -78,6 +78,7 @@ const fn provider_rank(provider: Provider) -> u8 {
     match provider {
         Provider::Codex => 0,
         Provider::Claude => 1,
+        _ => u8::MAX,
     }
 }
 
@@ -153,6 +154,7 @@ impl AccountsState {
                 ProviderFilter::All => true,
                 ProviderFilter::Codex => entry.provider == Provider::Codex,
                 ProviderFilter::Claude => entry.provider == Provider::Claude,
+                _ => true,
             })
             .map(|(idx, _)| idx)
             .collect()

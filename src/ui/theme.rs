@@ -45,6 +45,7 @@ pub fn status_color(status: PrimaryStatus) -> Color {
         PrimaryStatus::Error => STATUS_ERROR,
         PrimaryStatus::Done => STATUS_DONE,
         PrimaryStatus::Exited => STATUS_EXITED,
+        _ => FG_DIMMED,
     }
 }
 

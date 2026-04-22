@@ -117,6 +117,7 @@ fn normalized_status_color(status: NormalizedStatus) -> ratatui::style::Color {
         NormalizedStatus::Blocked => theme::STATUS_ERROR,
         NormalizedStatus::Done => theme::STATUS_DONE,
         NormalizedStatus::Unknown => theme::FG_DIMMED,
+        _ => theme::FG_DIMMED,
     }
 }
 
@@ -127,6 +128,7 @@ fn normalized_status_dot(status: NormalizedStatus) -> &'static str {
         | NormalizedStatus::NeedsInput
         | NormalizedStatus::Blocked
         | NormalizedStatus::Unknown => "●",
+        _ => "●",
     }
 }
 

@@ -35,6 +35,7 @@ impl StoreProvider for ConfigStoreProvider {
         let profiles_dir = match provider {
             Provider::Codex => &self.codex_profiles_dir,
             Provider::Claude => &self.claude_profiles_dir,
+            _ => unreachable!(),
         };
         GenericProfileStore::new(ProviderBackend::new(provider, profiles_dir.clone()))
     }

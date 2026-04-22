@@ -48,6 +48,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
             let is_active = match entry.provider {
                 Provider::Codex => accounts.active_codex_profile_id() == Some(&entry.profile_id),
                 Provider::Claude => accounts.active_claude_profile_id() == Some(&entry.profile_id),
+                _ => false,
             };
 
             let key = AccountKey::for_entry(entry);
@@ -105,6 +106,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
                         ""
                     }
                 }
+                _ => "",
             };
 
             let prefix = if is_selected { ">" } else { " " };
@@ -140,6 +142,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
             ProviderFilter::Codex => "No Codex profiles. Press i to import.",
             ProviderFilter::Claude => "No Claude profiles. Press I to import.",
             ProviderFilter::All => "No profiles. Press i (Codex) or I (Claude) to import.",
+            _ => "No profiles found.",
         };
         let para = Paragraph::new(vec![
             Line::from(""),

@@ -112,6 +112,7 @@ pub fn reduce_result(
                 Provider::Claude => {
                     format!("Wrote {} to ~/.claude/.credentials.json", entry.profile_id)
                 }
+                _ => unreachable!(),
             });
             *workflow = Workflow::Idle;
             true
@@ -134,6 +135,7 @@ pub fn reduce_result(
             state.status_message = Some(match entry.provider {
                 Provider::Codex => format!("Deleted profile {}", entry.profile_id),
                 Provider::Claude => format!("Deleted Claude {}", entry.profile_id),
+                _ => unreachable!(),
             });
             state.mode = AccountsMode::Normal;
             *workflow = Workflow::Idle;
@@ -276,6 +278,7 @@ fn focus_profile(state: &mut AccountsState, key: &AccountKey) {
     state.provider_filter = match key.provider {
         Provider::Codex => ProviderFilter::Codex,
         Provider::Claude => ProviderFilter::Claude,
+        _ => unreachable!(),
     };
     let visible_indices = state.visible_entry_indices();
     state.selected_index = visible_indices.iter().position(|real_idx| {

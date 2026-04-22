@@ -46,6 +46,7 @@ async fn dispatch_effect_inner(
         } => match provider {
             Provider::Codex => refresh_codex_quota(config, profile_id, *origin).await,
             Provider::Claude => refresh_claude_quota(config, profile_id, *origin).await,
+            _ => unreachable!(),
         },
         Effect::ImportProfile { provider } => {
             import_profile(stores.store_for(*provider)).await

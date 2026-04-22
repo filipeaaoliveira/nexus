@@ -99,6 +99,7 @@ pub fn visible_agent_indices(agents: &[Agent], overview: &OverviewState) -> Vec<
                 agents[left].started_at().cmp(&agents[right].started_at())
             });
         }
+        _ => {}
     }
 
     indices

@@ -58,6 +58,7 @@ pub fn observed_session_state(status: PrimaryStatus) -> Option<&'static str> {
     match status {
         PrimaryStatus::Running => Some("busy"),
         PrimaryStatus::Waiting => Some("idle"),
+        PrimaryStatus::Error | PrimaryStatus::Done | PrimaryStatus::Exited => None,
         _ => None,
     }
 }

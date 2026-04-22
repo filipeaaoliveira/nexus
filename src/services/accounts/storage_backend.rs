@@ -51,6 +51,7 @@ impl ProviderBackend {
         let load_fn = match self.provider {
             Provider::Codex => storage_service::load_codex_profile,
             Provider::Claude => storage_service::load_claude_profile,
+            _ => unreachable!(),
         };
         load_fn(profile_dir).map_err(|e| ProfileStoreError::other("load_profile", e))
     }
@@ -65,6 +66,7 @@ impl StorageBackend for ProviderBackend {
         let auth_file = match self.provider {
             Provider::Codex => "auth.json",
             Provider::Claude => ".credentials.json",
+            _ => unreachable!(),
         };
         storage_service::scan_profile_ids(&self.profiles_dir, auth_file)
     }
@@ -96,6 +98,7 @@ impl StorageBackend for ProviderBackend {
         let preserve = match self.provider {
             Provider::Codex => false,
             Provider::Claude => true,
+            _ => unreachable!(),
         };
         storage_service::save_profile_edits(
             &profile_dir,
@@ -115,6 +118,7 @@ impl StorageBackend for ProviderBackend {
         let import_fn = match self.provider {
             Provider::Codex => codex_service::import_profile_from_home as fn(&Path, &Path) -> anyhow::Result<_>,
             Provider::Claude => claude_service::import_profile_from_home,
+            _ => unreachable!(),
         };
         let profile = import_fn(&self.profiles_dir, home)
             .map_err(|e| ProfileStoreError::other("import_profile_from_home", e))?;
@@ -126,6 +130,7 @@ impl StorageBackend for ProviderBackend {
         let write_fn = match self.provider {
             Provider::Codex => codex_service::write_profile_to_home as fn(&Path, &Path) -> anyhow::Result<()>,
             Provider::Claude => claude_service::write_profile_to_home,
+            _ => unreachable!(),
         };
         write_fn(&profile_dir, home)
             .map_err(|e| ProfileStoreError::other("write_profile_to_home", e))

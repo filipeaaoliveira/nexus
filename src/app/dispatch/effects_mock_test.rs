@@ -114,6 +114,7 @@ impl StoreProvider for MockStoreProvider {
         match provider {
             Provider::Codex => self.codex.clone(),
             Provider::Claude => self.claude.clone(),
+            _ => unreachable!(),
         }
     }
 }

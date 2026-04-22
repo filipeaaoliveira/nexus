@@ -195,6 +195,7 @@ impl RuntimeSession {
         let (path, label) = match provider {
             Provider::Codex => (&self.config.codex_quota_cache_file, "codex"),
             Provider::Claude => (&self.config.claude_quota_cache_file, "claude"),
+            _ => unreachable!(),
         };
         let cache = Some(quota_cache_for_provider(
             self.app.root().accounts().quota_by_key(),

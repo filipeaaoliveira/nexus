@@ -68,6 +68,7 @@ pub(crate) fn provider_badge(provider: Provider) -> &'static str {
     match provider {
         Provider::Codex => "[CX]",
         Provider::Claude => "[CL]",
+        _ => "[??]",
     }
 }
 
@@ -75,6 +76,7 @@ pub(crate) fn provider_badge_color(provider: Provider) -> ratatui::style::Color 
     match provider {
         Provider::Codex => theme::STATUS_WAITING,
         Provider::Claude => ratatui::style::Color::Cyan,
+        _ => theme::FG_DIMMED,
     }
 }
 
@@ -83,6 +85,7 @@ pub(crate) fn window_state_symbol(state: &LimitState) -> &'static str {
         LimitState::Hit => "✗",
         LimitState::Available => "✓",
         LimitState::Unknown => "?",
+        _ => "?",
     }
 }
 
@@ -92,6 +95,7 @@ pub(crate) fn confidence_label(confidence: Confidence) -> &'static str {
         Confidence::Parsed => "parsed",
         Confidence::Cached => "cached",
         Confidence::Unavailable => "unavailable",
+        _ => "unknown",
     }
 }
 

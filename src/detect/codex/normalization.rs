@@ -204,5 +204,6 @@ pub fn normalize_codex_session(
             }
         }
         PrimaryStatus::Exited => NormalizedState::new(NormalizedStatus::Unknown, None),
+        _ => NormalizedState::new(NormalizedStatus::Unknown, None),
     }
 }

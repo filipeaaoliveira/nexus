@@ -1,4 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum PrimaryStatus {
     Waiting = 0,
     Running = 1,
@@ -26,6 +27,7 @@ impl std::fmt::Display for PrimaryStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
 pub enum NormalizedStatus {
     Unknown = 0,
     Done = 1,
@@ -53,6 +55,7 @@ impl std::fmt::Display for NormalizedStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum NormalizedReason {
     ToolCall,
     Subagent,

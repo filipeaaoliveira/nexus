@@ -145,6 +145,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
                         TodoStatus::Cancelled => {
                             ("\u{2298}", theme::COLOR_TODO_DONE, theme::COLOR_TODO_DONE)
                         }
+                        _ => ("\u{25CB}", theme::FG_DIMMED, theme::FG_DIMMED),
                     };
                     lines.push(Line::from(vec![
                         Span::styled(format!("  {symbol} "), Style::default().fg(symbol_color)),
@@ -176,5 +177,6 @@ fn normalized_status_color(status: NormalizedStatus) -> Color {
         NormalizedStatus::Blocked => theme::STATUS_ERROR,
         NormalizedStatus::Done => theme::STATUS_DONE,
         NormalizedStatus::Unknown => theme::FG_DIMMED,
+        _ => theme::FG_DIMMED,
     }
 }

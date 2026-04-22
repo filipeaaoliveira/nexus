@@ -128,29 +128,36 @@ pub fn count_by_status(agents: &[Agent], overview: &OverviewState, status: Prima
         .count()
 }
 
+/// ASCII-case-insensitive substring search. Zero allocation.
+/// `needle` should be lowercase ASCII for best results.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    if needle.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
 fn agent_matches_filter(agent: &Agent, filter: &str) -> bool {
-    agent.display_name().to_lowercase().contains(filter)
-        || agent.status().as_str().to_lowercase().contains(filter)
-        || agent
-            .normalized()
-            .status
-            .as_str()
-            .to_lowercase()
-            .contains(filter)
+    contains_ignore_ascii_case(agent.display_name(), filter)
+        || contains_ignore_ascii_case(agent.status().as_str(), filter)
+        || contains_ignore_ascii_case(agent.normalized().status.as_str(), filter)
         || agent
             .normalized()
             .reason
             .as_ref()
-            .map(|reason| reason.as_str().to_lowercase().contains(filter))
-            .unwrap_or(false)
+            .is_some_and(|reason| contains_ignore_ascii_case(reason.as_str(), filter))
         || agent
             .cwd()
-            .map(|cwd| cwd.to_string_lossy().to_lowercase().contains(filter))
-            .unwrap_or(false)
+            .is_some_and(|cwd| contains_ignore_ascii_case(&cwd.to_string_lossy(), filter))
         || agent
             .branch()
-            .map(|branch| branch.to_lowercase().contains(filter))
-            .unwrap_or(false)
+            .is_some_and(|branch| contains_ignore_ascii_case(branch, filter))
 }
 
 #[cfg(test)]
@@ -265,5 +272,15 @@ mod tests {
             tools.contains(&AgentTool::Claude) && tools.contains(&AgentTool::OpenCode),
             "both agents visible in projection"
         );
+    }
+
+    #[test]
+    fn contains_ignore_ascii_case_matches_without_allocation() {
+        assert!(super::contains_ignore_ascii_case("Hello World", "hello"));
+        assert!(super::contains_ignore_ascii_case("FooBar", "oob"));
+        assert!(!super::contains_ignore_ascii_case("FooBar", "xyz"));
+        assert!(super::contains_ignore_ascii_case("", ""));
+        assert!(!super::contains_ignore_ascii_case("", "a"));
+        assert!(super::contains_ignore_ascii_case("any", ""));
     }
 }

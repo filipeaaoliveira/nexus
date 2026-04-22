@@ -4,7 +4,7 @@ pub mod profile;
 pub mod provider;
 pub mod quota;
 
-pub use id::ProfileId;
+pub use id::{ProfileId, ProfileIdError};
 pub use model::AccountEntry;
 pub use profile::DomainProfile;
 pub use provider::{Provider, ProviderFilter};

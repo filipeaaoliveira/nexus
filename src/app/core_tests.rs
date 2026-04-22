@@ -5,7 +5,6 @@ use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::event::{AgentEvent, AgentRef};
 use crate::services::accounts::storage::next_profile_id;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
-use nexus_domain::agents::model::SortMode;
 use nexus_domain::agents::status::PrimaryStatus;
 use nexus_domain::system::DetectorKind;
 use std::fs;
@@ -56,11 +55,11 @@ fn visible_agent_indices_refresh_when_filter_changes() {
 
     assert_eq!(state.visible_agents().len(), 2);
 
-    state.root.overview.filter = Some("claude".to_string());
+    state.run_overview_reducer_action(OverviewAction::UpdateFilter("claude".to_string()));
     assert_eq!(state.visible_agents().len(), 1);
     assert_eq!(state.visible_agents()[0].pid(), Some(1));
 
-    state.root.overview.filter = Some("opencode".to_string());
+    state.run_overview_reducer_action(OverviewAction::UpdateFilter("opencode".to_string()));
     assert_eq!(state.visible_agents().len(), 1);
     assert_eq!(state.visible_agents()[0].pid(), Some(2));
 }
@@ -73,7 +72,8 @@ fn visible_agent_indices_refresh_when_sort_changes() {
 
     assert_eq!(state.visible_agents()[0].pid(), Some(1));
 
-    state.root.overview.sort_mode = SortMode::Elapsed;
+    // Default is Name; one cycle: Name -> Elapsed
+    state.run_overview_reducer_action(OverviewAction::CycleSortMode);
     assert_eq!(state.visible_agents()[0].pid(), Some(2));
 
     state.handle_event(AgentEvent::StatusChanged {
@@ -81,7 +81,8 @@ fn visible_agent_indices_refresh_when_sort_changes() {
         old: PrimaryStatus::Running,
         new: PrimaryStatus::Waiting,
     });
-    state.root.overview.sort_mode = SortMode::Urgency;
+    // Elapsed -> Urgency
+    state.run_overview_reducer_action(OverviewAction::CycleSortMode);
     assert_eq!(state.visible_agents()[0].pid(), Some(2));
 }
 
@@ -196,7 +197,7 @@ fn visible_agents_applies_filter_without_stored_overview_rows() {
             },
         },
     ];
-    state.root.overview.filter = Some("review".into());
+    state.run_overview_reducer_action(OverviewAction::UpdateFilter("review".to_string()));
 
     let visible = state.visible_agents();
     assert_eq!(visible.len(), 1);
@@ -206,7 +207,7 @@ fn visible_agents_applies_filter_without_stored_overview_rows() {
 /// Checks overview invariants: visible_agents is a subset of agents, selected index in bounds.
 fn assert_overview_invariants(state: &AppState) {
     let visible = state.visible_agents();
-    let all_ids: std::collections::HashSet<_> = state.agents.iter().map(|a| a.id()).collect();
+    let all_ids: std::collections::HashSet<_> = state.agents().iter().map(|a| a.id()).collect();
 
     // Every visible agent must exist in the authoritative agent list
     for agent in &visible {
@@ -219,7 +220,7 @@ fn assert_overview_invariants(state: &AppState) {
 
     // Visible count must never exceed total agent count
     assert!(
-        visible.len() <= state.agents.len(),
+        visible.len() <= state.agents().len(),
         "visible agents ({}) exceeds total agents ({})",
         visible.len(),
         state.agents.len()
@@ -229,7 +230,7 @@ fn assert_overview_invariants(state: &AppState) {
     // (we don't re-implement filter matching — just verify the subset property)
 
     // Selected index must be within visible bounds
-    if let Some(idx) = state.root.overview.selected_index {
+    if let Some(idx) = state.overview().selected_index() {
         assert!(
             idx < visible.len(),
             "overview selected_index ({}) out of bounds for {} visible agents",
@@ -246,16 +247,13 @@ fn overview_invariants_hold_after_filter_changes() {
     state.handle_event(discovered(AgentTool::OpenCode, 2, "/tmp/opencode"));
     assert_overview_invariants(&state);
 
-    state.root.overview.filter = Some("claude".to_string());
-    state.clamp_selection();
+    state.run_overview_reducer_action(OverviewAction::UpdateFilter("claude".to_string()));
     assert_overview_invariants(&state);
 
-    state.root.overview.filter = Some("nonexistent".to_string());
-    state.clamp_selection();
+    state.run_overview_reducer_action(OverviewAction::UpdateFilter("nonexistent".to_string()));
     assert_overview_invariants(&state);
 
-    state.root.overview.filter = None;
-    state.clamp_selection();
+    state.run_overview_reducer_action(OverviewAction::ClearFilter);
     assert_overview_invariants(&state);
 }
 
@@ -373,30 +371,30 @@ fn active_tab_tracks_root_workspace_state() {
 fn app_state_workspace_navigation_uses_root_workspace_state() {
     let mut state = AppState::new();
 
-    assert_eq!(state.root.workspace.active, Workspace::Overview);
+    assert_eq!(state.active_tab(), Workspace::Overview);
 
     state.next_tab();
-    assert_eq!(state.root.workspace.active, Workspace::Accounts);
+    assert_eq!(state.active_tab(), Workspace::Accounts);
 
     state.previous_tab();
-    assert_eq!(state.root.workspace.active, Workspace::Overview);
+    assert_eq!(state.active_tab(), Workspace::Overview);
 }
 
 #[test]
 fn app_state_help_overlay_uses_root_system_overlay() {
     let mut state = AppState::new();
 
-    assert_eq!(state.root.system.overlay, Overlay::None);
+    assert_eq!(*state.system().overlay(), Overlay::None);
 
     state.toggle_help();
-    assert_eq!(state.root.system.overlay, Overlay::Help { scroll: 0 });
+    assert_eq!(*state.system().overlay(), Overlay::Help { scroll: 0 });
 
     state.scroll_help_down();
-    match state.root.system.overlay {
+    match *state.system().overlay() {
         Overlay::Help { scroll } => assert!(scroll > 0),
         Overlay::None => panic!("help overlay should stay visible while scrolling"),
     }
 
     state.toggle_help();
-    assert_eq!(state.root.system.overlay, Overlay::None);
+    assert_eq!(*state.system().overlay(), Overlay::None);
 }

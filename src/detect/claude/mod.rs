@@ -610,6 +610,9 @@ pub async fn run_claude_detector(
             }
         }
 
+        // Evict file_state entries whose files no longer exist on disk.
+        file_state.retain(|path, _| path.exists());
+
         tokio::time::sleep(poll_interval).await;
     }
 }

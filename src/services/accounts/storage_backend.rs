@@ -37,6 +37,16 @@ impl ProviderBackend {
 }
 
 impl ProviderBackend {
+    fn profile_dir(&self, profile_id: &str) -> StoreResult<PathBuf> {
+        let dir = self.profiles_dir.join(profile_id);
+        if !dir.is_dir() {
+            return Err(ProfileStoreError::NotFound {
+                profile_id: profile_id.to_string(),
+            });
+        }
+        Ok(dir)
+    }
+
     fn load_stored_profile(&self, profile_dir: &Path) -> StoreResult<LoadOutcome<StoredProfile>> {
         let load_fn = match self.provider {
             Provider::Codex => storage_service::load_codex_profile,
@@ -60,7 +70,7 @@ impl StorageBackend for ProviderBackend {
     }
 
     fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
-        let profile_dir = self.profiles_dir.join(profile_id);
+        let profile_dir = self.profile_dir(profile_id)?;
         let outcome = self.load_stored_profile(&profile_dir)?;
         Ok(match outcome {
             LoadOutcome::Clean(v) => LoadOutcome::Clean(v.to_domain(self.provider)),
@@ -72,7 +82,7 @@ impl StorageBackend for ProviderBackend {
     }
 
     fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
-        let profile_dir = self.profiles_dir.join(profile_id);
+        let profile_dir = self.profile_dir(profile_id)?;
         let profile = self.load_stored_profile(&profile_dir)?.into_value();
         Ok(EditableProfile {
             label: profile.label,
@@ -82,7 +92,7 @@ impl StorageBackend for ProviderBackend {
     }
 
     fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
-        let profile_dir = self.profiles_dir.join(profile_id);
+        let profile_dir = self.profile_dir(profile_id)?;
         let preserve = match self.provider {
             Provider::Codex => false,
             Provider::Claude => true,
@@ -112,7 +122,7 @@ impl StorageBackend for ProviderBackend {
     }
 
     fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
-        let profile_dir = self.profiles_dir.join(profile_id);
+        let profile_dir = self.profile_dir(profile_id)?;
         let write_fn = match self.provider {
             Provider::Codex => codex_service::write_profile_to_home as fn(&Path, &Path) -> anyhow::Result<()>,
             Provider::Claude => claude_service::write_profile_to_home,
@@ -122,7 +132,7 @@ impl StorageBackend for ProviderBackend {
     }
 
     fn delete(&self, profile_id: &str) -> StoreResult<()> {
-        let profile_dir = self.profiles_dir.join(profile_id);
+        let profile_dir = self.profile_dir(profile_id)?;
         storage_service::delete_profile_dir(&profile_dir)
             .map_err(|e| ProfileStoreError::other("delete_profile_dir", e))
     }
@@ -131,6 +141,7 @@ impl StorageBackend for ProviderBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::ProfileStoreError;
     use tempfile::TempDir;
     use std::fs;
 
@@ -165,5 +176,21 @@ mod tests {
         let backend = ProviderBackend::new(Provider::Claude, tmp.path().to_path_buf());
         let ids = backend.scan_profile_ids();
         assert_eq!(ids, vec!["claude-prof"]);
+    }
+
+    #[test]
+    fn load_raw_profile_returns_not_found_for_missing_profile() {
+        let tmp = TempDir::new().unwrap();
+        let backend = ProviderBackend::new(Provider::Codex, tmp.path().to_path_buf());
+        let result = backend.load_raw_profile("nonexistent");
+        assert!(matches!(result, Err(ProfileStoreError::NotFound { .. })));
+    }
+
+    #[test]
+    fn delete_missing_profile_returns_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let backend = ProviderBackend::new(Provider::Codex, tmp.path().to_path_buf());
+        let result = backend.delete("nonexistent");
+        assert!(matches!(result, Err(ProfileStoreError::NotFound { .. })));
     }
 }

@@ -7,6 +7,7 @@ use crate::app::agent::{
     ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
 };
 use crate::app::state::{OverviewState, SystemState};
+use super::agent_lookup;
 use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::Subagent;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -106,7 +107,7 @@ fn reduce_status_changed(
     new: PrimaryStatus,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_status(new);
         agent.touch(now);
@@ -126,7 +127,7 @@ fn reduce_activity_changed(
     activity: Option<nexus_domain::agents::activity::Activity>,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_activity(activity);
         agent.touch(now);
@@ -140,7 +141,7 @@ fn reduce_normalized_state_changed(
     state: NormalizedState,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_normalized(state);
         agent.touch(now);
@@ -158,7 +159,7 @@ fn reduce_subagent_spawned(
     subagent: &Subagent,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         let desc = format!("spawned: {}", subagent.name);
         agent.push_subagent(subagent.clone());
@@ -179,7 +180,7 @@ fn reduce_subagent_completed(
     subagent_name: &str,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         let matching_subagent = if id.tool() == AgentTool::Codex {
             agent.subagents_mut().iter_mut().find(|s| {
@@ -213,7 +214,7 @@ fn reduce_subagents_updated(
     subagents: &[Subagent],
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_subagents(subagents.to_vec());
         if agent.subagents().is_empty() {
@@ -231,7 +232,7 @@ fn reduce_tool_call_started(
     args_summary: Option<&str>,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_activity(Some(nexus_domain::agents::activity::Activity::ToolCall));
         agent.touch(now);
@@ -254,7 +255,7 @@ fn reduce_tool_call_completed(
     pid: Option<u32>,
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         if agent.activity() == Some(nexus_domain::agents::activity::Activity::ToolCall) {
             agent.set_activity(Some(nexus_domain::agents::activity::Activity::Idle));
@@ -270,7 +271,7 @@ fn reduce_todos_updated(
     todos: &[nexus_domain::agents::activity::TodoItem],
     now: DateTime<Local>,
 ) {
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
         agent.set_todos(todos.to_vec());
         agent.touch(now);
@@ -332,7 +333,7 @@ fn reduce_process_exited(
     }
 
     // Fallback: find by id, then by pid
-    if let Some(agent) = find_agent_mut_by_id(agents, id) {
+    if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         mark_agent_exited(agent, pid, now);
     } else if let Some(pid) = pid {
         if id.tool() == AgentTool::Codex {
@@ -351,7 +352,7 @@ fn reduce_process_exited(
             }
         }
 
-        if let Some(agent) = find_agent_mut_by_pid(agents, id.tool(), pid) {
+        if let Some(agent) = agent_lookup::find_by_pid(agents, id.tool(), pid) {
             mark_agent_exited(agent, Some(pid), now);
         }
     }
@@ -387,7 +388,7 @@ fn reduce_discovered(
             agent.pid()
         };
         if id.tool() == AgentTool::Codex && id.is_session() {
-            remove_redundant_codex_process_agents(agents, absorbed_pid);
+            agent_lookup::remove_redundant_codex_process_agents(agents, absorbed_pid);
         }
         return;
     }
@@ -397,7 +398,7 @@ fn reduce_discovered(
     if id.tool() == AgentTool::Codex {
         if let Some(pid_val) = pid {
             let matching_agent_indices =
-                find_session_agent_indices_by_pid(agents, id.tool(), pid_val, cwd);
+                agent_lookup::session_indices_by_pid(agents, id.tool(), pid_val, cwd);
             if matching_agent_indices.len() > 1 {
                 for agent_idx in matching_agent_indices {
                     let agent = &mut agents[agent_idx];
@@ -429,7 +430,7 @@ fn reduce_discovered(
 
             if id.is_process() {
                 let exited_agent_indices =
-                    find_exited_session_agent_indices_by_pid(agents, id.tool(), pid_val, cwd);
+                    agent_lookup::exited_session_indices_by_pid(agents, id.tool(), pid_val, cwd);
                 if !exited_agent_indices.is_empty() {
                     for agent_idx in exited_agent_indices {
                         let agent = &mut agents[agent_idx];
@@ -495,7 +496,7 @@ fn reduce_session_info(
     let pid = agent.pid.or_else(|| agent.id.pid());
 
     if agent.id.is_session() {
-        if let Some(a) = find_agent_mut_by_id(agents, &agent.id) {
+        if let Some(a) = agent_lookup::find_by_id(agents, &agent.id) {
             apply_session_info(
                 a,
                 pid,
@@ -506,12 +507,12 @@ fn reduce_session_info(
                 now,
             );
             let absorbed_pid = a.pid();
-            remove_redundant_codex_process_agents(agents, absorbed_pid);
+            agent_lookup::remove_redundant_codex_process_agents(agents, absorbed_pid);
             return;
         }
 
         if let Some(pid_val) = pid {
-            if let Some(a) = find_process_agent_mut(agents, agent.id.tool(), pid_val) {
+            if let Some(a) = agent_lookup::find_process_agent(agents, agent.id.tool(), pid_val) {
                 a.set_id(agent.id.clone());
                 apply_session_info(
                     a,
@@ -522,14 +523,14 @@ fn reduce_session_info(
                     started_at,
                     now,
                 );
-                remove_redundant_codex_process_agents(agents, Some(pid_val));
+                agent_lookup::remove_redundant_codex_process_agents(agents, Some(pid_val));
                 return;
             }
         }
 
         let a = insert_placeholder_agent(agents, agent.id.clone(), pid, now);
         apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
-        remove_redundant_codex_process_agents(agents, pid);
+        agent_lookup::remove_redundant_codex_process_agents(agents, pid);
         // Selection set by insert_placeholder_agent if needed; top-level clamp handles the rest
         if overview.selected_index.is_none() {
             overview.selected_index = Some(0);
@@ -538,7 +539,7 @@ fn reduce_session_info(
     }
 
     // Non-session id
-    if let Some(a) = find_agent_mut_by_id(agents, &agent.id) {
+    if let Some(a) = agent_lookup::find_by_id(agents, &agent.id) {
         apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
     } else {
         let a = insert_placeholder_agent(agents, agent.id.clone(), pid, now);
@@ -547,10 +548,6 @@ fn reduce_session_info(
 }
 
 // ── Store helpers ───────────────────────────────────────────
-
-fn find_agent_mut_by_id<'a>(agents: &'a mut [Agent], id: &AgentId) -> Option<&'a mut Agent> {
-    agents.iter_mut().find(|a| *a.id() == *id)
-}
 
 fn insert_placeholder_agent(
     agents: &mut Vec<Agent>,
@@ -594,70 +591,6 @@ fn insert_placeholder_agent(
     agents
         .last_mut()
         .expect("placeholder agent was just inserted")
-}
-
-fn find_process_agent_mut(agents: &mut [Agent], tool: AgentTool, pid: u32) -> Option<&mut Agent> {
-    agents
-        .iter_mut()
-        .find(|a| a.id().tool() == tool && a.pid() == Some(pid) && a.id().is_process())
-}
-
-fn find_session_agent_indices_by_pid(
-    agents: &[Agent],
-    tool: AgentTool,
-    pid: u32,
-    cwd: &Path,
-) -> Vec<usize> {
-    agents
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| {
-            a.id().tool() == tool
-                && a.id().is_session()
-                && a.pid() == Some(pid)
-                && a.status() != PrimaryStatus::Exited
-                && (a.cwd().is_none() || a.cwd() == Some(cwd))
-        })
-        .map(|(idx, _)| idx)
-        .collect()
-}
-
-fn find_exited_session_agent_indices_by_pid(
-    agents: &[Agent],
-    tool: AgentTool,
-    pid: u32,
-    cwd: &Path,
-) -> Vec<usize> {
-    agents
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| {
-            a.id().tool() == tool
-                && a.id().is_session()
-                && a.pid() == Some(pid)
-                && a.status() == PrimaryStatus::Exited
-                && a.cwd() == Some(cwd)
-        })
-        .map(|(idx, _)| idx)
-        .collect()
-}
-
-fn find_agent_mut_by_pid(agents: &mut [Agent], tool: AgentTool, pid: u32) -> Option<&mut Agent> {
-    agents
-        .iter_mut()
-        .find(|a| a.id().tool() == tool && a.pid() == Some(pid))
-}
-
-fn remove_redundant_codex_process_agents(agents: &mut Vec<Agent>, pid: Option<u32>) {
-    let Some(pid) = pid else {
-        return;
-    };
-
-    agents.retain(|agent| {
-        !(agent.id().tool() == AgentTool::Codex
-            && agent.id().is_process()
-            && agent.pid() == Some(pid))
-    });
 }
 
 fn mark_agent_exited(agent: &mut Agent, pid: Option<u32>, now: DateTime<Local>) {

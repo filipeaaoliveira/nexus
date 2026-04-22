@@ -15,6 +15,7 @@ pub enum ProviderFilter {
 }
 
 impl ProviderFilter {
+    #[must_use]
     pub fn next(self) -> Self {
         match self {
             Self::All => Self::Codex,

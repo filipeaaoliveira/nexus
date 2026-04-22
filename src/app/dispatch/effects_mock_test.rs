@@ -126,17 +126,17 @@ impl StoreProvider for MockStoreProvider {
 
 fn test_profile(provider: Provider, id: &str, label: &str) -> DomainProfile {
     let now = Utc::now();
-    DomainProfile {
-        id: ProfileId::new_unchecked(id),
+    DomainProfile::new(
+        ProfileId::new_unchecked(id),
         provider,
-        label: label.to_string(),
-        email: Some(format!("{id}@example.com")),
-        plan: Some("pro".to_string()),
-        notes: Some(String::new()),
-        enabled: true,
-        created_at: now,
-        updated_at: now,
-    }
+        label.to_string(),
+        Some(format!("{id}@example.com")),
+        Some("pro".to_string()),
+        Some(String::new()),
+        true,
+        now,
+        now,
+    )
 }
 
 // ---------------------------------------------------------------------------

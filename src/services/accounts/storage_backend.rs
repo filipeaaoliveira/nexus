@@ -2,20 +2,10 @@ use std::path::{Path, PathBuf};
 
 use crate::profiles::StoredProfile;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
+use crate::services::accounts::traits::ProfileStore;
 use crate::services::accounts::{codex as codex_service, claude as claude_service, storage as storage_service};
 use crate::app::EditableProfile;
 use nexus_domain::accounts::{DomainProfile, Provider};
-
-pub trait StorageBackend: Send + Sync + 'static {
-    fn provider(&self) -> Provider;
-    fn scan_profile_ids(&self) -> Vec<String>;
-    fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>>;
-    fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile>;
-    fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile>;
-    fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile>;
-    fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()>;
-    fn delete(&self, profile_id: &str) -> StoreResult<()>;
-}
 
 fn notes_option(notes: &str) -> Option<String> {
     if notes.is_empty() {
@@ -35,9 +25,7 @@ impl ProviderBackend {
     pub fn new(provider: Provider, profiles_dir: PathBuf) -> Self {
         Self { provider, profiles_dir }
     }
-}
 
-impl ProviderBackend {
     fn profile_dir(&self, profile_id: &str) -> StoreResult<PathBuf> {
         let dir = self.profiles_dir.join(profile_id);
         if !dir.is_dir() {
@@ -58,7 +46,7 @@ impl ProviderBackend {
     }
 }
 
-impl StorageBackend for ProviderBackend {
+impl ProfileStore for ProviderBackend {
     fn provider(&self) -> Provider {
         self.provider
     }
@@ -72,7 +60,7 @@ impl StorageBackend for ProviderBackend {
         storage_service::scan_profile_ids(&self.profiles_dir, auth_file)
     }
 
-    fn load_raw_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
+    fn load_profile(&self, profile_id: &str) -> StoreResult<LoadOutcome<DomainProfile>> {
         let profile_dir = self.profile_dir(profile_id)?;
         let outcome = self.load_stored_profile(&profile_dir)?;
         Ok(match outcome {
@@ -84,7 +72,7 @@ impl StorageBackend for ProviderBackend {
         })
     }
 
-    fn load_raw_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
+    fn load_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
         let profile_dir = self.profile_dir(profile_id)?;
         let profile = self.load_stored_profile(&profile_dir)?.into_value();
         Ok(EditableProfile {
@@ -94,7 +82,7 @@ impl StorageBackend for ProviderBackend {
         })
     }
 
-    fn save_raw_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
+    fn save_edits(&self, profile_id: &str, draft: &EditableProfile) -> StoreResult<DomainProfile> {
         let profile_dir = self.profile_dir(profile_id)?;
         let preserve = match self.provider {
             Provider::Codex => false,
@@ -185,10 +173,10 @@ mod tests {
     }
 
     #[test]
-    fn load_raw_profile_returns_not_found_for_missing_profile() {
+    fn load_profile_returns_not_found_for_missing_profile() {
         let tmp = TempDir::new().unwrap();
         let backend = ProviderBackend::new(Provider::Codex, tmp.path().to_path_buf());
-        let result = backend.load_raw_profile("nonexistent");
+        let result = backend.load_profile("nonexistent");
         assert!(matches!(result, Err(ProfileStoreError::NotFound { .. })));
     }
 

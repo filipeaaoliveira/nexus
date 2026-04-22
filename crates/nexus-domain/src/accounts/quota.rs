@@ -43,6 +43,7 @@ impl WindowKind {
     ///
     /// The input is trimmed and **normalised to lowercase** before matching.
     /// Unrecognised labels are stored as-is (lowercased) in the `Other` variant.
+    #[must_use]
     pub fn from_label(label: &str) -> Self {
         match label.trim().to_ascii_lowercase().as_str() {
             "5h" | "5h window" | "primary" => Self::FiveHour,

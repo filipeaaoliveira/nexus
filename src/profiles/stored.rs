@@ -18,17 +18,17 @@ pub struct StoredProfile {
 
 impl StoredProfile {
     pub fn to_domain(self, provider: Provider) -> DomainProfile {
-        DomainProfile {
-            id: ProfileId::new_unchecked(self.id),
+        DomainProfile::new(
+            ProfileId::new_unchecked(self.id),
             provider,
-            label: self.label,
-            email: self.email,
-            plan: self.plan,
-            notes: self.notes,
-            enabled: self.enabled,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        }
+            self.label,
+            self.email,
+            self.plan,
+            self.notes,
+            self.enabled,
+            self.created_at,
+            self.updated_at,
+        )
     }
 }
 

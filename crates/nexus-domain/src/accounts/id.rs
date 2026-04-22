@@ -18,6 +18,7 @@ impl fmt::Display for ProfileIdError {
 impl std::error::Error for ProfileIdError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[must_use]
 pub struct ProfileId(String);
 
 impl ProfileId {

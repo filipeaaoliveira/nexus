@@ -362,9 +362,10 @@ fn accounts_state_visible_entries_respect_provider_filter() {
 }
 
 #[test]
-fn active_tab_tracks_root_workspace_state() {
+fn active_tab_tracks_workspace_after_navigation() {
     let mut state = AppState::new();
-    state.root.switch_workspace(Workspace::Accounts);
+    assert_eq!(state.active_tab(), Workspace::Overview);
+    state.next_tab(); // Overview → Accounts
     assert_eq!(state.active_tab(), Workspace::Accounts);
 }
 

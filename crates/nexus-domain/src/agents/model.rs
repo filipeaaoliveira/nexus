@@ -9,6 +9,7 @@ pub enum SortMode {
 }
 
 impl SortMode {
+    #[must_use]
     pub fn next(&self) -> SortMode {
         match self {
             SortMode::Urgency => SortMode::Name,

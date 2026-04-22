@@ -19,6 +19,7 @@ impl AgentTool {
     /// Codex uses the subagent description as an alternative match target because
     /// the thread spawn metadata sometimes stores the task description rather than
     /// the agent nickname.
+    #[must_use]
     pub fn matches_subagent_name(
         &self,
         subagent_name: &str,
@@ -63,16 +64,19 @@ impl AgentIdentity {
         }
     }
 
+    #[must_use]
     pub fn is_process(&self) -> bool {
         matches!(self, Self::Process { .. })
     }
 
+    #[must_use]
     pub fn is_session(&self) -> bool {
         matches!(self, Self::Session { .. })
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[must_use]
 pub struct AgentId {
     pub identity: AgentIdentity,
 }

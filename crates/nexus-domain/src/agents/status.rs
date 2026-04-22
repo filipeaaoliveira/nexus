@@ -87,6 +87,7 @@ impl NormalizedReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
 pub struct NormalizedState {
     pub status: NormalizedStatus,
     pub reason: Option<NormalizedReason>,

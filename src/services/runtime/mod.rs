@@ -157,10 +157,22 @@ async fn run_loop(
                     event: Box::new(event),
                     now,
                 }).await;
+                // Drain queued agent events before redrawing
+                while let Ok(event) = rx.try_recv() {
+                    let now = chrono::Local::now();
+                    session.dispatch_action(crate::app::Action::AgentEvent {
+                        event: Box::new(event),
+                        now,
+                    }).await;
+                }
             }
 
             Some(result) = effect_rx.recv() => {
                 session.apply_effect_result(result);
+                // Drain queued effect results before redrawing
+                while let Ok(result) = effect_rx.try_recv() {
+                    session.apply_effect_result(result);
+                }
             }
 
             maybe_event = event_stream.next() => {

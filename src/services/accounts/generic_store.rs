@@ -3,7 +3,8 @@ use std::path::Path;
 use crate::services::accounts::storage::{LoadOutcome, StoreResult};
 use crate::services::accounts::storage_backend::StorageBackend;
 use crate::services::accounts::traits::ProfileStore;
-use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
+use crate::app::EditableProfile;
+use nexus_domain::accounts::{DomainProfile, Provider};
 
 pub struct GenericProfileStore<S> {
     backend: S,

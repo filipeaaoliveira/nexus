@@ -5,7 +5,13 @@ use nexus_domain::accounts::{
     AccountEntry, DomainProfile, ProfileId, Provider, ProviderFilter, QuotaSnapshot,
 };
 
-pub use nexus_domain::accounts::EditableProfile;
+/// A plain value object representing editable fields of an account profile.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EditableProfile {
+    pub label: String,
+    pub notes: String,
+    pub enabled: bool,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccountsConfirmAction {

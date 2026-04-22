@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use crate::profiles::StoredProfile;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::{codex as codex_service, claude as claude_service, storage as storage_service};
-use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
+use crate::app::EditableProfile;
+use nexus_domain::accounts::{DomainProfile, Provider};
 
 pub trait StorageBackend: Send + Sync + 'static {
     fn provider(&self) -> Provider;

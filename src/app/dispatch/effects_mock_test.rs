@@ -9,7 +9,8 @@ use crate::config::Config;
 use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::traits::ProfileStore;
-use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
+use crate::app::EditableProfile;
+use nexus_domain::accounts::{DomainProfile, Provider};
 
 // ---------------------------------------------------------------------------
 // Mock ProfileStore

@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::services::accounts::storage::{LoadOutcome, StoreResult};
-use nexus_domain::accounts::{DomainProfile, EditableProfile, Provider};
+use crate::app::EditableProfile;
+use nexus_domain::accounts::{DomainProfile, Provider};
 
 /// Abstracts profile storage operations for a single provider.
 ///

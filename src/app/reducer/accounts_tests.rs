@@ -39,7 +39,7 @@ fn claude_profile(id: &str) -> StoredProfile {
 }
 
 fn quota_snapshot() -> QuotaSnapshot {
-    QuotaSnapshot::legacy_fallback(
+    QuotaSnapshot::from_legacy(
         Utc::now(),
         Confidence::Exact,
         LimitState::Available,

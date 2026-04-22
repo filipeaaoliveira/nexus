@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use nexus_domain::accounts::quota::{
-    Confidence, CreditsState, LimitState, QuotaSnapshot, QuotaWindow,
+    Confidence, CreditsState, LimitState, QuotaSnapshot, QuotaWindow, WindowKind,
 };
 
 /// Deprecated compatibility wrapper for legacy `codex status` text parsing.
@@ -27,7 +27,7 @@ pub fn parse_legacy_status_output(input: &str) -> Option<QuotaSnapshot> {
 
     let summary = format!("5h={:?}; weekly={:?}", five_hour_state, weekly_state);
 
-    Some(QuotaSnapshot::legacy_fallback(
+    Some(QuotaSnapshot::from_legacy(
         Utc::now(),
         Confidence::Parsed,
         five_hour_state,
@@ -120,7 +120,7 @@ pub fn parse_quota_from_sessions(sessions_dir: &Path) -> Option<QuotaSnapshot> {
 
     let summary = summarize_windows(&windows, credits.as_ref());
 
-    Some(QuotaSnapshot::from_windows(
+    Some(QuotaSnapshot::new(
         Utc::now(),
         Confidence::Parsed,
         windows,
@@ -228,7 +228,7 @@ fn parse_window_value(
         .unwrap_or_else(|| pct_to_state(used_pct));
 
     QuotaWindow {
-        label,
+        kind: WindowKind::from_label(&label),
         used_pct,
         reset_at,
         state,
@@ -290,7 +290,7 @@ fn summarize_windows(windows: &[QuotaWindow], credits: Option<&CreditsState>) ->
                 .used_pct
                 .map(|pct| format!("{pct}%"))
                 .unwrap_or_else(|| "?".to_string());
-            format!("{}={}", window.label, pct)
+            format!("{}={}", window.kind.label(), pct)
         })
         .collect();
 
@@ -360,7 +360,7 @@ async fn fetch_quota_async(account_id: &str, access_token: &str) -> Result<Quota
 
     let summary = summarize_windows(&windows, credits.as_ref());
 
-    Ok(QuotaSnapshot::from_windows(
+    Ok(QuotaSnapshot::new(
         Utc::now(),
         Confidence::Exact,
         windows,

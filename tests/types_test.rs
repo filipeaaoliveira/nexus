@@ -376,7 +376,7 @@ fn codex_quota_parser_marks_unknown_when_state_is_unclear() {
     let snapshot = parse_legacy_status_output("5h window: 42% used").expect("snapshot");
 
     assert_eq!(snapshot.confidence, Confidence::Parsed);
-    assert_eq!(snapshot.five_hour_state, LimitState::Unknown);
+    assert_eq!(snapshot.windows()[0].state, LimitState::Unknown);
 }
 
 #[test]
@@ -392,17 +392,18 @@ fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
     .expect("snapshot");
 
     assert_eq!(snapshot.confidence, Confidence::Parsed);
-    assert_eq!(snapshot.five_hour_state, LimitState::Available);
-    assert_eq!(snapshot.weekly_state, LimitState::Available);
+    let windows = snapshot.windows();
+    assert_eq!(windows[0].state, LimitState::Available);
+    assert_eq!(windows[1].state, LimitState::Available);
     assert_eq!(
-        snapshot
-            .five_hour_reset_at
+        windows[0]
+            .reset_at
             .as_ref()
             .map(|dt| dt.to_rfc3339()),
         Some("2026-04-03T12:34:56+00:00".to_string())
     );
     assert_eq!(
-        snapshot.weekly_reset_at.as_ref().map(|dt| dt.to_rfc3339()),
+        windows[1].reset_at.as_ref().map(|dt| dt.to_rfc3339()),
         Some("2026-04-10T08:00:00+00:00".to_string())
     );
 }
@@ -439,22 +440,17 @@ fn codex_quota_cache_loads_malformed_file_as_error() {
 }
 
 #[test]
-fn codex_quota_snapshot_old_json_without_pct_fields_deserializes_ok() {
-    // JSON produced before the pct fields existed — must deserialize without error
-    // and leave the new fields as None.
+fn codex_quota_snapshot_old_json_without_windows_deserializes_ok() {
+    // JSON produced before the windows-based format — legacy fields are ignored,
+    // windows defaults to empty, and no error occurs.
     let json = r#"{
         "captured_at": "2026-04-03T12:00:00Z",
         "confidence": "Parsed",
-        "five_hour_state": "Available",
-        "five_hour_reset_at": null,
-        "weekly_state": "Unknown",
-        "weekly_reset_at": null,
         "summary": "5h=Available; weekly=Unknown"
     }"#;
     let snapshot: QuotaSnapshot = serde_json::from_str(json).expect("deserialization failed");
-    assert_eq!(snapshot.five_hour_used_pct, None);
-    assert_eq!(snapshot.weekly_used_pct, None);
-    assert_eq!(snapshot.five_hour_state, LimitState::Available);
+    assert!(snapshot.windows().is_empty());
+    assert_eq!(snapshot.summary, "5h=Available; weekly=Unknown");
 }
 
 #[test]
@@ -495,13 +491,14 @@ fn parse_quota_from_sessions_extracts_pct_and_resets_at() {
     fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
 
     let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
-    assert_eq!(snapshot.five_hour_used_pct, Some(47));
-    assert_eq!(snapshot.weekly_used_pct, Some(85));
-    assert_eq!(snapshot.five_hour_state, LimitState::Available);
-    assert_eq!(snapshot.weekly_state, LimitState::Available);
+    let windows = snapshot.windows();
+    assert_eq!(windows[0].used_pct, Some(47));
+    assert_eq!(windows[1].used_pct, Some(85));
+    assert_eq!(windows[0].state, LimitState::Available);
+    assert_eq!(windows[1].state, LimitState::Available);
     assert_eq!(snapshot.confidence, Confidence::Parsed);
-    assert!(snapshot.five_hour_reset_at.is_some());
-    assert!(snapshot.weekly_reset_at.is_some());
+    assert!(windows[0].reset_at.is_some());
+    assert!(windows[1].reset_at.is_some());
 }
 
 #[test]
@@ -514,9 +511,10 @@ fn parse_quota_from_sessions_derives_hit_state_at_100_pct() {
     fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
 
     let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
-    assert_eq!(snapshot.five_hour_used_pct, Some(100));
-    assert_eq!(snapshot.five_hour_state, LimitState::Hit);
-    assert_eq!(snapshot.weekly_state, LimitState::Hit);
+    let windows = snapshot.windows();
+    assert_eq!(windows[0].used_pct, Some(100));
+    assert_eq!(windows[0].state, LimitState::Hit);
+    assert_eq!(windows[1].state, LimitState::Hit);
 }
 
 #[test]
@@ -534,7 +532,7 @@ fn parse_quota_from_sessions_picks_last_token_count_event_in_file() {
     fs::write(day_dir.join("rollout-test.jsonl"), content).unwrap();
 
     let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot expected");
-    assert_eq!(snapshot.five_hour_used_pct, Some(60));
+    assert_eq!(snapshot.windows()[0].used_pct, Some(60));
 }
 
 #[test]
@@ -594,8 +592,8 @@ fn test_agent_model_preserves_alias_elapsed_and_runtime_state() {
 }
 
 #[test]
-fn test_quota_legacy_fallback_keeps_window_and_summary_views_in_sync() {
-    let snapshot = QuotaSnapshot::legacy_fallback(
+fn test_quota_from_legacy_keeps_window_and_summary_views_in_sync() {
+    let snapshot = QuotaSnapshot::from_legacy(
         chrono::Utc::now(),
         Confidence::Exact,
         LimitState::Available,
@@ -609,13 +607,13 @@ fn test_quota_legacy_fallback_keeps_window_and_summary_views_in_sync() {
 
     assert_eq!(snapshot.summary, "25% 5h, 90% weekly");
     assert_eq!(snapshot.confidence, Confidence::Exact);
-    assert_eq!(snapshot.five_hour_state, LimitState::Available);
-    assert_eq!(snapshot.five_hour_used_pct, Some(25));
-    assert_eq!(snapshot.weekly_state, LimitState::Hit);
-    assert_eq!(snapshot.weekly_used_pct, Some(90));
-    assert_eq!(snapshot.windows.len(), 2);
-    assert_eq!(snapshot.windows[0].label, "5h");
-    assert_eq!(snapshot.windows[1].label, "weekly");
+    assert_eq!(snapshot.windows().len(), 2);
+    assert_eq!(snapshot.windows()[0].kind.label(), "5h");
+    assert_eq!(snapshot.windows()[0].used_pct, Some(25));
+    assert_eq!(snapshot.windows()[0].state, LimitState::Available);
+    assert_eq!(snapshot.windows()[1].kind.label(), "weekly");
+    assert_eq!(snapshot.windows()[1].used_pct, Some(90));
+    assert_eq!(snapshot.windows()[1].state, LimitState::Hit);
 }
 
 #[test]

@@ -1,25 +1,25 @@
 use chrono::Utc;
 use nexus::testing::{
     parse_legacy_status_output, parse_quota_from_sessions, Confidence, CreditsState, LimitState,
-    QuotaSnapshot, QuotaWindow,
+    QuotaSnapshot, QuotaWindow, WindowKind,
 };
 use std::fs;
 use tempfile::tempdir;
 
 #[test]
 fn quota_snapshot_supports_structured_windows_and_credits() {
-    let snapshot = QuotaSnapshot::from_windows(
+    let snapshot = QuotaSnapshot::new(
         Utc::now(),
         Confidence::Parsed,
         vec![
             QuotaWindow {
-                label: "15m".to_string(),
+                kind: WindowKind::from_label("15m"),
                 used_pct: Some(25),
                 reset_at: None,
                 state: LimitState::Available,
             },
             QuotaWindow {
-                label: "7d".to_string(),
+                kind: WindowKind::from_label("7d"),
                 used_pct: Some(80),
                 reset_at: None,
                 state: LimitState::Available,
@@ -33,8 +33,8 @@ fn quota_snapshot_supports_structured_windows_and_credits() {
         "15m=25%; 7d=80%; credits=$12.50".to_string(),
     );
 
-    assert_eq!(snapshot.windows.len(), 2);
-    assert_eq!(snapshot.windows[0].label, "15m");
+    assert_eq!(snapshot.windows().len(), 2);
+    assert_eq!(snapshot.windows()[0].kind.label(), "15m");
     assert!(snapshot.credits.as_ref().unwrap().enabled);
 }
 
@@ -52,8 +52,8 @@ fn parse_quota_from_sessions_preserves_generic_windows_and_credits() {
     let snapshot = parse_quota_from_sessions(temp.path()).expect("snapshot");
 
     assert_eq!(snapshot.windows.len(), 2);
-    assert_eq!(snapshot.windows[0].label, "15m");
-    assert_eq!(snapshot.windows[1].label, "7d");
+    assert_eq!(snapshot.windows()[0].kind.label(), "15m");
+    assert_eq!(snapshot.windows()[1].kind.label(), "weekly");
     assert_eq!(
         snapshot.credits,
         Some(CreditsState {
@@ -72,6 +72,6 @@ fn legacy_status_parser_remains_available_via_explicit_fallback_name() {
     .expect("snapshot");
 
     assert_eq!(snapshot.windows.len(), 2);
-    assert_eq!(snapshot.windows[0].label, "5h");
-    assert_eq!(snapshot.windows[1].label, "weekly");
+    assert_eq!(snapshot.windows()[0].kind.label(), "5h");
+    assert_eq!(snapshot.windows()[1].kind.label(), "weekly");
 }

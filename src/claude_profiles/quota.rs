@@ -3,7 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 
 use crate::claude_profiles::auth::ClaudeAuth;
-use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot, QuotaWindow};
+use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot, QuotaWindow, WindowKind};
 
 #[derive(Debug, Deserialize)]
 struct ClaudeUsageResponse {
@@ -128,7 +128,7 @@ async fn fetch_claude_quota_async(access_token: &str) -> Result<QuotaSnapshot, S
 
     let summary = summarize_windows(&windows);
 
-    Ok(QuotaSnapshot::from_windows(
+    Ok(QuotaSnapshot::new(
         chrono::Utc::now(),
         Confidence::Exact,
         windows,
@@ -155,7 +155,7 @@ fn window_response_to_quota_window(label: &str, window: &ClaudeWindow) -> QuotaW
         .and_then(|secs| DateTime::from_timestamp(secs, 0));
 
     QuotaWindow {
-        label: label.to_string(),
+        kind: WindowKind::from_label(label),
         used_pct,
         reset_at,
         state,
@@ -170,7 +170,7 @@ fn summarize_windows(windows: &[QuotaWindow]) -> String {
                 .used_pct
                 .map(|value| format!("{value}%"))
                 .unwrap_or_else(|| "?".to_string());
-            format!("{}={}", window.label, pct)
+            format!("{}={}", window.kind.label(), pct)
         })
         .collect::<Vec<_>>()
         .join("; ")

@@ -31,7 +31,7 @@ pub mod testing {
 
     // ── Domain: accounts ───────────────────────────────────────
     pub use nexus_domain::accounts::{
-        Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow,
+        Confidence, CreditsState, LimitState, QuotaCache, QuotaSnapshot, QuotaWindow, WindowKind,
     };
 
     // ── Domain: agents ─────────────────────────────────────────

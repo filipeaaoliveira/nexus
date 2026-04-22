@@ -65,13 +65,13 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
                         entry.profile_id.clone(),
                     ))
                     .map(|quota| {
-                        let windows = quota.effective_windows();
+                        let windows = quota.windows();
                         let window_bits = windows
                             .iter()
                             .map(|window| {
                                 format!(
                                     "{}:{}",
-                                    window.label,
+                                    window.kind.label(),
                                     super::window_state_symbol(&window.state)
                                 )
                             })

@@ -123,7 +123,7 @@ mod tests {
     }
 
     fn quota_snapshot(summary: &str) -> QuotaSnapshot {
-        QuotaSnapshot::legacy_fallback(
+        QuotaSnapshot::from_legacy(
             Utc::now(),
             Confidence::Exact,
             LimitState::Available,

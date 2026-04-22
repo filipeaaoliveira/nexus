@@ -13,9 +13,8 @@ pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let mut cache: QuotaCache = serde_json::from_str(&content)
+    let cache: QuotaCache = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
-    cache.normalize();
     Ok(cache)
 }
 
@@ -59,7 +58,7 @@ mod tests {
         let mut cache = QuotaCache::default();
         cache.by_profile.insert(
             "profile-01".to_string(),
-            QuotaSnapshot::legacy_fallback(
+            QuotaSnapshot::from_legacy(
                 Utc::now(),
                 Confidence::Exact,
                 LimitState::Available,
@@ -88,7 +87,7 @@ mod tests {
     fn persist_quota_snapshot_updates_cache_and_writes_file() {
         let temp = tempdir().unwrap();
         let cache_path = temp.path().join("quota-cache.json");
-        let snapshot = QuotaSnapshot::legacy_fallback(
+        let snapshot = QuotaSnapshot::from_legacy(
             Utc::now(),
             Confidence::Exact,
             LimitState::Available,

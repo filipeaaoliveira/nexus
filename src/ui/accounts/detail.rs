@@ -178,14 +178,14 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
 
 fn append_quota_lines(lines: &mut Vec<Line<'static>>, quota: &QuotaSnapshot) {
     lines.push(Line::from(Span::raw("")));
-    for window in quota.effective_windows() {
+    for window in quota.windows() {
         let used_remaining = window.used_pct.map(|p| 100 - p);
         let prefix = if quota.confidence == Confidence::Exact {
             ""
         } else {
             "~"
         };
-        let label = format!("  {}quota ({}):  ", prefix, window.label);
+        let label = format!("  {}quota ({}):  ", prefix, window.kind.label());
         lines.push(quota_row(
             label,
             used_remaining,

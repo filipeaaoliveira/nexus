@@ -110,7 +110,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     fn test_snapshot() -> QuotaSnapshot {
-        QuotaSnapshot::legacy_fallback(
+        QuotaSnapshot::from_legacy(
             Utc::now(),
             Confidence::Exact,
             LimitState::Available,

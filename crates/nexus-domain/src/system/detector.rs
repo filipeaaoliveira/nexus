@@ -16,3 +16,14 @@ impl DetectorKind {
         }
     }
 }
+
+impl std::fmt::Display for DetectorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Claude => f.write_str("Claude"),
+            Self::Codex => f.write_str("Codex"),
+            Self::OpenCode => f.write_str("OpenCode"),
+            Self::ProcessScanner => f.write_str("ProcessScanner"),
+        }
+    }
+}

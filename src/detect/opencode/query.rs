@@ -5,7 +5,10 @@ use tracing::debug;
 use nexus_domain::agents::activity::{TodoItem, TodoPriority, TodoStatus};
 
 use super::types::{AssistantMessageData, MessageData, OpenCodeSession, PartData};
+#[cfg(test)]
 use crate::detect::error::DetectorError;
+#[cfg(test)]
+use nexus_domain::system::DetectorKind;
 #[cfg(test)]
 use std::path::Path;
 
@@ -83,7 +86,7 @@ pub fn parse_part_data(json: &str, time_created: i64) -> Option<PartData> {
 /// across multiple queries in the same poll cycle.
 pub fn query_opencode_sessions_conn(
     conn: &rusqlite::Connection,
-) -> Result<Vec<OpenCodeSession>, DetectorError> {
+) -> Result<Vec<OpenCodeSession>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT s.id, s.title, s.directory, s.parent_id, s.time_created, s.time_updated, s.time_archived,
                 w.branch
@@ -130,14 +133,17 @@ pub fn query_subagent_sessions(
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    )
+    .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT id, title, directory, parent_id, time_created, time_updated, time_archived, NULL as branch
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, directory, parent_id, time_created, time_updated, time_archived, NULL as branch
          FROM session
          WHERE parent_id = ?1
          ORDER BY time_created DESC",
-    )?;
+        )
+        .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?;
 
     let sessions = stmt
         .query_map(rusqlite::params![parent_session_id], |row| {
@@ -153,7 +159,8 @@ pub fn query_subagent_sessions(
                 time_archived: row.get(6)?,
                 branch: row.get(7)?,
             })
-        })?
+        })
+        .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?
         .filter_map(|r| match r {
             Ok(s) => Some(s),
             Err(e) => {
@@ -172,10 +179,13 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoI
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    let mut stmt = conn.prepare(
-        "SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position ASC",
-    )?;
+    )
+    .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position ASC",
+        )
+        .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?;
     let todos = stmt
         .query_map(rusqlite::params![session_id], |row| {
             Ok((
@@ -183,7 +193,8 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoI
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
             ))
-        })?
+        })
+        .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?
         .filter_map(|r| r.ok())
         .map(|(content, status, priority)| TodoItem {
             content,
@@ -201,7 +212,7 @@ pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoI
 pub fn check_assistant_turn_completed(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> Result<bool, DetectorError> {
+) -> Result<bool, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT json_extract(data, '$.time.completed') \
          FROM message \
@@ -227,8 +238,10 @@ pub fn query_assistant_turn_completed(db_path: &Path, session_id: &str) -> Resul
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    )
+    .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))?;
     check_assistant_turn_completed(&conn, session_id)
+        .map_err(|e| DetectorError::database(DetectorKind::OpenCode, db_path, e))
 }
 
 pub(super) fn extract_text_fragments(value: &Value, fragments: &mut Vec<String>) {
@@ -290,7 +303,7 @@ pub(super) fn extract_assistant_message_data(json: &str) -> Option<AssistantMess
 pub fn query_latest_assistant_message_data_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> Result<Option<AssistantMessageData>, DetectorError> {
+) -> Result<Option<AssistantMessageData>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT data
          FROM message
@@ -313,7 +326,7 @@ pub fn query_latest_assistant_message_data_conn(
 pub fn query_session_todos_conn(
     conn: &rusqlite::Connection,
     session_id: &str,
-) -> Result<Vec<TodoItem>, DetectorError> {
+) -> Result<Vec<TodoItem>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position ASC",
     )?;
@@ -342,7 +355,7 @@ pub fn query_session_todos_conn(
 pub fn query_subagent_sessions_conn(
     conn: &rusqlite::Connection,
     parent_session_id: &str,
-) -> Result<Vec<OpenCodeSession>, DetectorError> {
+) -> Result<Vec<OpenCodeSession>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT id, title, directory, parent_id, time_created, time_updated, time_archived, NULL as branch
          FROM session

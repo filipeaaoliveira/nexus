@@ -382,7 +382,11 @@ mod tests {
             || {
                 let n = count.fetch_add(1, Ordering::SeqCst);
                 let result: Result<(), super::error::DetectorError> = if n == 0 {
-                    Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "boom").into())
+                    Err(super::error::DetectorError::io(
+                        DetectorKind::Codex,
+                        "test",
+                        std::io::Error::new(std::io::ErrorKind::Interrupted, "boom"),
+                    ))
                 } else {
                     Ok(())
                 };

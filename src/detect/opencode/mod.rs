@@ -61,13 +61,15 @@ pub async fn run_opencode_detector(
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
             let poll_result = tokio::task::spawn_blocking(move || -> Result<PollData, crate::detect::error::DetectorError> {
+                let map_db = |e: rusqlite::Error| crate::detect::error::DetectorError::database(nexus_domain::system::DetectorKind::OpenCode, &db2, e);
                 let conn = rusqlite::Connection::open_with_flags(
                     &db2,
                     rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
                         | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-                )?;
+                )
+                .map_err(&map_db)?;
 
-                let sessions = query_opencode_sessions_conn(&conn)?;
+                let sessions = query_opencode_sessions_conn(&conn).map_err(&map_db)?;
                 let active_session_ids: HashSet<String> = sessions
                     .iter()
                     .filter(|session| session.parent_id.is_none())
@@ -104,11 +106,13 @@ pub async fn run_opencode_detector(
                     let mut stmt = conn.prepare_cached(
                         "SELECT data, time_created FROM part \
                          WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
-                    )?;
+                    )
+                    .map_err(&map_db)?;
                     let parts: Vec<PartData> = stmt
                         .query_map(rusqlite::params![&session.id, 5_i64], |row| {
                             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                        })?
+                        })
+                        .map_err(&map_db)?
                         .filter_map(|r| match r {
                             Ok(t) => Some(t),
                             Err(e) => {
@@ -120,11 +124,11 @@ pub async fn run_opencode_detector(
                         .collect();
 
                     let assistant_turn_completed =
-                        check_assistant_turn_completed(&conn, &session.id)?;
+                        check_assistant_turn_completed(&conn, &session.id).map_err(&map_db)?;
                     let latest_assistant_message_data =
-                        query_latest_assistant_message_data_conn(&conn, &session.id)?;
-                    let todos = query_session_todos_conn(&conn, &session.id)?;
-                    let subs = query_subagent_sessions_conn(&conn, &session.id)?;
+                        query_latest_assistant_message_data_conn(&conn, &session.id).map_err(&map_db)?;
+                    let todos = query_session_todos_conn(&conn, &session.id).map_err(&map_db)?;
+                    let subs = query_subagent_sessions_conn(&conn, &session.id).map_err(&map_db)?;
 
                     // For new (not-yet-initialised) sessions, fetch the most recent
                     // *running or pending* tool/tool-invocation part so we can seed
@@ -147,11 +151,13 @@ pub async fn run_opencode_detector(
                                    AND (json_extract(data, '$.state.status') = 'running' \
                                         OR json_extract(data, '$.state.status') = 'pending') \
                                  ORDER BY time_created DESC LIMIT 1",
-                            )?;
+                            )
+                            .map_err(&map_db)?;
                             let rows: Vec<(String, i64)> = tool_stmt
                                 .query_map(rusqlite::params![&session.id], |row| {
                                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                                })?
+                                })
+                                .map_err(&map_db)?
                                 .filter_map(|r| r.ok())
                                 .collect();
                             rows.into_iter()
@@ -175,7 +181,7 @@ pub async fn run_opencode_detector(
                 Ok((active_session_ids, results))
             })
             .await
-            .map_err(|e| crate::detect::error::DetectorError::Io(std::io::Error::other(e.to_string())));
+            .map_err(|e| crate::detect::error::DetectorError::io(nexus_domain::system::DetectorKind::OpenCode, "spawn_blocking join", std::io::Error::other(e.to_string())));
 
             match poll_result {
                 Ok(Ok((active_session_ids, session_data))) => {

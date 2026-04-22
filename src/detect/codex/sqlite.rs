@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use nexus_domain::system::DetectorKind;
 use tracing::debug;
 
 use crate::detect::error::DetectorError;
@@ -52,17 +53,20 @@ pub fn query_codex_threads(db_path: &Path) -> Result<Vec<CodexThread>, DetectorE
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    )
+    .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT id, title, cwd, source, model, git_branch,
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, cwd, source, model, git_branch,
                 agent_nickname, agent_role, created_at, updated_at,
                 archived, tokens_used, rollout_path
          FROM threads
          WHERE archived = 0
          ORDER BY updated_at DESC
          LIMIT 50",
-    )?;
+        )
+        .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?;
 
     let threads = stmt
         .query_map([], |row| {
@@ -81,7 +85,8 @@ pub fn query_codex_threads(db_path: &Path) -> Result<Vec<CodexThread>, DetectorE
                 tokens_used: row.get(11)?,
                 rollout_path: row.get(12)?,
             })
-        })?
+        })
+        .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?
         .filter_map(|r| match r {
             Ok(t) => Some(t),
             Err(e) => {
@@ -99,12 +104,15 @@ pub fn query_all_spawn_edges(db_path: &Path) -> Result<Vec<SpawnEdge>, DetectorE
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
+    )
+    .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?;
 
-    let mut stmt = conn.prepare(
-        "SELECT parent_thread_id, child_thread_id, status
+    let mut stmt = conn
+        .prepare(
+            "SELECT parent_thread_id, child_thread_id, status
          FROM thread_spawn_edges",
-    )?;
+        )
+        .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?;
 
     let edges = stmt
         .query_map([], |row| {
@@ -113,7 +121,8 @@ pub fn query_all_spawn_edges(db_path: &Path) -> Result<Vec<SpawnEdge>, DetectorE
                 child_thread_id: row.get(1)?,
                 status: row.get(2)?,
             })
-        })?
+        })
+        .map_err(|e| DetectorError::database(DetectorKind::Codex, db_path, e))?
         .filter_map(|r| match r {
             Ok(e) => Some(e),
             Err(e) => {

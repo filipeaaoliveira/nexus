@@ -78,7 +78,7 @@ pub async fn run_claude_detector(
         let session_registry: HashMap<String, SessionRegistryEntry> =
             tokio::task::spawn_blocking(move || scan_session_registry(&sdir))
                 .await
-                .map_err(|e| DetectorError::Io(std::io::Error::other(e.to_string())))?;
+                .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
         // Build a session_id → pid lookup from the live registry.
         let session_id_to_pid: HashMap<String, u32> = session_registry
             .values()
@@ -138,7 +138,7 @@ pub async fn run_claude_detector(
                 (changed, unchanged)
             })
             .await
-            .map_err(|e| DetectorError::Io(std::io::Error::other(e.to_string())))?;
+            .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
 
             let (changed, unchanged) = project_scan;
 
@@ -301,7 +301,7 @@ pub async fn run_claude_detector(
                 (new_state, results)
             })
             .await
-            .map_err(|e| DetectorError::Io(std::io::Error::other(e.to_string())))?;
+            .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
 
             let (new_state, results) = scan_result;
             file_state = new_state;

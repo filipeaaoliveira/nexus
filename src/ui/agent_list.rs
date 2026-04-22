@@ -7,7 +7,7 @@ use ratatui::Frame;
 use crate::app::projection::AgentView;
 use crate::services::runtime::RuntimeSession;
 use nexus_domain::agents::status::NormalizedStatus;
-use nexus_domain::shared::time::format_duration;
+use crate::ui::shared::format::format_duration;
 
 use super::{theme, RenderData};
 

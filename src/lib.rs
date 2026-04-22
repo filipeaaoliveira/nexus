@@ -46,9 +46,10 @@ pub mod testing {
     };
 
     // ── Domain: shared utilities ───────────────────────────────
-    pub use nexus_domain::shared::{
-        format_duration, format_duration_short, from_epoch_millis, from_epoch_secs, from_rfc3339,
-    };
+    pub use nexus_domain::shared::{from_epoch_millis, from_epoch_secs, from_rfc3339};
+
+    // ── UI: formatting ────────────────────────────────────────
+    pub use crate::ui::shared::format::{format_duration, format_duration_short};
 
     // ── Domain: system ─────────────────────────────────────────
     pub use nexus_domain::system::{CodexBackendHealth, DetectorKind, DetectorNotification};

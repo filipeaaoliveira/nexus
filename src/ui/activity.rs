@@ -6,7 +6,7 @@ use ratatui::Frame;
 
 use crate::app::agent::ActivityEventKind;
 use nexus_domain::agents::activity::Subagent;
-use nexus_domain::shared::time::format_duration;
+use crate::ui::shared::format::format_duration;
 
 use super::{theme, RenderData};
 

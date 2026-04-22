@@ -7,7 +7,7 @@ use ratatui::Frame;
 use nexus_domain::agents::activity::TodoStatus;
 use nexus_domain::agents::ids::AgentTool;
 use nexus_domain::agents::status::NormalizedStatus;
-use nexus_domain::shared::time::format_duration_short;
+use crate::ui::shared::format::format_duration_short;
 
 use super::{theme, RenderData};
 

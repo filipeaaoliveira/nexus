@@ -36,11 +36,6 @@ impl RuntimeSession {
         &self.app
     }
 
-    #[cfg(test)]
-    pub(crate) fn app_mut(&mut self) -> &mut AppState {
-        &mut self.app
-    }
-
     pub(crate) fn config(&self) -> &Config {
         &self.config
     }
@@ -51,11 +46,6 @@ impl RuntimeSession {
 
     pub(crate) fn started_at(&self) -> Instant {
         self.started_at
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_started_at(&mut self, started_at: Instant) {
-        self.started_at = started_at;
     }
 
     pub(crate) fn begin_manual_quota_refresh(&mut self, provider: Provider, profile_id: &str) {
@@ -131,11 +121,6 @@ impl RuntimeSession {
         if let Some((provider, profile_id, quota)) = refreshed_quota {
             self.persist_refreshed_quota_cache(provider, &profile_id, quota);
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn apply_accounts_effect_result(&mut self, result: EffectResult) {
-        self.apply_effect_result(result);
     }
 
     pub(crate) async fn run_accounts_reducer_action(&mut self, action: AccountsAction) {
@@ -220,11 +205,6 @@ impl RuntimeSession {
 
     pub(crate) fn root(&self) -> &crate::app::RootState {
         self.app.root()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn agents(&self) -> &[crate::app::Agent] {
-        self.app.agents()
     }
 
     pub(crate) fn toggle_help(&mut self) {

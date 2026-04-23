@@ -48,15 +48,6 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-#[cfg(test)]
-pub fn shortcut_text(state: &AppState) -> String {
-    shortcut_line(state)
-        .spans
-        .iter()
-        .map(|span| span.content.as_ref())
-        .collect()
-}
-
 fn shortcut_line(state: &AppState) -> Line<'static> {
     match state.active_tab() {
         crate::app::Workspace::Overview => overview_shortcut_line(state),

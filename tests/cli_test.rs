@@ -12,7 +12,7 @@ fn test_help_works_without_interactive_terminal() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_nexus"))
         .arg("--help")
         .output()
-        .expect("failed to run ai-overview --help");
+        .expect("failed to run nexus --help");
 
     assert!(
         output.status.success(),

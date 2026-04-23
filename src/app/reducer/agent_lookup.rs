@@ -92,7 +92,7 @@ mod tests {
     fn make_agent(tool: AgentTool, pid: u32, is_session: bool) -> Agent {
         let now = chrono::Utc::now();
         let id = if is_session {
-            AgentId::session(tool, &format!("session-{pid}"))
+            AgentId::session(tool, format!("session-{pid}"))
         } else {
             AgentId::new(tool, pid)
         };

@@ -38,12 +38,24 @@ impl std::fmt::Display for AgentTool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AgentIdentity {
+#[must_use]
+pub enum AgentId {
     Process { tool: AgentTool, pid: u32 },
     Session { tool: AgentTool, session_id: String },
 }
 
-impl AgentIdentity {
+impl AgentId {
+    pub fn new(tool: AgentTool, pid: u32) -> Self {
+        Self::Process { tool, pid }
+    }
+
+    pub fn session(tool: AgentTool, session_id: impl Into<String>) -> Self {
+        Self::Session {
+            tool,
+            session_id: session_id.into(),
+        }
+    }
+
     pub fn tool(&self) -> AgentTool {
         match self {
             Self::Process { tool, .. } | Self::Session { tool, .. } => *tool,
@@ -72,49 +84,6 @@ impl AgentIdentity {
     #[must_use]
     pub fn is_session(&self) -> bool {
         matches!(self, Self::Session { .. })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[must_use]
-pub struct AgentId {
-    pub identity: AgentIdentity,
-}
-
-impl AgentId {
-    pub fn new(tool: AgentTool, pid: u32) -> Self {
-        Self {
-            identity: AgentIdentity::Process { tool, pid },
-        }
-    }
-
-    pub fn session(tool: AgentTool, session_id: impl Into<String>) -> Self {
-        Self {
-            identity: AgentIdentity::Session {
-                tool,
-                session_id: session_id.into(),
-            },
-        }
-    }
-
-    pub fn tool(&self) -> AgentTool {
-        self.identity.tool()
-    }
-
-    pub fn pid(&self) -> Option<u32> {
-        self.identity.pid()
-    }
-
-    pub fn session_id(&self) -> Option<&str> {
-        self.identity.session_id()
-    }
-
-    pub fn is_process(&self) -> bool {
-        self.identity.is_process()
-    }
-
-    pub fn is_session(&self) -> bool {
-        self.identity.is_session()
     }
 }
 

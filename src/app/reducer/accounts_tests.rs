@@ -4,7 +4,9 @@ use crate::app::state::{AccountKey, AccountsMode, EditableProfile};
 use crate::profiles::StoredProfile;
 use chrono::Utc;
 use nexus_domain::accounts::ProfileId;
-use nexus_domain::accounts::{Confidence, DomainProfile, LimitState, QuotaSnapshot};
+use nexus_domain::accounts::{
+    Confidence, DomainProfile, LimitState, ProviderFilter, QuotaSnapshot,
+};
 
 // ── helpers ──────────────────────────────────────────────────────
 
@@ -222,12 +224,14 @@ fn profile_deleted_removes_entry_and_maps() {
     );
     assert_invariants(&state);
     assert_eq!(state.entries.len(), 2);
-    assert!(!state
-        .profiles_by_key
-        .contains_key(&AccountKey::new(Provider::Codex, ProfileId::new_unchecked("codex-01"))));
-    assert!(!state
-        .quota_by_key
-        .contains_key(&AccountKey::new(Provider::Codex, ProfileId::new_unchecked("codex-01"))));
+    assert!(!state.profiles_by_key.contains_key(&AccountKey::new(
+        Provider::Codex,
+        ProfileId::new_unchecked("codex-01")
+    )));
+    assert!(!state.quota_by_key.contains_key(&AccountKey::new(
+        Provider::Codex,
+        ProfileId::new_unchecked("codex-01")
+    )));
 }
 
 #[test]
@@ -412,6 +416,24 @@ fn sequence_import_then_immediately_delete() {
     );
     assert_invariants(&state);
     assert_eq!(state.entries.len(), initial_count);
+}
+
+#[test]
+fn importing_profile_keeps_all_filter_when_viewing_all_accounts() {
+    let (mut state, mut wf) = load_profiles(make_entries(), make_profiles());
+    assert_eq!(state.provider_filter, ProviderFilter::All);
+
+    reduce_result(
+        &mut state,
+        &mut wf,
+        &EffectResult::ProfileImported {
+            profile: claude_profile("claude-02").to_domain(Provider::Claude),
+        },
+    );
+
+    assert_invariants(&state);
+    assert_eq!(state.provider_filter, ProviderFilter::All);
+    assert_eq!(state.visible_entry_indices().len(), 4);
 }
 
 #[test]

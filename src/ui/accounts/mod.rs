@@ -62,6 +62,10 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession) {
         };
         confirm::render(frame, state.app(), &confirm);
     }
+
+    if state.show_help() {
+        crate::ui::shared::help::render(frame, state.help_scroll());
+    }
 }
 
 pub(crate) fn provider_badge(provider: Provider) -> &'static str {

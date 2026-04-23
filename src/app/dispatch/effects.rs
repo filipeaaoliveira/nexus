@@ -4,7 +4,8 @@ use crate::app::effect::{
 use crate::app::state::EditableProfile;
 use crate::claude_profiles::auth::ClaudeAuth;
 use crate::claude_profiles::quota::{fetch_claude_quota, refresh_token_if_needed};
-use crate::codex_profiles::quota::fetch_quota_from_api;
+use crate::codex_profiles::quota::{fetch_quota_from_api, QuotaApiError};
+use crate::codex_profiles::token_refresh::{ensure_fresh_auth, RefreshMode};
 use crate::codex_profiles::ProfileAuth;
 use crate::config::Config;
 use crate::services::accounts::provider::StoreProvider;
@@ -48,9 +49,7 @@ async fn dispatch_effect_inner(
             Provider::Claude => refresh_claude_quota(config, profile_id, *origin).await,
             _ => unreachable!(),
         },
-        Effect::ImportProfile { provider } => {
-            import_profile(stores.store_for(*provider)).await
-        }
+        Effect::ImportProfile { provider } => import_profile(stores.store_for(*provider)).await,
         Effect::SaveProfileEdits {
             provider,
             profile_id,
@@ -76,9 +75,15 @@ fn storage_err(error: impl std::fmt::Display) -> AppError {
 fn store_to_app_error(error: crate::services::accounts::storage::ProfileStoreError) -> AppError {
     use crate::services::accounts::storage::ProfileStoreError;
     match error {
-        ProfileStoreError::NotFound { profile_id } => AppError::Storage(StorageError::NotFound { path: profile_id }),
-        ProfileStoreError::Io(e) => AppError::Storage(StorageError::Io { detail: e.to_string() }),
-        ProfileStoreError::Other { context, source } => AppError::Storage(StorageError::Io { detail: format!("{context}: {source}") }),
+        ProfileStoreError::NotFound { profile_id } => {
+            AppError::Storage(StorageError::NotFound { path: profile_id })
+        }
+        ProfileStoreError::Io(e) => AppError::Storage(StorageError::Io {
+            detail: e.to_string(),
+        }),
+        ProfileStoreError::Other { context, source } => AppError::Storage(StorageError::Io {
+            detail: format!("{context}: {source}"),
+        }),
     }
 }
 
@@ -159,13 +164,44 @@ async fn refresh_codex_quota(
     origin: RefreshOrigin,
 ) -> Result<EffectResult, AppError> {
     let auth_path = config.codex_profiles_dir.join(profile_id).join("auth.json");
-    let auth = tokio::task::spawn_blocking(move || ProfileAuth::load(&auth_path))
+    let load_path = auth_path.clone();
+    let auth = tokio::task::spawn_blocking(move || ProfileAuth::load(&load_path))
         .await
         .map_err(storage_err)?
         .map_err(|_| quota_auth_missing(profile_id))?;
-    let quota = fetch_quota_from_api(&auth)
+    let auth = ensure_fresh_auth(auth_path.clone(), auth, RefreshMode::IfNeeded)
         .await
         .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
+
+    // First attempt with a proactively fresh token.
+    match fetch_quota_from_api(&auth).await {
+        Ok(quota) => {
+            return Ok(EffectResult::QuotaRefreshed {
+                provider: Provider::Codex,
+                profile_id: ProfileId::new_unchecked(profile_id),
+                quota,
+                origin,
+            });
+        }
+        Err(QuotaApiError::Unauthorized) => {
+            // Token expired — fall through to refresh and retry.
+        }
+        Err(error) => {
+            return Err(AppError::QuotaRefresh(QuotaRefreshError::ApiFailed {
+                detail: error.to_string(),
+            }));
+        }
+    }
+
+    // Defensive fallback for server-side revocation or clock skew.
+    let refreshed = ensure_fresh_auth(auth_path, auth, RefreshMode::Force)
+        .await
+        .map_err(|detail| AppError::QuotaRefresh(QuotaRefreshError::ApiFailed { detail }))?;
+    let quota = fetch_quota_from_api(&refreshed).await.map_err(|error| {
+        AppError::QuotaRefresh(QuotaRefreshError::ApiFailed {
+            detail: error.to_string(),
+        })
+    })?;
     Ok(EffectResult::QuotaRefreshed {
         provider: Provider::Codex,
         profile_id: ProfileId::new_unchecked(profile_id),

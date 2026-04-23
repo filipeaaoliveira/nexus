@@ -1,14 +1,14 @@
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::state::AccountKey;
 use crate::app::AccountsMode;
 use crate::services::runtime::RuntimeSession;
-use nexus_domain::accounts::{ProfileId, Provider};
 use nexus_domain::accounts::{Confidence, LimitState, QuotaSnapshot};
+use nexus_domain::accounts::{ProfileId, Provider};
 
 use super::provider_badge_color;
 use crate::ui::theme;
@@ -104,7 +104,10 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     if let Some(p) = profile_details {
         lines.push(Line::from(vec![
             Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(p.label().to_string(), Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled(
+                p.label().to_string(),
+                Style::default().fg(theme::FG_DEFAULT),
+            ),
         ]));
 
         if let Some(email) = p.email() {
@@ -173,7 +176,12 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
         ]));
     }
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn append_quota_lines(lines: &mut Vec<Line<'static>>, quota: &QuotaSnapshot) {
@@ -241,7 +249,12 @@ fn render_placeholder(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
         ]));
     }
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 fn quota_bar_spans(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
@@ -276,12 +289,57 @@ fn format_reset_duration(reset_at: chrono::DateTime<chrono::Utc>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::Terminal;
+
+    use crate::app::effect::{AppError, Effect, EffectResult, QuotaRefreshError, RefreshOrigin};
+    use crate::app::AppState;
+    use crate::profiles::StoredProfile;
+    use crate::services::runtime::RuntimeSession;
     use nexus_domain::accounts::LimitState;
+    use nexus_domain::accounts::{AccountEntry, ProfileId, Provider};
 
     use super::{quota_bar_spans, quota_row};
 
     fn make_bar(pct: u8, bar_width: usize) -> (String, ratatui::style::Color) {
         quota_bar_spans(pct, bar_width)
+    }
+
+    fn codex_profile(id: &str) -> StoredProfile {
+        let now = Utc::now();
+        StoredProfile {
+            id: id.to_string(),
+            label: format!("Codex {id}"),
+            email: Some(format!("{id}@example.com")),
+            plan: Some("plus".to_string()),
+            notes: None,
+            enabled: true,
+            last_used: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn render_detail_panel(session: &RuntimeSession, area: Rect) -> ratatui::buffer::Buffer {
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                super::render(frame, session, area);
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        buffer
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<Vec<_>>()
+            .join("")
     }
 
     #[test]
@@ -334,6 +392,37 @@ mod tests {
         assert!(
             text.contains("at 18:47"),
             "at must appear in the same line as the bar"
+        );
+    }
+
+    #[test]
+    fn detail_panel_wraps_long_status_messages() {
+        let mut session = RuntimeSession::new(crate::config::Config::default(), AppState::new());
+        let profile_id = ProfileId::new_unchecked("pessoal");
+        session.apply_effect_result(EffectResult::ProfilesLoaded {
+            profiles: vec![codex_profile("pessoal").to_domain(Provider::Codex)],
+            entries: vec![AccountEntry {
+                provider: Provider::Codex,
+                profile_id: profile_id.clone(),
+            }],
+        });
+        session.apply_effect_result(EffectResult::Failed {
+            effect: Effect::RefreshQuota {
+                provider: Provider::Codex,
+                profile_id,
+                origin: RefreshOrigin::Manual,
+            },
+            error: AppError::QuotaRefresh(QuotaRefreshError::ApiFailed {
+                detail: "token refresh failed: HTTP 401 Unauthorized: Your refresh token has already been used to generate a new access token".to_string(),
+            }),
+        });
+
+        let buffer = render_detail_panel(&session, Rect::new(0, 0, 44, 14));
+        let text = buffer_text(&buffer);
+
+        assert!(
+            text.contains("already been used"),
+            "expected wrapped tail of long status message to remain visible, got: {text}"
         );
     }
 

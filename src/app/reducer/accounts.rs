@@ -1,7 +1,7 @@
 use crate::app::action::AccountsAction;
 use crate::app::effect::{Effect, EffectResult};
 use crate::app::state::{AccountKey, AccountsMode, AccountsState, Workflow};
-use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider, ProviderFilter};
+use nexus_domain::accounts::{AccountEntry, DomainProfile, Provider};
 
 pub fn reduce(
     state: &mut AccountsState,
@@ -82,9 +82,10 @@ pub fn reduce_result(
             quota,
             ..
         } => {
-            state
-                .quota_by_key
-                .insert(AccountKey::new(*provider, profile_id.clone()), quota.clone());
+            state.quota_by_key.insert(
+                AccountKey::new(*provider, profile_id.clone()),
+                quota.clone(),
+            );
             *workflow = Workflow::Idle;
             true
         }
@@ -275,16 +276,13 @@ fn remove_entry(state: &mut AccountsState, entry: &AccountEntry) {
 }
 
 fn focus_profile(state: &mut AccountsState, key: &AccountKey) {
-    state.provider_filter = match key.provider {
-        Provider::Codex => ProviderFilter::Codex,
-        Provider::Claude => ProviderFilter::Claude,
-        _ => unreachable!(),
-    };
     let visible_indices = state.visible_entry_indices();
-    state.selected_index = visible_indices.iter().position(|real_idx| {
+    if let Some(selected_index) = visible_indices.iter().position(|real_idx| {
         state.entries[*real_idx].provider == key.provider
             && key.profile_id == state.entries[*real_idx].profile_id
-    });
+    }) {
+        state.selected_index = Some(selected_index);
+    }
     state.clamp_selection();
 }
 

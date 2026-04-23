@@ -95,7 +95,9 @@ Quota refresh is provider-specific.
 
 ### Codex
 
-Codex quota refresh uses provider auth plus an API-backed fetch path, with fallback/helper parsing paths still present for legacy or degraded scenarios.
+Codex quota refresh first asks the Codex auth layer for a usable access token, then performs the API-backed quota fetch. The auth layer refreshes proactively from JWT expiry metadata when available, falls back to `last_refresh` age when it cannot read an expiry, and serializes refreshes per profile so concurrent background/manual refreshes do not reuse a rotating refresh token. A single forced refresh after quota `401` remains as a defensive fallback for server-side revocation or clock skew.
+
+Quota parsing fallback helpers still exist for legacy or degraded scenarios, but token lifecycle decisions do not live in the quota parser/fetcher.
 
 ### Claude
 

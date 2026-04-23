@@ -91,6 +91,10 @@ fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static>
         ),
     ]);
 
+    let project_name = agent
+        .cwd()
+        .and_then(|cwd| cwd.file_name())
+        .map(|name| name.to_string_lossy().into_owned());
     let branch_text = agent.branch().unwrap_or("—");
     let sub_text = if subagent_count > 0 {
         format!("  [{subagent_count} sub]")
@@ -98,14 +102,21 @@ fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static>
         String::new()
     };
 
-    let line2 = Line::from(vec![
-        Span::styled("    ", Style::default()),
-        Span::styled(
-            branch_text.to_string(),
-            Style::default().fg(theme::COLOR_BRANCH),
-        ),
-        Span::styled(sub_text, Style::default().fg(theme::COLOR_SUBAGENT)),
-    ]);
+    let mut line2_spans = vec![Span::styled("    ", Style::default())];
+    if let Some(ref project) = project_name {
+        line2_spans.push(Span::styled(
+            project.clone(),
+            Style::default().fg(theme::COLOR_PATH),
+        ));
+        line2_spans.push(Span::styled("  ", Style::default()));
+    }
+    line2_spans.push(Span::styled(
+        branch_text.to_string(),
+        Style::default().fg(theme::COLOR_BRANCH),
+    ));
+    line2_spans.push(Span::styled(sub_text, Style::default().fg(theme::COLOR_SUBAGENT)));
+
+    let line2 = Line::from(line2_spans);
 
     ListItem::new(vec![line1, line2])
 }

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::Deserialize;
+use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
@@ -318,21 +319,41 @@ struct UsageResponse {
     rate_limit: Option<serde_json::Value>,
 }
 
-pub async fn fetch_quota_from_api(profile_auth: &ProfileAuth) -> Result<QuotaSnapshot, String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuotaApiError {
+    Unauthorized,
+    Other(String),
+}
+
+impl fmt::Display for QuotaApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unauthorized => write!(f, "HTTP 401 Unauthorized"),
+            Self::Other(detail) => f.write_str(detail),
+        }
+    }
+}
+
+pub async fn fetch_quota_from_api(
+    profile_auth: &ProfileAuth,
+) -> Result<QuotaSnapshot, QuotaApiError> {
     let account_id = profile_auth
         .account_id()
-        .ok_or("missing account_id in auth")?;
+        .ok_or_else(|| QuotaApiError::Other("missing account_id in auth".to_string()))?;
     let access_token = profile_auth
         .access_token()
-        .ok_or("missing access_token in auth")?;
+        .ok_or_else(|| QuotaApiError::Other("missing access_token in auth".to_string()))?;
     fetch_quota_async(account_id, access_token).await
 }
 
-async fn fetch_quota_async(account_id: &str, access_token: &str) -> Result<QuotaSnapshot, String> {
+async fn fetch_quota_async(
+    account_id: &str,
+    access_token: &str,
+) -> Result<QuotaSnapshot, QuotaApiError> {
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("client build failed: {e}"))?;
+        .map_err(|e| QuotaApiError::Other(format!("client build failed: {e}")))?;
 
     let response = client
         .get("https://chatgpt.com/backend-api/wham/usage")
@@ -341,21 +362,28 @@ async fn fetch_quota_async(account_id: &str, access_token: &str) -> Result<Quota
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("request failed: {e}"))?;
+        .map_err(|e| QuotaApiError::Other(format!("request failed: {e}")))?;
 
     if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(QuotaApiError::Unauthorized);
+        }
+        return Err(QuotaApiError::Other(format!("HTTP {}", response.status())));
     }
 
     let usage: UsageResponse = response
         .json()
         .await
-        .map_err(|e| format!("response parse failed: {e}"))?;
-    let rate_limit = usage.rate_limit.ok_or("no rate_limit in response")?;
+        .map_err(|e| QuotaApiError::Other(format!("response parse failed: {e}")))?;
+    let rate_limit = usage
+        .rate_limit
+        .ok_or_else(|| QuotaApiError::Other("no rate_limit in response".to_string()))?;
     let windows = parse_windows_from_rate_limits(&rate_limit);
     let credits = parse_credits_from_rate_limits(&rate_limit);
     if windows.is_empty() && credits.is_none() {
-        return Err("no quota data in rate_limit".to_string());
+        return Err(QuotaApiError::Other(
+            "no quota data in rate_limit".to_string(),
+        ));
     }
 
     let summary = summarize_windows(&windows, credits.as_ref());

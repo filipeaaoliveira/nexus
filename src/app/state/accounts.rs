@@ -58,11 +58,17 @@ impl AccountKey {
     }
 
     pub fn for_entry(entry: &AccountEntry) -> Self {
-        Self::new(entry.provider, ProfileId::new_unchecked(entry.profile_id.as_str()))
+        Self::new(
+            entry.provider,
+            ProfileId::new_unchecked(entry.profile_id.as_str()),
+        )
     }
 
     pub fn for_profile(profile: &DomainProfile) -> Self {
-        Self::new(profile.provider(), ProfileId::new_unchecked(profile.profile_id()))
+        Self::new(
+            profile.provider(),
+            ProfileId::new_unchecked(profile.profile_id()),
+        )
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::app::{AccountsAction, AccountsConfirmAction, Effect, Workspace};
-use nexus_domain::accounts::ProfileId;
 use crate::input::{self, Context, RuntimeAction};
+use nexus_domain::accounts::ProfileId;
 
 use super::quota;
 use super::RuntimeSession;

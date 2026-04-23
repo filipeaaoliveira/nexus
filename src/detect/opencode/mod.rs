@@ -50,138 +50,157 @@ pub async fn run_opencode_detector(
                 .collect();
             type SessionData = (
                 OpenCodeSession,
-                u32,                                     // pid
-                Vec<PartData>,                           // recent parts
-                bool,                                    // assistant_turn_completed
-                Option<AssistantMessageData>,            // latest assistant message data
-                Vec<TodoItem>,                           // todos
-                Vec<OpenCodeSession>,                    // subagent sessions
+                u32,                                   // pid
+                Vec<PartData>,                         // recent parts
+                bool,                                  // assistant_turn_completed
+                Option<AssistantMessageData>,          // latest assistant message data
+                Vec<TodoItem>,                         // todos
+                Vec<OpenCodeSession>,                  // subagent sessions
                 Option<chrono::DateTime<chrono::Utc>>, // process_started_at
-                Option<PartData>,                        // initial tool call (new sessions only)
+                Option<PartData>,                      // initial tool call (new sessions only)
             );
             type PollData = (HashSet<String>, Vec<SessionData>);
-            let poll_result = tokio::task::spawn_blocking(move || -> Result<PollData, crate::detect::error::DetectorError> {
-                let map_db = |e: rusqlite::Error| crate::detect::error::DetectorError::database(nexus_domain::system::DetectorKind::OpenCode, &db2, e);
-                let conn = rusqlite::Connection::open_with_flags(
-                    &db2,
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
-                        | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-                )
-                .map_err(&map_db)?;
-
-                let sessions = query_opencode_sessions_conn(&conn).map_err(&map_db)?;
-                let active_session_ids: HashSet<String> = sessions
-                    .iter()
-                    .filter(|session| session.parent_id.is_none())
-                    .map(|session| session.id.clone())
-                    .collect();
-                let mut results: Vec<SessionData> = Vec::new();
-
-                for session in sessions {
-                    // Skip subagent sessions — they are tracked via subagent queries below.
-                    if session.parent_id.is_some() {
-                        continue;
-                    }
-                    let cwd = match &session.directory {
-                        Some(d) => d.clone(),
-                        None => continue,
+            let poll_result = tokio::task::spawn_blocking(
+                move || -> Result<PollData, crate::detect::error::DetectorError> {
+                    let map_db = |e: rusqlite::Error| {
+                        crate::detect::error::DetectorError::database(
+                            nexus_domain::system::DetectorKind::OpenCode,
+                            &db2,
+                            e,
+                        )
                     };
-                    tracing::debug!(
-                        "OpenCode: checking session {} dir={}",
-                        session.id,
-                        cwd.display()
-                    );
-                    let pid = match registry_snap.find_pid_prefix(AgentTool::OpenCode, &cwd) {
-                        Some(p) => p,
-                        None => {
-                            tracing::debug!("OpenCode: no pid found for cwd={}", cwd.display());
-                            continue; // process not yet discovered
-                        }
-                    };
-                    let process_started_at = registry_snap
-                        .find_opencode_launch(pid)
-                        .and_then(|info| info.started_at);
-
-                    // Reuse the same connection for all per-session queries.
-                    let mut stmt = conn.prepare_cached(
-                        "SELECT data, time_created FROM part \
-                         WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
+                    let conn = rusqlite::Connection::open_with_flags(
+                        &db2,
+                        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
                     )
                     .map_err(&map_db)?;
-                    let parts: Vec<PartData> = stmt
-                        .query_map(rusqlite::params![&session.id, 5_i64], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                        })
-                        .map_err(&map_db)?
-                        .filter_map(|r| match r {
-                            Ok(t) => Some(t),
-                            Err(e) => {
-                                debug!("failed to parse part row: {e}");
-                                None
-                            }
-                        })
-                        .filter_map(|(json, tc)| parse_part_data(&json, tc))
+
+                    let sessions = query_opencode_sessions_conn(&conn).map_err(&map_db)?;
+                    let active_session_ids: HashSet<String> = sessions
+                        .iter()
+                        .filter(|session| session.parent_id.is_none())
+                        .map(|session| session.id.clone())
                         .collect();
+                    let mut results: Vec<SessionData> = Vec::new();
 
-                    let assistant_turn_completed =
-                        check_assistant_turn_completed(&conn, &session.id).map_err(&map_db)?;
-                    let latest_assistant_message_data =
-                        query_latest_assistant_message_data_conn(&conn, &session.id).map_err(&map_db)?;
-                    let todos = query_session_todos_conn(&conn, &session.id).map_err(&map_db)?;
-                    let subs = query_subagent_sessions_conn(&conn, &session.id).map_err(&map_db)?;
+                    for session in sessions {
+                        // Skip subagent sessions — they are tracked via subagent queries below.
+                        if session.parent_id.is_some() {
+                            continue;
+                        }
+                        let cwd = match &session.directory {
+                            Some(d) => d.clone(),
+                            None => continue,
+                        };
+                        tracing::debug!(
+                            "OpenCode: checking session {} dir={}",
+                            session.id,
+                            cwd.display()
+                        );
+                        let pid = match registry_snap.find_pid_prefix(AgentTool::OpenCode, &cwd) {
+                            Some(p) => p,
+                            None => {
+                                tracing::debug!("OpenCode: no pid found for cwd={}", cwd.display());
+                                continue; // process not yet discovered
+                            }
+                        };
+                        let process_started_at = registry_snap
+                            .find_opencode_launch(pid)
+                            .and_then(|info| info.started_at);
 
-                    // For new (not-yet-initialised) sessions, fetch the most recent
-                    // *running or pending* tool/tool-invocation part so we can seed
-                    // recent_events even when the last active tool call is beyond the
-                    // LIMIT 5 recent-parts window.
-                    //
-                    // We restrict to running/pending because ToolCallStarted also
-                    // sets agent.activity = ToolCall in the app; seeding from a
-                    // completed tool would flash a misleading "tool call" activity
-                    // state until the next ActivityChanged poll corrects it.
-                    // Sessions with no in-progress tools are left with empty
-                    // recent_events on first detection, which is accurate.
-                    let initial_tool_call: Option<PartData> =
-                        if !known_sessions.contains(&session.id) {
-                            let mut tool_stmt = conn.prepare_cached(
+                        // Reuse the same connection for all per-session queries.
+                        let mut stmt = conn
+                            .prepare_cached(
                                 "SELECT data, time_created FROM part \
+                         WHERE session_id = ?1 ORDER BY time_created DESC LIMIT ?2",
+                            )
+                            .map_err(&map_db)?;
+                        let parts: Vec<PartData> = stmt
+                            .query_map(rusqlite::params![&session.id, 5_i64], |row| {
+                                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                            })
+                            .map_err(&map_db)?
+                            .filter_map(|r| match r {
+                                Ok(t) => Some(t),
+                                Err(e) => {
+                                    debug!("failed to parse part row: {e}");
+                                    None
+                                }
+                            })
+                            .filter_map(|(json, tc)| parse_part_data(&json, tc))
+                            .collect();
+
+                        let assistant_turn_completed =
+                            check_assistant_turn_completed(&conn, &session.id).map_err(&map_db)?;
+                        let latest_assistant_message_data =
+                            query_latest_assistant_message_data_conn(&conn, &session.id)
+                                .map_err(&map_db)?;
+                        let todos =
+                            query_session_todos_conn(&conn, &session.id).map_err(&map_db)?;
+                        let subs =
+                            query_subagent_sessions_conn(&conn, &session.id).map_err(&map_db)?;
+
+                        // For new (not-yet-initialised) sessions, fetch the most recent
+                        // *running or pending* tool/tool-invocation part so we can seed
+                        // recent_events even when the last active tool call is beyond the
+                        // LIMIT 5 recent-parts window.
+                        //
+                        // We restrict to running/pending because ToolCallStarted also
+                        // sets agent.activity = ToolCall in the app; seeding from a
+                        // completed tool would flash a misleading "tool call" activity
+                        // state until the next ActivityChanged poll corrects it.
+                        // Sessions with no in-progress tools are left with empty
+                        // recent_events on first detection, which is accurate.
+                        let initial_tool_call: Option<PartData> =
+                            if !known_sessions.contains(&session.id) {
+                                let mut tool_stmt = conn
+                                    .prepare_cached(
+                                        "SELECT data, time_created FROM part \
                                  WHERE session_id = ?1 \
                                    AND (json_extract(data, '$.type') = 'tool' \
                                         OR json_extract(data, '$.type') = 'tool-invocation') \
                                    AND (json_extract(data, '$.state.status') = 'running' \
                                         OR json_extract(data, '$.state.status') = 'pending') \
                                  ORDER BY time_created DESC LIMIT 1",
-                            )
-                            .map_err(&map_db)?;
-                            let rows: Vec<(String, i64)> = tool_stmt
-                                .query_map(rusqlite::params![&session.id], |row| {
-                                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                                })
-                                .map_err(&map_db)?
-                                .filter_map(|r| r.ok())
-                                .collect();
-                            rows.into_iter()
-                                .find_map(|(json, tc)| parse_part_data(&json, tc))
-                        } else {
-                            None
-                        };
+                                    )
+                                    .map_err(&map_db)?;
+                                let rows: Vec<(String, i64)> = tool_stmt
+                                    .query_map(rusqlite::params![&session.id], |row| {
+                                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                                    })
+                                    .map_err(&map_db)?
+                                    .filter_map(|r| r.ok())
+                                    .collect();
+                                rows.into_iter()
+                                    .find_map(|(json, tc)| parse_part_data(&json, tc))
+                            } else {
+                                None
+                            };
 
-                    results.push((
-                        session,
-                        pid,
-                        parts,
-                        assistant_turn_completed,
-                        latest_assistant_message_data,
-                        todos,
-                        subs,
-                        process_started_at,
-                        initial_tool_call,
-                    ));
-                }
-                Ok((active_session_ids, results))
-            })
+                        results.push((
+                            session,
+                            pid,
+                            parts,
+                            assistant_turn_completed,
+                            latest_assistant_message_data,
+                            todos,
+                            subs,
+                            process_started_at,
+                            initial_tool_call,
+                        ));
+                    }
+                    Ok((active_session_ids, results))
+                },
+            )
             .await
-            .map_err(|e| crate::detect::error::DetectorError::io(nexus_domain::system::DetectorKind::OpenCode, "spawn_blocking join", std::io::Error::other(e.to_string())));
+            .map_err(|e| {
+                crate::detect::error::DetectorError::io(
+                    nexus_domain::system::DetectorKind::OpenCode,
+                    "spawn_blocking join",
+                    std::io::Error::other(e.to_string()),
+                )
+            });
 
             match poll_result {
                 Ok(Ok((active_session_ids, session_data))) => {
@@ -203,7 +222,10 @@ pub async fn run_opencode_detector(
                         if !state.session_info_sent {
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::OpenCode, pid),
+                                        Some(pid),
+                                    ),
                                     session_id: Some(session.id.clone()),
                                     branch: session.branch.clone(),
                                     is_worktree: false,
@@ -225,7 +247,10 @@ pub async fn run_opencode_detector(
                                     );
                                     let _ = tx
                                         .send(AgentEvent::ToolCallStarted {
-                                            agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                            agent: AgentRef::new(
+                                                AgentId::new(AgentTool::OpenCode, pid),
+                                                Some(pid),
+                                            ),
                                             tool_name: tool_name.clone(),
                                             args_summary: part.tool_input_summary.clone(),
                                         })
@@ -266,7 +291,10 @@ pub async fn run_opencode_detector(
                             let old = state.last_status.unwrap_or(PrimaryStatus::Running);
                             let _ = tx
                                 .send(AgentEvent::StatusChanged {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::OpenCode, pid),
+                                        Some(pid),
+                                    ),
                                     old,
                                     new: status,
                                 })
@@ -277,7 +305,10 @@ pub async fn run_opencode_detector(
                         if state.last_normalized_state.as_ref() != Some(&normalized_state) {
                             let _ = tx
                                 .send(AgentEvent::NormalizedStateChanged {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::OpenCode, pid),
+                                        Some(pid),
+                                    ),
                                     state: normalized_state.clone(),
                                 })
                                 .await;
@@ -288,7 +319,10 @@ pub async fn run_opencode_detector(
                             let activity = infer_activity_from_parts(&parts);
                             let _ = tx
                                 .send(AgentEvent::ActivityChanged {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::OpenCode, pid),
+                                        Some(pid),
+                                    ),
                                     activity,
                                 })
                                 .await;
@@ -307,7 +341,10 @@ pub async fn run_opencode_detector(
                                         if state.last_tool_call.as_deref() != Some(&key) {
                                             let _ = tx
                                                 .send(AgentEvent::ToolCallStarted {
-                                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                                    agent: AgentRef::new(
+                                                        AgentId::new(AgentTool::OpenCode, pid),
+                                                        Some(pid),
+                                                    ),
                                                     tool_name: tool_name.clone(),
                                                     args_summary: part.tool_input_summary.clone(),
                                                 })
@@ -335,7 +372,10 @@ pub async fn run_opencode_detector(
                         if todos != state.last_todos {
                             let _ = tx
                                 .send(AgentEvent::TodosUpdated {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::OpenCode, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::OpenCode, pid),
+                                        Some(pid),
+                                    ),
                                     todos: todos.clone(),
                                 })
                                 .await;

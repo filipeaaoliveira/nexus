@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use crate::app::EditableProfile;
 use crate::profiles::StoredProfile;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::traits::ProfileStore;
-use crate::services::accounts::{codex as codex_service, claude as claude_service, storage as storage_service};
-use crate::app::EditableProfile;
+use crate::services::accounts::{
+    claude as claude_service, codex as codex_service, storage as storage_service,
+};
 use nexus_domain::accounts::{DomainProfile, Provider};
 
 fn notes_option(notes: &str) -> Option<String> {
@@ -23,7 +25,10 @@ pub struct ProviderBackend {
 
 impl ProviderBackend {
     pub fn new(provider: Provider, profiles_dir: PathBuf) -> Self {
-        Self { provider, profiles_dir }
+        Self {
+            provider,
+            profiles_dir,
+        }
     }
 
     fn profile_dir(&self, profile_id: &str) -> StoreResult<PathBuf> {
@@ -105,7 +110,9 @@ impl ProfileStore for ProviderBackend {
 
     fn import_from_home(&self, home: &Path) -> StoreResult<DomainProfile> {
         let import_fn = match self.provider {
-            Provider::Codex => codex_service::import_profile_from_home as fn(&Path, &Path) -> anyhow::Result<_>,
+            Provider::Codex => {
+                codex_service::import_profile_from_home as fn(&Path, &Path) -> anyhow::Result<_>
+            }
             Provider::Claude => claude_service::import_profile_from_home,
             _ => unreachable!(),
         };
@@ -117,7 +124,9 @@ impl ProfileStore for ProviderBackend {
     fn write_to_home(&self, profile_id: &str, home: &Path) -> StoreResult<()> {
         let profile_dir = self.profile_dir(profile_id)?;
         let write_fn = match self.provider {
-            Provider::Codex => codex_service::write_profile_to_home as fn(&Path, &Path) -> anyhow::Result<()>,
+            Provider::Codex => {
+                codex_service::write_profile_to_home as fn(&Path, &Path) -> anyhow::Result<()>
+            }
             Provider::Claude => claude_service::write_profile_to_home,
             _ => unreachable!(),
         };
@@ -134,10 +143,10 @@ impl ProfileStore for ProviderBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::ProfileStoreError;
-    use tempfile::TempDir;
+    use super::*;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn provider_backend_returns_correct_provider() {

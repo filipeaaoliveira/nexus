@@ -73,13 +73,8 @@ mod tests {
         .unwrap();
 
         let profile_dir = tmp.path().join("profiles").join("profile-01");
-        let profile = import_from_credentials(
-            "profile-01",
-            "My Claude",
-            &profile_dir,
-            &source,
-        )
-        .unwrap();
+        let profile =
+            import_from_credentials("profile-01", "My Claude", &profile_dir, &source).unwrap();
 
         assert!(profile_dir.join(".credentials.json").is_file());
         assert_eq!(profile.plan.as_deref(), Some("claude_max"));
@@ -91,8 +86,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("c.json");
         fs::write(&source, r#"{}"#).unwrap();
-        let result =
-            import_from_credentials("   ", "label", tmp.path(), &source);
+        let result = import_from_credentials("   ", "label", tmp.path(), &source);
         assert!(result.is_err());
     }
 }

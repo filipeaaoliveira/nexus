@@ -47,7 +47,6 @@ impl fmt::Display for ProfileId {
     }
 }
 
-
 impl AsRef<str> for ProfileId {
     fn as_ref(&self) -> &str {
         &self.0

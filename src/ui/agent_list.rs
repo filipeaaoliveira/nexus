@@ -6,8 +6,8 @@ use ratatui::Frame;
 
 use crate::app::projection::AgentView;
 use crate::services::runtime::RuntimeSession;
-use nexus_domain::agents::status::NormalizedStatus;
 use crate::ui::shared::format::format_duration;
+use nexus_domain::agents::status::NormalizedStatus;
 
 use super::{theme, RenderData};
 
@@ -114,7 +114,10 @@ fn render_agent_item(view: &AgentView<'_>, _selected: bool) -> ListItem<'static>
         branch_text.to_string(),
         Style::default().fg(theme::COLOR_BRANCH),
     ));
-    line2_spans.push(Span::styled(sub_text, Style::default().fg(theme::COLOR_SUBAGENT)));
+    line2_spans.push(Span::styled(
+        sub_text,
+        Style::default().fg(theme::COLOR_SUBAGENT),
+    ));
 
     let line2 = Line::from(line2_spans);
 

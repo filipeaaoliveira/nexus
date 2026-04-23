@@ -5,11 +5,11 @@ use chrono::Utc;
 
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::effect::{Effect, EffectResult};
+use crate::app::EditableProfile;
 use crate::config::Config;
 use crate::services::accounts::provider::StoreProvider;
 use crate::services::accounts::storage::{LoadOutcome, ProfileStoreError, StoreResult};
 use crate::services::accounts::traits::ProfileStore;
-use crate::app::EditableProfile;
 use nexus_domain::accounts::{DomainProfile, ProfileId, Provider};
 
 // ---------------------------------------------------------------------------
@@ -51,7 +51,9 @@ impl ProfileStore for MockProfileStore {
             .find(|p| p.profile_id() == profile_id)
             .cloned()
             .map(LoadOutcome::Clean)
-            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })
+            .ok_or_else(|| ProfileStoreError::NotFound {
+                profile_id: profile_id.to_string(),
+            })
     }
 
     fn load_editable(&self, profile_id: &str) -> StoreResult<EditableProfile> {
@@ -59,7 +61,9 @@ impl ProfileStore for MockProfileStore {
         let profile = lock
             .iter()
             .find(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
+            .ok_or_else(|| ProfileStoreError::NotFound {
+                profile_id: profile_id.to_string(),
+            })?;
         Ok(EditableProfile {
             label: profile.label().to_string(),
             notes: profile.notes().unwrap_or_default().to_string(),
@@ -72,7 +76,9 @@ impl ProfileStore for MockProfileStore {
         let profile = lock
             .iter_mut()
             .find(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
+            .ok_or_else(|| ProfileStoreError::NotFound {
+                profile_id: profile_id.to_string(),
+            })?;
         *profile = DomainProfile::new(
             profile.id().clone(),
             profile.provider(),
@@ -88,11 +94,17 @@ impl ProfileStore for MockProfileStore {
     }
 
     fn import_from_home(&self, _home: &Path) -> StoreResult<DomainProfile> {
-        Err(ProfileStoreError::Other { context: "not implemented".to_string(), source: "mock".into() })
+        Err(ProfileStoreError::Other {
+            context: "not implemented".to_string(),
+            source: "mock".into(),
+        })
     }
 
     fn write_to_home(&self, _profile_id: &str, _home: &Path) -> StoreResult<()> {
-        Err(ProfileStoreError::Other { context: "not implemented".to_string(), source: "mock".into() })
+        Err(ProfileStoreError::Other {
+            context: "not implemented".to_string(),
+            source: "mock".into(),
+        })
     }
 
     fn delete(&self, profile_id: &str) -> StoreResult<()> {
@@ -100,7 +112,9 @@ impl ProfileStore for MockProfileStore {
         let idx = lock
             .iter()
             .position(|p| p.profile_id() == profile_id)
-            .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
+            .ok_or_else(|| ProfileStoreError::NotFound {
+                profile_id: profile_id.to_string(),
+            })?;
         lock.remove(idx);
         Ok(())
     }

@@ -85,7 +85,10 @@ mod tests {
             std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
         );
         let msg = err.to_string();
-        assert!(msg.contains("Claude"), "should contain detector name: {msg}");
+        assert!(
+            msg.contains("Claude"),
+            "should contain detector name: {msg}"
+        );
         assert!(
             msg.contains("reading transcript"),
             "should contain context: {msg}"

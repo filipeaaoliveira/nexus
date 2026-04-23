@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use crate::app::dispatch::effects::dispatch_effect;
 use crate::app::state::AccountKey;
-use crate::app::{reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider, Workspace};
+use crate::app::{
+    reducer, AccountsAction, Action, AppState, Effect, EffectResult, Provider, Workspace,
+};
 use crate::config::Config;
 use crate::services::accounts::provider::ConfigStoreProvider;
 use crate::services::accounts::quota as quota_service;
@@ -50,8 +52,10 @@ impl RuntimeSession {
 
     pub(crate) fn begin_manual_quota_refresh(&mut self, provider: Provider, profile_id: &str) {
         self.app.set_accounts_quota_loading(true);
-        self.interactive_quota_refreshes
-            .insert(AccountKey::new(provider, ProfileId::new_unchecked(profile_id)));
+        self.interactive_quota_refreshes.insert(AccountKey::new(
+            provider,
+            ProfileId::new_unchecked(profile_id),
+        ));
     }
 
     pub(crate) fn clear_expired_accounts_status(&mut self) {
@@ -113,8 +117,10 @@ impl RuntimeSession {
         }
 
         reducer::root::reduce(&mut self.app, &Action::EffectResult(result));
-        self.app.set_accounts_quota_loading(!self.interactive_quota_refreshes.is_empty());
-        self.accounts_status_message_expires_at = self.app
+        self.app
+            .set_accounts_quota_loading(!self.interactive_quota_refreshes.is_empty());
+        self.accounts_status_message_expires_at = self
+            .app
             .accounts_status_message()
             .map(|_| Instant::now() + Duration::from_secs(5));
 
@@ -125,7 +131,8 @@ impl RuntimeSession {
 
     pub(crate) async fn run_accounts_reducer_action(&mut self, action: AccountsAction) {
         let effects = reducer::root::reduce(&mut self.app, &Action::Accounts(action));
-        self.accounts_status_message_expires_at = self.app
+        self.accounts_status_message_expires_at = self
+            .app
             .accounts_status_message()
             .map(|_| Instant::now() + Duration::from_secs(5));
 

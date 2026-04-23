@@ -5,8 +5,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use crate::app::agent::ActivityEventKind;
-use nexus_domain::agents::activity::Subagent;
 use crate::ui::shared::format::format_duration;
+use nexus_domain::agents::activity::Subagent;
 
 use super::{theme, RenderData};
 

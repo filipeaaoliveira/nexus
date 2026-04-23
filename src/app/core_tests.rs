@@ -1,10 +1,10 @@
 use super::*;
 use crate::app::state::AccountsState;
-use nexus_domain::accounts::ProfileId;
 use crate::codex_profiles::profile::{self as codex_profile};
-use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::event::{AgentEvent, AgentRef};
+use crate::profiles::{io as profile_io, ProfileMetadata};
 use crate::services::accounts::storage::next_profile_id;
+use nexus_domain::accounts::ProfileId;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::PrimaryStatus;
 use nexus_domain::system::DetectorKind;

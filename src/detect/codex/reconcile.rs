@@ -219,10 +219,7 @@ pub fn reconcile_codex_snapshots(
             .any(|session| session.agent_id.session_id() == Some("codex-backend"))
     {
         events.push(AgentEvent::ProcessExited {
-            agent: AgentRef::new(
-                AgentId::session(AgentTool::Codex, "codex-backend"),
-                Some(0),
-            ),
+            agent: AgentRef::new(AgentId::session(AgentTool::Codex, "codex-backend"), Some(0)),
         });
     }
 

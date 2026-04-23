@@ -39,7 +39,14 @@ pub(super) fn spawn_manual_quota_refresh(
     let config = session.config_arc();
     let stores = ConfigStoreProvider::from_config(&config);
     tokio::spawn(async move {
-        let result = refresh_quota(&config, &stores, provider, profile_id, RefreshOrigin::Manual).await;
+        let result = refresh_quota(
+            &config,
+            &stores,
+            provider,
+            profile_id,
+            RefreshOrigin::Manual,
+        )
+        .await;
         let _ = tx.send(result).await;
     });
 }

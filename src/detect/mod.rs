@@ -336,10 +336,7 @@ mod tests {
         ));
 
         let event = AgentEvent::Discovered {
-            agent: AgentRef::new(
-                AgentId::session(AgentTool::Codex, "thread-1"),
-                Some(42),
-            ),
+            agent: AgentRef::new(AgentId::session(AgentTool::Codex, "thread-1"), Some(42)),
             cwd: PathBuf::from("/definitely/not/a/repo"),
             started_at: Some(Utc::now()),
         };
@@ -375,24 +372,19 @@ mod tests {
         let (health_tx, mut health_rx) = mpsc::channel::<AgentEvent>(8);
 
         let count = call_count.clone();
-        super::run_with_restart_reporting(
-            "test-detector",
-            DetectorKind::Codex,
-            health_tx,
-            || {
-                let n = count.fetch_add(1, Ordering::SeqCst);
-                let result: Result<(), super::error::DetectorError> = if n == 0 {
-                    Err(super::error::DetectorError::io(
-                        DetectorKind::Codex,
-                        "test",
-                        std::io::Error::new(std::io::ErrorKind::Interrupted, "boom"),
-                    ))
-                } else {
-                    Ok(())
-                };
-                async move { result }
-            },
-        )
+        super::run_with_restart_reporting("test-detector", DetectorKind::Codex, health_tx, || {
+            let n = count.fetch_add(1, Ordering::SeqCst);
+            let result: Result<(), super::error::DetectorError> = if n == 0 {
+                Err(super::error::DetectorError::io(
+                    DetectorKind::Codex,
+                    "test",
+                    std::io::Error::new(std::io::ErrorKind::Interrupted, "boom"),
+                ))
+            } else {
+                Ok(())
+            };
+            async move { result }
+        })
         .await;
 
         let event = health_rx.try_recv().expect("expected health event");

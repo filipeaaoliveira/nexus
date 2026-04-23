@@ -133,5 +133,4 @@ mod tests {
             "plan must be extracted from JWT id_token"
         );
     }
-
 }

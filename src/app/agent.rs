@@ -91,7 +91,6 @@ impl Agent {
     }
 }
 
-
 impl AgentLifecycle {
     pub fn new(
         status: PrimaryStatus,

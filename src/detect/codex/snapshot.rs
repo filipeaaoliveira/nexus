@@ -7,9 +7,7 @@ use nexus_domain::agents::status::{NormalizedReason, PrimaryStatus};
 use nexus_domain::shared::time::from_epoch_secs;
 use nexus_domain::system::health::CodexBackendHealth;
 
-use super::normalization::{
-    codex_to_primary, looks_like_input_request_output,
-};
+use super::normalization::{codex_to_primary, looks_like_input_request_output};
 use super::pid_binding::{
     bind_pids_to_threads, classify_codex_thread, codex_pid_for_thread,
     thread_is_recent_enough_for_pid_binding,

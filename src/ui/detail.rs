@@ -4,10 +4,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
+use crate::ui::shared::format::format_duration_short;
 use nexus_domain::agents::activity::TodoStatus;
 use nexus_domain::agents::ids::AgentTool;
 use nexus_domain::agents::status::NormalizedStatus;
-use crate::ui::shared::format::format_duration_short;
 
 use super::{theme, RenderData};
 
@@ -103,7 +103,11 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled("  started: ", Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    agent.started_at().with_timezone(&chrono::Local).format("%H:%M:%S").to_string(),
+                    agent
+                        .started_at()
+                        .with_timezone(&chrono::Local)
+                        .format("%H:%M:%S")
+                        .to_string(),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
                 Span::styled("  idle: ", Style::default().fg(theme::FG_COMMENT)),

@@ -10,8 +10,8 @@ pub fn load_quota_cache(path: &Path) -> Result<QuotaCache> {
         return Ok(QuotaCache::default());
     }
 
-    let content = fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let content =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
 
     let cache: QuotaCache = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;

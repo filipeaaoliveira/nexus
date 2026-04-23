@@ -76,10 +76,13 @@ impl AppState {
 
     pub fn handle_event(&mut self, event: crate::event::AgentEvent) {
         let now = chrono::Utc::now();
-        super::reducer::root::reduce(self, &super::action::Action::AgentEvent {
-            event: Box::new(event),
-            now,
-        });
+        super::reducer::root::reduce(
+            self,
+            &super::action::Action::AgentEvent {
+                event: Box::new(event),
+                now,
+            },
+        );
     }
 
     pub fn visible_agents(&self) -> Vec<&Agent> {

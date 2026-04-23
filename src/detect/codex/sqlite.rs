@@ -3,8 +3,8 @@ use std::path::Path;
 use nexus_domain::system::DetectorKind;
 use tracing::debug;
 
-use crate::detect::error::DetectorError;
 use super::types::{CodexThread, SourceInfo, SpawnEdge};
+use crate::detect::error::DetectorError;
 
 // ── Source Field Parsing ──────────────────────────────────────────
 

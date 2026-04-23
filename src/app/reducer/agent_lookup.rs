@@ -151,12 +151,7 @@ mod tests {
             make_agent(AgentTool::Codex, 1, true),
         ];
         agents[1].set_status(PrimaryStatus::Exited);
-        let indices = session_indices_by_pid(
-            &agents,
-            AgentTool::Codex,
-            1,
-            Path::new("/tmp/test"),
-        );
+        let indices = session_indices_by_pid(&agents, AgentTool::Codex, 1, Path::new("/tmp/test"));
         assert_eq!(indices, vec![0]);
     }
 }

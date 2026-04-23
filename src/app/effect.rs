@@ -10,22 +10,14 @@ pub enum RefreshOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
-    NotFound {
-        path: String,
-    },
-    Io {
-        detail: String,
-    },
+    NotFound { path: String },
+    Io { detail: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuotaRefreshError {
-    AuthMissing {
-        profile_id: String,
-    },
-    ApiFailed {
-        detail: String,
-    },
+    AuthMissing { profile_id: String },
+    ApiFailed { detail: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,9 +123,7 @@ mod tests {
     use chrono::Utc;
 
     use crate::profiles::StoredProfile;
-    use nexus_domain::accounts::{
-        AccountEntry, Confidence, LimitState, Provider, QuotaSnapshot,
-    };
+    use nexus_domain::accounts::{AccountEntry, Confidence, LimitState, Provider, QuotaSnapshot};
 
     use super::*;
 

@@ -4,11 +4,11 @@
 mod app;
 mod claude_profiles;
 mod codex_profiles;
-mod profiles;
 pub mod config;
 mod detect;
 mod event;
 mod input;
+mod profiles;
 pub mod runtime_support;
 mod services;
 mod ui;
@@ -57,8 +57,8 @@ pub mod testing {
     pub use crate::services::accounts::storage::{ProfileStoreError, StoreResult};
 
     // ── Profiles: shared ─────────────────────────────────────────
-    pub use crate::profiles::{io as profile_io, ProfileMetadata};
     pub use crate::profiles::StoredProfile;
+    pub use crate::profiles::{io as profile_io, ProfileMetadata};
 
     // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{

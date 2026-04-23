@@ -287,17 +287,32 @@ fn test_todo_item_equality() {
 
 #[test]
 fn test_todo_status_from_str() {
-    assert_eq!("pending".parse::<TodoStatus>().unwrap(), TodoStatus::Pending);
-    assert_eq!("in_progress".parse::<TodoStatus>().unwrap(), TodoStatus::InProgress);
-    assert_eq!("completed".parse::<TodoStatus>().unwrap(), TodoStatus::Completed);
-    assert_eq!("cancelled".parse::<TodoStatus>().unwrap(), TodoStatus::Cancelled);
+    assert_eq!(
+        "pending".parse::<TodoStatus>().unwrap(),
+        TodoStatus::Pending
+    );
+    assert_eq!(
+        "in_progress".parse::<TodoStatus>().unwrap(),
+        TodoStatus::InProgress
+    );
+    assert_eq!(
+        "completed".parse::<TodoStatus>().unwrap(),
+        TodoStatus::Completed
+    );
+    assert_eq!(
+        "cancelled".parse::<TodoStatus>().unwrap(),
+        TodoStatus::Cancelled
+    );
     assert!("unknown_value".parse::<TodoStatus>().is_err());
 }
 
 #[test]
 fn test_todo_priority_from_str() {
     assert_eq!("high".parse::<TodoPriority>().unwrap(), TodoPriority::High);
-    assert_eq!("medium".parse::<TodoPriority>().unwrap(), TodoPriority::Medium);
+    assert_eq!(
+        "medium".parse::<TodoPriority>().unwrap(),
+        TodoPriority::Medium
+    );
     assert_eq!("low".parse::<TodoPriority>().unwrap(), TodoPriority::Low);
     assert!("unknown_value".parse::<TodoPriority>().is_err());
 }
@@ -322,8 +337,7 @@ fn codex_profile_imports_auth_and_sets_defaults() {
 
     fs::write(&source, auth_json).unwrap();
 
-    let profile =
-        import_codex_from_auth("profile-1", "Primary", &profile_dir, &source).unwrap();
+    let profile = import_codex_from_auth("profile-1", "Primary", &profile_dir, &source).unwrap();
 
     assert_eq!(profile.id, "profile-1");
     assert_eq!(profile.label, "Primary");
@@ -396,10 +410,7 @@ fn codex_quota_parser_parses_both_windows_with_reset_timestamps() {
     assert_eq!(windows[0].state, LimitState::Available);
     assert_eq!(windows[1].state, LimitState::Available);
     assert_eq!(
-        windows[0]
-            .reset_at
-            .as_ref()
-            .map(|dt| dt.to_rfc3339()),
+        windows[0].reset_at.as_ref().map(|dt| dt.to_rfc3339()),
         Some("2026-04-03T12:34:56+00:00".to_string())
     );
     assert_eq!(

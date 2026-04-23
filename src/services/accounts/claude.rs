@@ -10,10 +10,7 @@ use crate::runtime_support::run_blocking_compatible;
 
 use super::storage;
 
-pub fn import_profile_from_home(
-    profiles_dir: &Path,
-    home_dir: &Path,
-) -> Result<StoredProfile> {
+pub fn import_profile_from_home(profiles_dir: &Path, home_dir: &Path) -> Result<StoredProfile> {
     let (credentials_source, _temp_path) = credentials_source_from_home(home_dir)?;
     import_profile_from_credentials(profiles_dir, &credentials_source)
 }

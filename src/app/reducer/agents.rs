@@ -3,11 +3,9 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 
-use crate::app::agent::{
-    ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
-};
-use crate::app::state::{OverviewState, SystemState};
 use super::agent_lookup;
+use crate::app::agent::{ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle};
+use crate::app::state::{OverviewState, SystemState};
 use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::Subagent;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
@@ -36,7 +34,15 @@ pub fn reduce(
             cwd,
             started_at,
         } => {
-            reduce_discovered(agents, overview, &agent.id, agent.pid, cwd, *started_at, now);
+            reduce_discovered(
+                agents,
+                overview,
+                &agent.id,
+                agent.pid,
+                cwd,
+                *started_at,
+                now,
+            );
         }
         AgentEvent::StatusChanged { agent, old, new } => {
             reduce_status_changed(agents, &agent.id, agent.pid, *old, *new, now);
@@ -64,7 +70,14 @@ pub fn reduce(
             tool_name,
             args_summary,
         } => {
-            reduce_tool_call_started(agents, &agent.id, agent.pid, tool_name, args_summary.as_deref(), now);
+            reduce_tool_call_started(
+                agents,
+                &agent.id,
+                agent.pid,
+                tool_name,
+                args_summary.as_deref(),
+                now,
+            );
         }
         AgentEvent::ToolCallCompleted { agent } => {
             reduce_tool_call_completed(agents, &agent.id, agent.pid, now);
@@ -491,15 +504,7 @@ fn reduce_session_info(
 
     if agent.id.is_session() {
         if let Some(a) = agent_lookup::find_by_id(agents, &agent.id) {
-            apply_session_info(
-                a,
-                pid,
-                session_id,
-                branch,
-                is_worktree,
-                started_at,
-                now,
-            );
+            apply_session_info(a, pid, session_id, branch, is_worktree, started_at, now);
             let absorbed_pid = a.pid();
             agent_lookup::remove_redundant_codex_process_agents(agents, absorbed_pid);
             return;

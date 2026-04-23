@@ -42,7 +42,11 @@ async fn cancellation_drains_pending_events_then_stops() {
         }
     }
 
-    assert_eq!(received.len(), 5, "expected all buffered events to be drained");
+    assert_eq!(
+        received.len(),
+        5,
+        "expected all buffered events to be drained"
+    );
     for (i, event) in received.iter().enumerate() {
         match event {
             AgentEvent::Discovered { agent, .. } => {
@@ -60,8 +64,8 @@ async fn sender_drop_exits_loop_cleanly() {
     let token = CancellationToken::new();
 
     tx.send(AgentEvent::Discovered {
-            agent: AgentRef::new(AgentId::new(AgentTool::Claude, 1), Some(1)),
-            cwd: PathBuf::from("/tmp/1"),
+        agent: AgentRef::new(AgentId::new(AgentTool::Claude, 1), Some(1)),
+        cwd: PathBuf::from("/tmp/1"),
         started_at: None,
     })
     .await
@@ -101,8 +105,8 @@ async fn concurrent_events_and_effects_interleave_then_cancel() {
     for i in 1..=3u32 {
         event_tx
             .send(AgentEvent::Discovered {
-            agent: AgentRef::new(AgentId::new(AgentTool::Codex, i), Some(i)),
-            cwd: PathBuf::from(format!("/tmp/{i}")),
+                agent: AgentRef::new(AgentId::new(AgentTool::Codex, i), Some(i)),
+                cwd: PathBuf::from(format!("/tmp/{i}")),
                 started_at: None,
             })
             .await
@@ -132,5 +136,9 @@ async fn concurrent_events_and_effects_interleave_then_cancel() {
         }
     }
 
-    assert_eq!(events + effects, 6, "expected all 6 items processed, got events={events} effects={effects}");
+    assert_eq!(
+        events + effects,
+        6,
+        "expected all 6 items processed, got events={events} effects={effects}"
+    );
 }

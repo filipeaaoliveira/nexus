@@ -14,7 +14,11 @@ pub enum ProfileStoreError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("{context}: {source}")]
-    Other { context: String, #[source] source: Box<dyn std::error::Error + Send + Sync> },
+    Other {
+        context: String,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 pub type StoreResult<T> = Result<T, ProfileStoreError>;
@@ -29,7 +33,10 @@ impl ProfileStoreError {
             }
         }
         impl std::error::Error for StringError {}
-        Self::Other { context: context.to_string(), source: Box::new(StringError(source.to_string())) }
+        Self::Other {
+            context: context.to_string(),
+            source: Box::new(StringError(source.to_string())),
+        }
     }
 }
 
@@ -544,7 +551,15 @@ mod tests {
         )
         .unwrap();
 
-        save_profile_edits(&profile_dir, "profile-20", "New Label", Some("new notes".to_string()), false, false).unwrap();
+        save_profile_edits(
+            &profile_dir,
+            "profile-20",
+            "New Label",
+            Some("new notes".to_string()),
+            false,
+            false,
+        )
+        .unwrap();
 
         let meta = crate::profiles::io::load_profile_metadata(&profile_dir).unwrap();
         assert_eq!(meta.label.as_deref(), Some("New Label"));
@@ -564,7 +579,15 @@ mod tests {
         )
         .unwrap();
 
-        save_profile_edits(&profile_dir, "profile-21", "Updated", Some("updated notes".to_string()), false, true).unwrap();
+        save_profile_edits(
+            &profile_dir,
+            "profile-21",
+            "Updated",
+            Some("updated notes".to_string()),
+            false,
+            true,
+        )
+        .unwrap();
 
         let meta = crate::profiles::io::load_profile_metadata(&profile_dir).unwrap();
         assert_eq!(meta.label.as_deref(), Some("Updated"));

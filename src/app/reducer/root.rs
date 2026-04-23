@@ -14,9 +14,11 @@ pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
             );
             Vec::new()
         }
-        Action::Accounts(action) => {
-            accounts::reduce(&mut app.root.accounts, &mut app.root.system.workflow, action)
-        }
+        Action::Accounts(action) => accounts::reduce(
+            &mut app.root.accounts,
+            &mut app.root.system.workflow,
+            action,
+        ),
         Action::QuitRequested => {
             app.root.system.workflow = Workflow::Quitting;
             Vec::new()
@@ -28,10 +30,18 @@ pub fn reduce(app: &mut AppState, action: &Action) -> Vec<Effect> {
             }
             Vec::new()
         }
-        Action::Overview(action) => overview::reduce(&mut app.agents, &mut app.root.overview, action),
+        Action::Overview(action) => {
+            overview::reduce(&mut app.agents, &mut app.root.overview, action)
+        }
         Action::System(action) => system::reduce(&mut app.root.system, action),
         Action::AgentEvent { event, now } => {
-            agents::reduce(&mut app.agents, &mut app.root.overview, &mut app.root.system, event, *now);
+            agents::reduce(
+                &mut app.agents,
+                &mut app.root.overview,
+                &mut app.root.system,
+                event,
+                *now,
+            );
             Vec::new()
         }
     }

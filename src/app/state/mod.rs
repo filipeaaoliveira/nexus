@@ -76,8 +76,13 @@ impl RootState {
         profile_id: &str,
         quota: nexus_domain::accounts::QuotaSnapshot,
     ) {
-        self.accounts
-            .upsert_quota(AccountKey::new(provider, nexus_domain::accounts::ProfileId::new_unchecked(profile_id)), quota);
+        self.accounts.upsert_quota(
+            AccountKey::new(
+                provider,
+                nexus_domain::accounts::ProfileId::new_unchecked(profile_id),
+            ),
+            quota,
+        );
     }
 }
 

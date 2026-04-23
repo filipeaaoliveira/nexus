@@ -36,7 +36,17 @@ impl DomainProfile {
         created_at: DateTime<Utc>,
         updated_at: DateTime<Utc>,
     ) -> Self {
-        Self { id, provider, label, email, plan, notes, enabled, created_at, updated_at }
+        Self {
+            id,
+            provider,
+            label,
+            email,
+            plan,
+            notes,
+            enabled,
+            created_at,
+            updated_at,
+        }
     }
 
     pub fn id(&self) -> &ProfileId {

@@ -175,7 +175,10 @@ pub fn query_subagent_sessions(
 
 /// Query todo items for a specific session from the OpenCode database.
 #[cfg(test)]
-pub fn query_session_todos(db_path: &Path, session_id: &str) -> Result<Vec<TodoItem>, DetectorError> {
+pub fn query_session_todos(
+    db_path: &Path,
+    session_id: &str,
+) -> Result<Vec<TodoItem>, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -234,7 +237,10 @@ pub fn check_assistant_turn_completed(
 /// the turn is finished). Returns `false` if the timestamp is NULL or if
 /// there are no assistant messages.
 #[cfg(test)]
-pub fn query_assistant_turn_completed(db_path: &Path, session_id: &str) -> Result<bool, DetectorError> {
+pub fn query_assistant_turn_completed(
+    db_path: &Path,
+    session_id: &str,
+) -> Result<bool, DetectorError> {
     let conn = rusqlite::Connection::open_with_flags(
         db_path,
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,

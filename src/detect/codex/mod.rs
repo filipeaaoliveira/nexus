@@ -20,15 +20,15 @@ mod types;
 pub use normalization::normalize_codex_session;
 #[cfg(test)]
 pub(crate) use pid_binding::codex_pid_for_thread;
+#[allow(hidden_glob_reexports)]
+use reconcile::reconcile_codex_snapshots;
 #[cfg(test)]
 pub use rollout::*;
 pub use rollout::{parse_rollout, parse_session_index};
-#[cfg(test)]
-pub use snapshot::*;
-#[allow(hidden_glob_reexports)]
-use reconcile::reconcile_codex_snapshots;
 #[allow(hidden_glob_reexports)]
 use snapshot::detect_codex_backend_with_history;
+#[cfg(test)]
+pub use snapshot::*;
 pub use sqlite::parse_source_field;
 #[allow(hidden_glob_reexports)]
 use types::CodexEventSnapshot;
@@ -64,7 +64,13 @@ pub async fn run_codex_detector(
             detect_codex_backend_with_history(&db, &registry_snap, has_seen_db)
         })
         .await
-        .map_err(|e| crate::detect::error::DetectorError::io(nexus_domain::system::DetectorKind::Codex, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
+        .map_err(|e| {
+            crate::detect::error::DetectorError::io(
+                nexus_domain::system::DetectorKind::Codex,
+                "spawn_blocking join",
+                std::io::Error::other(e.to_string()),
+            )
+        })?;
 
         let current_snapshot = result.snapshot;
         let events = reconcile_codex_snapshots(previous_snapshot.as_ref(), &current_snapshot);

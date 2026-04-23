@@ -53,8 +53,14 @@ fn arb_activity() -> impl Strategy<Value = Option<Activity>> {
 }
 
 fn arb_agent() -> impl Strategy<Value = Agent> {
-    (arb_tool(), 1u32..100, arb_status(), arb_normalized_status(), arb_activity()).prop_map(
-        |(tool, pid, status, norm_status, activity)| {
+    (
+        arb_tool(),
+        1u32..100,
+        arb_status(),
+        arb_normalized_status(),
+        arb_activity(),
+    )
+        .prop_map(|(tool, pid, status, norm_status, activity)| {
             let now = fixed_now();
             Agent {
                 ident: AgentIdent {
@@ -79,8 +85,7 @@ fn arb_agent() -> impl Strategy<Value = Agent> {
                     todos: Vec::new(),
                 },
             }
-        },
-    )
+        })
 }
 
 fn arb_event() -> impl Strategy<Value = AgentEvent> {

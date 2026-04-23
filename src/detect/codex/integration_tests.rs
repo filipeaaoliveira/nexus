@@ -839,10 +839,12 @@ fn test_detect_codex_backend_reports_degraded_explicitly_when_threads_load_but_e
         .snapshot
         .sessions
         .iter()
-        .any(|session| session.agent_id.session_id() == Some("codex-backend")
-            && session.final_output.as_deref().is_some_and(|msg|
-                msg.contains("Codex backend is degraded: sqlite spawn edges query failed:")
-                && msg.contains("no such table: thread_spawn_edges"))));
+        .any(
+            |session| session.agent_id.session_id() == Some("codex-backend")
+                && session.final_output.as_deref().is_some_and(|msg| msg
+                    .contains("Codex backend is degraded: sqlite spawn edges query failed:")
+                    && msg.contains("no such table: thread_spawn_edges"))
+        ));
 }
 
 #[test]

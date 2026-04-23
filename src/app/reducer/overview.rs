@@ -172,7 +172,10 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Exited),
         ];
-        let mut state = OverviewState { selected_index: Some(1), ..Default::default() };
+        let mut state = OverviewState {
+            selected_index: Some(1),
+            ..Default::default()
+        };
         reduce(&mut agents, &mut state, &OverviewAction::DismissExited);
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].pid(), Some(1));
@@ -185,7 +188,10 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Running),
         ];
-        let mut state = OverviewState { selected_index: Some(0), ..Default::default() };
+        let mut state = OverviewState {
+            selected_index: Some(0),
+            ..Default::default()
+        };
         reduce(&mut agents, &mut state, &OverviewAction::DismissSelected);
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].pid(), Some(2));
@@ -214,7 +220,10 @@ mod tests {
             make_agent(AgentTool::Claude, 1, PrimaryStatus::Running),
             make_agent(AgentTool::Claude, 2, PrimaryStatus::Running),
         ];
-        let mut state = OverviewState { selected_index: Some(1), ..Default::default() };
+        let mut state = OverviewState {
+            selected_index: Some(1),
+            ..Default::default()
+        };
         reduce(&mut agents, &mut state, &OverviewAction::SelectNext);
         assert_eq!(state.selected_index, Some(0));
     }

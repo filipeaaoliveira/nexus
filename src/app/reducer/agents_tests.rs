@@ -81,14 +81,20 @@ fn reduce_discovered_creates_new_agent() {
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].pid(), Some(42));
     assert_eq!(agents[0].status(), PrimaryStatus::Running);
-    assert_eq!(agents[0].cwd(), Some(PathBuf::from("/tmp/project").as_path()));
+    assert_eq!(
+        agents[0].cwd(),
+        Some(PathBuf::from("/tmp/project").as_path())
+    );
     assert_eq!(overview.selected_index(), Some(0));
 }
 
 #[test]
 fn reduce_discovered_updates_existing_agent() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 
@@ -107,7 +113,10 @@ fn reduce_discovered_updates_existing_agent() {
 #[test]
 fn reduce_status_changed_updates_agent_status() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 
@@ -136,7 +145,10 @@ fn reduce_process_exited_marks_session_agent_exited() {
     )];
     // Also add the process agent that will trigger the exit
     let process_id = AgentId::new(AgentTool::Codex, 50);
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 
@@ -155,7 +167,10 @@ fn reduce_process_exited_marks_session_agent_exited() {
 fn reduce_process_exited_removes_claude_process_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let agent_id = agents[0].id().clone();
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 
@@ -165,14 +180,20 @@ fn reduce_process_exited_removes_claude_process_agents() {
 
     reduce(&mut agents, &mut overview, &mut system, &event, now);
 
-    assert!(agents.is_empty(), "Claude process agent should be removed entirely");
+    assert!(
+        agents.is_empty(),
+        "Claude process agent should be removed entirely"
+    );
 }
 
 #[test]
 fn reduce_tool_call_sets_activity_and_pushes_event() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let agent_id = agents[0].id().clone();
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 
@@ -187,14 +208,20 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
     assert_eq!(agents[0].activity(), Some(Activity::ToolCall));
     assert!(!agents[0].recent_events().is_empty());
     let last_event = agents[0].recent_events().back().unwrap();
-    assert_eq!(last_event.kind, crate::app::agent::ActivityEventKind::ToolCall);
+    assert_eq!(
+        last_event.kind,
+        crate::app::agent::ActivityEventKind::ToolCall
+    );
     assert_eq!(last_event.description, "read_file (foo.rs)");
 }
 
 #[test]
 fn reduce_detector_health_updates_root_not_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
-    let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
     let mut system = SystemState::default();
     let now = Utc::now();
 

@@ -78,7 +78,13 @@ pub async fn run_claude_detector(
         let session_registry: HashMap<String, SessionRegistryEntry> =
             tokio::task::spawn_blocking(move || scan_session_registry(&sdir))
                 .await
-                .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
+                .map_err(|e| {
+                    DetectorError::io(
+                        nexus_domain::system::DetectorKind::Claude,
+                        "spawn_blocking join",
+                        std::io::Error::other(e.to_string()),
+                    )
+                })?;
         // Build a session_id → pid lookup from the live registry.
         let session_id_to_pid: HashMap<String, u32> = session_registry
             .values()
@@ -138,7 +144,13 @@ pub async fn run_claude_detector(
                 (changed, unchanged)
             })
             .await
-            .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
+            .map_err(|e| {
+                DetectorError::io(
+                    nexus_domain::system::DetectorKind::Claude,
+                    "spawn_blocking join",
+                    std::io::Error::other(e.to_string()),
+                )
+            })?;
 
             let (changed, unchanged) = project_scan;
 
@@ -301,7 +313,13 @@ pub async fn run_claude_detector(
                 (new_state, results)
             })
             .await
-            .map_err(|e| DetectorError::io(nexus_domain::system::DetectorKind::Claude, "spawn_blocking join", std::io::Error::other(e.to_string())))?;
+            .map_err(|e| {
+                DetectorError::io(
+                    nexus_domain::system::DetectorKind::Claude,
+                    "spawn_blocking join",
+                    std::io::Error::other(e.to_string()),
+                )
+            })?;
 
             let (new_state, results) = scan_result;
             file_state = new_state;
@@ -400,7 +418,10 @@ pub async fn run_claude_detector(
                                 session_info.started_at.as_deref().and_then(from_rfc3339);
                             let _ = tx
                                 .send(AgentEvent::SessionInfo {
-                                    agent: AgentRef::new(AgentId::new(AgentTool::Claude, pid), Some(pid)),
+                                    agent: AgentRef::new(
+                                        AgentId::new(AgentTool::Claude, pid),
+                                        Some(pid),
+                                    ),
                                     session_id: session_info.session_id.clone(),
                                     branch: session_info.branch.clone(),
                                     is_worktree: false,
@@ -491,7 +512,10 @@ pub async fn run_claude_detector(
                                             .map(String::from);
                                         let _ = tx
                                             .send(AgentEvent::SubagentSpawned {
-                                                agent: AgentRef::new(AgentId::new(AgentTool::Claude, pid), Some(pid)),
+                                                agent: AgentRef::new(
+                                                    AgentId::new(AgentTool::Claude, pid),
+                                                    Some(pid),
+                                                ),
                                                 subagent: Subagent {
                                                     name: subagent_type.to_string(),
                                                     status: PrimaryStatus::Running,
@@ -519,7 +543,10 @@ pub async fn run_claude_detector(
                                     .map(String::from);
                                 let _ = tx
                                     .send(AgentEvent::ToolCallStarted {
-                                        agent: AgentRef::new(AgentId::new(AgentTool::Claude, pid), Some(pid)),
+                                        agent: AgentRef::new(
+                                            AgentId::new(AgentTool::Claude, pid),
+                                            Some(pid),
+                                        ),
                                         tool_name: tool_name.clone(),
                                         args_summary,
                                     })

@@ -116,18 +116,17 @@ pub fn visible_agents<'a>(agents: &'a [Agent], overview: &OverviewState) -> Vec<
 /// Counts visible agents without allocating a Vec or sorting.
 /// Use this when you only need the count (e.g., for clamp_selection).
 pub fn visible_count(agents: &[Agent], overview: &OverviewState) -> usize {
-    let base = agents
-        .iter()
-        .filter(|agent| {
-            !(agent.id().tool() == nexus_domain::agents::ids::AgentTool::Codex
-                && agent.id().is_session()
-                && agent.pid().is_none())
-        });
+    let base = agents.iter().filter(|agent| {
+        !(agent.id().tool() == nexus_domain::agents::ids::AgentTool::Codex
+            && agent.id().is_session()
+            && agent.pid().is_none())
+    });
 
     match overview.filter.as_deref() {
         Some(filter) => {
             let filter = filter.to_lowercase();
-            base.filter(|agent| agent_matches_filter(agent, &filter)).count()
+            base.filter(|agent| agent_matches_filter(agent, &filter))
+                .count()
         }
         None => base.count(),
     }

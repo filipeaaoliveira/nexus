@@ -37,9 +37,7 @@ pub enum OverviewAction {
     UpdateFilter(String),
     ConfirmFilter,
     ClearFilter,
-    StartRenaming {
-        agent_id: AgentId,
-    },
+    StartRenaming { agent_id: AgentId },
     UpdateRenameInput(String),
     DismissExited,
     DismissSelected,

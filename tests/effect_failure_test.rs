@@ -27,7 +27,9 @@ fn profile_store_error_other_preserves_context_and_source() {
 #[test]
 fn store_result_err_is_ergonomic() {
     fn failing_op() -> StoreResult<()> {
-        Err(ProfileStoreError::NotFound { profile_id: "test".to_string() })
+        Err(ProfileStoreError::NotFound {
+            profile_id: "test".to_string(),
+        })
     }
     let result = failing_op();
     assert!(result.is_err());

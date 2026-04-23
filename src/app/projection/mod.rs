@@ -4,6 +4,7 @@ use crate::app::agent::Agent;
 use crate::app::state::OverviewState;
 use nexus_domain::agents::activity::Activity;
 use nexus_domain::agents::status::NormalizedStatus;
+#[cfg(test)]
 use nexus_domain::agents::status::PrimaryStatus;
 use nexus_domain::agents::SortMode;
 
@@ -141,7 +142,7 @@ pub fn selected_agent_id(
     Some(agents[real_idx].id().clone())
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub fn count_by_status(agents: &[Agent], overview: &OverviewState, status: PrimaryStatus) -> usize {
     visible_agents(agents, overview)
         .into_iter()

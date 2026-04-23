@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(test)]
 use nexus_domain::accounts::ProfileId;
 
 impl AppState {
@@ -26,12 +27,12 @@ impl AppState {
             .map(|entry| (entry.provider, entry.profile_id.as_str()))
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn set_active_codex_profile(&mut self, profile_id: Option<ProfileId>) {
         self.root.accounts.active_codex_profile_id = profile_id;
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn active_codex_profile_id(&self) -> Option<&ProfileId> {
         self.root.accounts.active_codex_profile_id.as_ref()
     }

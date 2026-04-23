@@ -10,7 +10,7 @@ impl AppState {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn scroll_help_down(&mut self) {
         self.run_system_reducer_action(SystemAction::ScrollHelpDown);
     }

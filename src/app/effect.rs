@@ -26,10 +26,6 @@ pub enum QuotaRefreshError {
     ApiFailed {
         detail: String,
     },
-    #[allow(dead_code)]
-    ParseFailed {
-        detail: String,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +48,6 @@ impl std::fmt::Display for QuotaRefreshError {
         match self {
             Self::AuthMissing { profile_id } => write!(f, "auth missing for {profile_id}"),
             Self::ApiFailed { detail } => write!(f, "API request failed: {detail}"),
-            Self::ParseFailed { detail } => write!(f, "quota parse failed: {detail}"),
         }
     }
 }

@@ -40,7 +40,7 @@ impl WorkspaceState {
         self.active
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn switch_to(&mut self, workspace: Workspace) {
         self.active = workspace;
     }

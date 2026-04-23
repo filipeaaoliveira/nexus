@@ -36,7 +36,7 @@ impl RuntimeSession {
         &self.app
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn app_mut(&mut self) -> &mut AppState {
         &mut self.app
     }
@@ -54,7 +54,6 @@ impl RuntimeSession {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(crate) fn set_started_at(&mut self, started_at: Instant) {
         self.started_at = started_at;
     }
@@ -135,7 +134,6 @@ impl RuntimeSession {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(crate) fn apply_accounts_effect_result(&mut self, result: EffectResult) {
         self.apply_effect_result(result);
     }
@@ -224,7 +222,7 @@ impl RuntimeSession {
         self.app.root()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn agents(&self) -> &[crate::app::Agent] {
         self.app.agents()
     }

@@ -22,7 +22,7 @@ pub struct RootState {
 }
 
 impl RootState {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn switch_workspace(&mut self, workspace: Workspace) {
         self.workspace.switch_to(workspace);
     }
@@ -51,7 +51,7 @@ impl RootState {
         self.workspace.previous();
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn show_overlay(&mut self, overlay: Overlay) {
         self.system.show_overlay(overlay);
     }

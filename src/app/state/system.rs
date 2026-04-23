@@ -22,7 +22,7 @@ pub enum Overlay {
 pub enum Workflow {
     #[default]
     Idle,
-    #[allow(dead_code)]
+    #[cfg(test)]
     LoadingProfiles,
     SavingProfile {
         provider: Provider,
@@ -59,7 +59,7 @@ impl SystemState {
         &self.detector_health
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn show_overlay(&mut self, overlay: Overlay) {
         self.overlay = overlay;
     }

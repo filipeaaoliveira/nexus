@@ -53,12 +53,12 @@ impl AppState {
         self.root.overview().filter()
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn next_tab(&mut self) {
         self.run_workspace_reducer_action(super::action::WorkspaceAction::Next);
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn previous_tab(&mut self) {
         self.run_workspace_reducer_action(super::action::WorkspaceAction::Previous);
     }
@@ -86,7 +86,7 @@ impl AppState {
         crate::app::projection::visible_agents(&self.agents, self.root.overview())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn count_by_status(&self, status: PrimaryStatus) -> usize {
         crate::app::projection::count_by_status(&self.agents, self.root.overview(), status)
     }

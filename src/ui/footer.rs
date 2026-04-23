@@ -49,7 +49,6 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 pub fn shortcut_text(state: &AppState) -> String {
     shortcut_line(state)
         .spans

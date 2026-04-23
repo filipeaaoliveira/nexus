@@ -22,7 +22,7 @@ pub enum Overlay {
 pub enum Workflow {
     #[default]
     Idle,
-    #[cfg(test)]
+    #[allow(dead_code)] // test-only; kept unconditional to preserve enum layout across builds
     LoadingProfiles,
     SavingProfile {
         provider: Provider,

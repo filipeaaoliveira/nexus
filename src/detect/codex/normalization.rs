@@ -59,7 +59,7 @@ fn waiting_subagent_reason(session: &ObservedCodexSession) -> Option<NormalizedR
                 PrimaryStatus::Waiting | PrimaryStatus::Done
             ) && subagent.reason.is_some()
         })
-        .and_then(|subagent| subagent.reason.clone())
+        .and_then(|subagent| subagent.reason)
 }
 
 pub(super) fn looks_like_input_request_output(text: &str) -> Option<NormalizedReason> {

@@ -139,7 +139,7 @@ pub fn reconcile_codex_snapshots(
             .map(|subagent| Subagent {
                 name: subagent.name.clone(),
                 status: subagent.status,
-                reason: subagent.reason.clone(),
+                reason: subagent.reason,
                 description: subagent.description.clone(),
                 started_at: Utc::now(),
                 ended_at: (subagent.status == PrimaryStatus::Done).then(Utc::now),
@@ -191,7 +191,7 @@ pub fn reconcile_codex_snapshots(
                         subagent: Subagent {
                             name: subagent.name.clone(),
                             status: subagent.status,
-                            reason: subagent.reason.clone(),
+                            reason: subagent.reason,
                             description: subagent.description.clone(),
                             started_at: subagent.started_at.unwrap_or_else(Utc::now),
                             ended_at: (subagent.status == PrimaryStatus::Done).then(Utc::now),

@@ -54,7 +54,7 @@ impl std::fmt::Display for NormalizedStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum NormalizedReason {
     ToolCall,
@@ -66,11 +66,10 @@ pub enum NormalizedReason {
     Error,
     Compacting,
     ReadyForNextTask,
-    Custom(String),
 }
 
 impl NormalizedReason {
-    pub fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             NormalizedReason::ToolCall => "tool call",
             NormalizedReason::Subagent => "subagent",
@@ -81,7 +80,6 @@ impl NormalizedReason {
             NormalizedReason::Error => "error",
             NormalizedReason::Compacting => "compacting",
             NormalizedReason::ReadyForNextTask => "ready for next task",
-            NormalizedReason::Custom(reason) => reason.as_str(),
         }
     }
 }

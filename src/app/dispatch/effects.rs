@@ -349,10 +349,10 @@ mod tests {
 
         match result {
             EffectResult::ProfileSaved { profile } => {
-                assert_eq!(profile.provider, Provider::Codex);
-                assert_eq!(profile.label, "Renamed");
-                assert_eq!(profile.notes.as_deref(), Some("saved"));
-                assert!(!profile.enabled);
+                assert_eq!(profile.provider(), Provider::Codex);
+                assert_eq!(profile.label(), "Renamed");
+                assert_eq!(profile.notes(), Some("saved"));
+                assert!(!profile.enabled());
             }
             other => panic!("unexpected result: {other:?}"),
         }

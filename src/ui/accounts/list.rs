@@ -54,7 +54,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
             let key = AccountKey::for_entry(entry);
             let (display_label, is_enabled) = accounts
                 .profile_by_key(&key)
-                .map(|p| (p.label.clone(), p.enabled))
+                .map(|p| (p.label().to_string(), p.enabled()))
                 .unwrap_or_else(|| (entry.profile_id.to_string(), true));
 
             let quota_indicator = {

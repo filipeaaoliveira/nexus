@@ -39,18 +39,18 @@ pub fn render(frame: &mut Frame, state: &AppState, area: Rect) {
     if let Some(entry) = state.root().accounts().selected_entry() {
         let key = AccountKey::for_entry(entry);
         if let Some(profile) = state.root().accounts().profile_by_key(&key) {
-            if let Some(ref email) = profile.email {
+            if let Some(email) = profile.email() {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled("email: ", Style::default().fg(theme::FG_COMMENT)),
-                    Span::styled(email.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                    Span::styled(email.to_string(), Style::default().fg(theme::FG_DEFAULT)),
                 ]));
             }
-            if let Some(ref plan) = profile.plan {
+            if let Some(plan) = profile.plan() {
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled("plan: ", Style::default().fg(theme::FG_COMMENT)),
-                    Span::styled(plan.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                    Span::styled(plan.to_string(), Style::default().fg(theme::FG_DEFAULT)),
                 ]));
             }
         }

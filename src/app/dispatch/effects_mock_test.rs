@@ -61,9 +61,9 @@ impl ProfileStore for MockProfileStore {
             .find(|p| p.profile_id() == profile_id)
             .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
         Ok(EditableProfile {
-            label: profile.label.clone(),
-            notes: profile.notes.clone().unwrap_or_default(),
-            enabled: profile.enabled,
+            label: profile.label().to_string(),
+            notes: profile.notes().unwrap_or_default().to_string(),
+            enabled: profile.enabled(),
         })
     }
 
@@ -73,10 +73,17 @@ impl ProfileStore for MockProfileStore {
             .iter_mut()
             .find(|p| p.profile_id() == profile_id)
             .ok_or_else(|| ProfileStoreError::NotFound { profile_id: profile_id.to_string() })?;
-        profile.label = draft.label.clone();
-        profile.notes = Some(draft.notes.clone());
-        profile.enabled = draft.enabled;
-        profile.updated_at = Utc::now();
+        *profile = DomainProfile::new(
+            profile.id().clone(),
+            profile.provider(),
+            draft.label.clone(),
+            profile.email().map(str::to_string),
+            profile.plan().map(str::to_string),
+            Some(draft.notes.clone()),
+            draft.enabled,
+            profile.created_at(),
+            Utc::now(),
+        );
         Ok(profile.clone())
     }
 
@@ -165,17 +172,17 @@ async fn mock_load_profiles_returns_all_profiles() {
 
             let codex = profiles
                 .iter()
-                .find(|p| p.provider == Provider::Codex)
+                .find(|p| p.provider() == Provider::Codex)
                 .unwrap();
             assert_eq!(codex.profile_id(), "codex-1");
-            assert_eq!(codex.label, "Codex One");
+            assert_eq!(codex.label(), "Codex One");
 
             let claude = profiles
                 .iter()
-                .find(|p| p.provider == Provider::Claude)
+                .find(|p| p.provider() == Provider::Claude)
                 .unwrap();
             assert_eq!(claude.profile_id(), "claude-1");
-            assert_eq!(claude.label, "Claude One");
+            assert_eq!(claude.label(), "Claude One");
         }
         other => panic!("unexpected result: {other:?}"),
     }
@@ -208,9 +215,9 @@ async fn mock_save_edits_updates_profile() {
 
     match result {
         EffectResult::ProfileSaved { profile } => {
-            assert_eq!(profile.label, "Renamed");
-            assert_eq!(profile.notes.as_deref(), Some("new notes"));
-            assert!(!profile.enabled);
+            assert_eq!(profile.label(), "Renamed");
+            assert_eq!(profile.notes(), Some("new notes"));
+            assert!(!profile.enabled());
         }
         other => panic!("unexpected result: {other:?}"),
     }

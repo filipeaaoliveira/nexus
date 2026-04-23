@@ -52,7 +52,7 @@ mod tests {
             updated_at: now,
         };
         let domain = stored.to_domain(Provider::Codex);
-        assert_eq!(domain.provider, Provider::Codex);
+        assert_eq!(domain.provider(), Provider::Codex);
         assert_eq!(domain.profile_id(), "p1");
     }
 }

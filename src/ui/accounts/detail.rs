@@ -104,28 +104,28 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
     if let Some(p) = profile_details {
         lines.push(Line::from(vec![
             Span::styled("  label: ", Style::default().fg(theme::FG_COMMENT)),
-            Span::styled(p.label.clone(), Style::default().fg(theme::FG_DEFAULT)),
+            Span::styled(p.label().to_string(), Style::default().fg(theme::FG_DEFAULT)),
         ]));
 
-        if let Some(ref email) = p.email {
+        if let Some(email) = p.email() {
             lines.push(Line::from(vec![
                 Span::styled("  email: ", Style::default().fg(theme::FG_COMMENT)),
-                Span::styled(email.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                Span::styled(email.to_string(), Style::default().fg(theme::FG_DEFAULT)),
             ]));
         }
 
-        if let Some(ref plan) = p.plan {
+        if let Some(plan) = p.plan() {
             lines.push(Line::from(vec![
                 Span::styled("  plan: ", Style::default().fg(theme::FG_COMMENT)),
-                Span::styled(plan.clone(), Style::default().fg(theme::FG_DEFAULT)),
+                Span::styled(plan.to_string(), Style::default().fg(theme::FG_DEFAULT)),
             ]));
         }
 
         lines.push(Line::from(vec![
             Span::styled("  enabled: ", Style::default().fg(theme::FG_COMMENT)),
             Span::styled(
-                if p.enabled { "yes" } else { "no" },
-                if p.enabled {
+                if p.enabled() { "yes" } else { "no" },
+                if p.enabled() {
                     Style::default().fg(theme::STATUS_RUNNING)
                 } else {
                     Style::default().fg(theme::STATUS_EXITED)
@@ -133,7 +133,7 @@ pub fn render(frame: &mut Frame, state: &RuntimeSession, area: Rect) {
             ),
         ]));
 
-        if let Some(ref notes) = p.notes {
+        if let Some(notes) = p.notes() {
             if !notes.is_empty() {
                 lines.push(Line::from(Span::raw("")));
                 lines.push(Line::from(vec![Span::styled(

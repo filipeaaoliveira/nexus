@@ -243,7 +243,7 @@ mod tests {
     fn domain_profile_exposes_provider_and_profile_id_for_state_keying() {
         let profile = claude_profile("claude-main").to_domain(Provider::Claude);
 
-        assert_eq!(profile.provider, Provider::Claude);
+        assert_eq!(profile.provider(), Provider::Claude);
         assert_eq!(profile.profile_id(), "claude-main");
     }
 
@@ -252,8 +252,8 @@ mod tests {
         let codex = codex_profile("codex-main").to_domain(Provider::Codex);
         let claude = claude_profile("claude-main").to_domain(Provider::Claude);
 
-        assert_eq!(codex.provider, Provider::Codex);
-        assert_eq!(claude.provider, Provider::Claude);
+        assert_eq!(codex.provider(), Provider::Codex);
+        assert_eq!(claude.provider(), Provider::Claude);
     }
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
         match imported {
             EffectResult::ProfileImported { profile } => {
                 assert_eq!(profile.profile_id(), "claude-main");
-                assert_eq!(profile.provider, Provider::Claude);
+                assert_eq!(profile.provider(), Provider::Claude);
             }
             other => panic!("unexpected import result: {other:?}"),
         }

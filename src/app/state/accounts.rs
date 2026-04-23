@@ -62,7 +62,7 @@ impl AccountKey {
     }
 
     pub fn for_profile(profile: &DomainProfile) -> Self {
-        Self::new(profile.provider, ProfileId::new_unchecked(profile.profile_id()))
+        Self::new(profile.provider(), ProfileId::new_unchecked(profile.profile_id()))
     }
 }
 

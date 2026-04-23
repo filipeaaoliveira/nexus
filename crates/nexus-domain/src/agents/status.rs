@@ -1,3 +1,8 @@
+/// Coarse lifecycle status of an agent process.
+///
+/// Variant order defines `Ord`: lower discriminant = higher priority in
+/// tiebreaker sorting (Waiting < Running < Error < Done < Exited).
+/// Used as a secondary sort key after [`NormalizedStatus`] in urgency ranking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum PrimaryStatus {
@@ -26,6 +31,11 @@ impl std::fmt::Display for PrimaryStatus {
     }
 }
 
+/// Normalized agent status for urgency-based UI sorting.
+///
+/// Variant order defines `Ord`: higher discriminant = more urgent.
+/// The urgency sort uses `Reverse(NormalizedStatus)` so that
+/// `NeedsInput` (most urgent) appears first and `Unknown` last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum NormalizedStatus {

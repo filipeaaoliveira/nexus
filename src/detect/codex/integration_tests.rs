@@ -378,7 +378,7 @@ fn test_build_codex_snapshot_does_not_bind_pid_for_stale_unique_top_level_thread
 fn test_build_codex_snapshot_binds_pid_when_rollout_is_available() {
     let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
 
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -450,7 +450,7 @@ fn test_build_codex_snapshot_binds_pid_from_exact_thread_mapping_even_when_stale
 fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
     let mut registry = RegistrySnapshot::new();
     registry.register(AgentTool::Codex, PathBuf::from("/tmp/project"), 44);
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
 
     let threads = vec![
         CodexThread {
@@ -505,7 +505,7 @@ fn test_build_codex_snapshot_ignores_stale_same_cwd_thread_for_pid_binding() {
 fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
     let mut registry = RegistrySnapshot::new();
     let cwd = PathBuf::from("/tmp/project");
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let first_start = now - 40;
     let second_start = now - 14;
     registry.register(AgentTool::Codex, cwd.clone(), 101);
@@ -587,7 +587,7 @@ fn test_build_codex_snapshot_binds_multiple_same_cwd_threads_by_launch_time() {
 fn test_build_codex_snapshot_does_not_guess_when_same_cwd_pid_count_is_ambiguous() {
     let mut registry = RegistrySnapshot::new();
     let cwd = PathBuf::from("/tmp/project");
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let first_start = now - 50;
     let second_start = now - 30;
 
@@ -668,7 +668,7 @@ fn test_build_codex_snapshot_does_not_guess_when_same_cwd_pid_count_is_ambiguous
 
 #[test]
 fn test_build_codex_event_snapshot_defaults_missing_rollout_to_waiting() {
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {
@@ -1125,7 +1125,7 @@ fn test_codex_completed_rollout_does_not_reuse_stale_assistant_text_as_final_out
         ),
     )
     .unwrap();
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {
@@ -1181,7 +1181,7 @@ fn test_codex_new_tool_call_after_completion_revives_running_and_clears_stale_do
     )
     .unwrap();
 
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {
@@ -1239,7 +1239,7 @@ fn test_live_pid_with_completed_rollout_stays_running_not_done() {
     )
     .unwrap();
 
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {
@@ -1294,7 +1294,7 @@ fn test_live_pid_completed_turn_clears_stale_todos_and_spawned_subagents() {
     )
     .unwrap();
 
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {
@@ -1346,7 +1346,7 @@ fn test_live_pid_completed_turn_clears_stale_latest_tool_call() {
     )
     .unwrap();
 
-    let now = chrono::Local::now().timestamp();
+    let now = chrono::Utc::now().timestamp();
     let snapshot = CodexSnapshot {
         top_level_threads: vec![ObservedCodexThread {
             thread: CodexThread {

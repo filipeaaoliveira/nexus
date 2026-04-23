@@ -2,7 +2,7 @@ use super::*;
 use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 use crate::app::state::{OverviewState, SystemState};
 use crate::event::{AgentEvent, AgentRef};
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{DateTime, TimeZone, Utc};
 use nexus_domain::agents::activity::Activity;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
@@ -10,8 +10,8 @@ use proptest::prelude::*;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 
-fn fixed_now() -> DateTime<Local> {
-    Local.with_ymd_and_hms(2026, 4, 19, 12, 0, 0).unwrap()
+fn fixed_now() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 4, 19, 12, 0, 0).unwrap()
 }
 
 fn arb_tool() -> impl Strategy<Value = AgentTool> {

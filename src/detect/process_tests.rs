@@ -168,8 +168,10 @@ fn test_parse_ps_output_extracts_start_time() {
     assert_eq!(first.pid, 12345);
     assert_eq!(first.tool, AgentTool::OpenCode);
     let started = first.started_at.expect("should have start time");
+    // ps outputs local time; we store as UTC then convert back for display comparison
+    let local = started.with_timezone(&chrono::Local);
     assert_eq!(
-        started.format("%Y-%m-%d %H:%M:%S").to_string(),
+        local.format("%Y-%m-%d %H:%M:%S").to_string(),
         "2026-03-27 14:30:00"
     );
 }

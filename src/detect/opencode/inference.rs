@@ -168,7 +168,7 @@ pub fn collect_subagent_events(
     state: &mut SessionEmitState,
     tool: AgentTool,
     pid: u32,
-    process_started_at: Option<chrono::DateTime<chrono::Local>>,
+    process_started_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Vec<AgentEvent> {
     let mut events = Vec::new();
     let process_start_ms = process_started_at.map(|dt| dt.timestamp_millis());
@@ -216,7 +216,7 @@ pub fn collect_subagent_events(
                     reason: None,
                     description: sub.title.clone(),
                     started_at: from_epoch_millis(sub.time_created)
-                        .unwrap_or_else(chrono::Local::now),
+                        .unwrap_or_else(chrono::Utc::now),
                     ended_at: None,
                 },
             });

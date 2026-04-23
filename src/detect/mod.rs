@@ -63,7 +63,7 @@ async fn emit_enriched_session_info(
     id: AgentId,
     pid: Option<u32>,
     cwd: PathBuf,
-    started_at: Option<chrono::DateTime<chrono::Local>>,
+    started_at: Option<chrono::DateTime<chrono::Utc>>,
 ) {
     let (branch, is_worktree) = lookup_branch_info_cached(cwd, cache_ttl, cache).await;
     let _ = tx
@@ -318,7 +318,7 @@ pub fn spawn_detectors(config: &Config) -> (DetectorTasks, mpsc::Receiver<AgentE
 mod tests {
     use super::forward_agent_events;
     use crate::event::{AgentEvent, AgentRef};
-    use chrono::Local;
+    use chrono::Utc;
     use nexus_domain::agents::ids::{AgentId, AgentTool};
     use std::path::PathBuf;
     use std::time::Duration;
@@ -341,7 +341,7 @@ mod tests {
                 Some(42),
             ),
             cwd: PathBuf::from("/definitely/not/a/repo"),
-            started_at: Some(Local::now()),
+            started_at: Some(Utc::now()),
         };
         input_tx.send(event.clone()).await.expect("send discovered");
         drop(input_tx);

@@ -1,11 +1,11 @@
 use super::*;
-use chrono::Local;
+use chrono::Utc;
 use std::path::PathBuf;
 
 #[tokio::test]
 async fn test_opencode_launch_register_and_find() {
     let handle = RegistryHandle::spawn();
-    let now = Local::now();
+    let now = Utc::now();
     handle.register_opencode_launch(99, Some(now));
     let info = handle
         .find_opencode_launch(99)
@@ -17,7 +17,7 @@ async fn test_opencode_launch_register_and_find() {
 #[tokio::test]
 async fn test_opencode_launch_removed_on_remove() {
     let handle = RegistryHandle::spawn();
-    let now = Local::now();
+    let now = Utc::now();
     handle.register_opencode_launch(99, Some(now));
     // Ensure registration is processed before remove
     let _ = handle.find_opencode_launch(99).await;
@@ -131,7 +131,7 @@ async fn test_codex_registry_tracks_exact_thread_pid_binding() {
 #[tokio::test]
 async fn register_codex_launch() {
     let handle = RegistryHandle::spawn();
-    let started_at = Local::now();
+    let started_at = Utc::now();
 
     handle.register_codex_launch(4242, Some(started_at));
 
@@ -145,7 +145,7 @@ async fn register_codex_launch() {
 #[tokio::test]
 async fn test_registry_tracks_claude_launch_metadata() {
     let handle = RegistryHandle::spawn();
-    let started_at = Local::now();
+    let started_at = Utc::now();
 
     handle.register_claude_launch(4242, Some(started_at), Some("session-123".to_string()));
 

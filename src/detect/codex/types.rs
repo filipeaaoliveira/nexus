@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 
 use nexus_domain::agents::activity::TodoItem;
 use nexus_domain::agents::ids::AgentId;
@@ -140,7 +140,7 @@ pub struct ObservedCodexSubagent {
     pub description: Option<String>,
     pub status: PrimaryStatus,
     pub reason: Option<NormalizedReason>,
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 /// Event-facing snapshot for a top-level Codex session.
@@ -150,7 +150,7 @@ pub struct ObservedCodexSession {
     pub pid: Option<u32>,
     pub cwd: PathBuf,
     pub branch: Option<String>,
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
     pub status: PrimaryStatus,
     pub final_output: Option<String>,
     pub final_output_is_completion: bool,

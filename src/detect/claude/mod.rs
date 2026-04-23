@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use chrono::Local;
+use chrono::Utc;
 use tokio::sync::mpsc;
 
 use crate::detect::error::DetectorError;
@@ -498,7 +498,7 @@ pub async fn run_claude_detector(
                                                     reason: None,
                                                     description,
                                                     started_at: from_rfc3339(entry_timestamp)
-                                                        .unwrap_or_else(Local::now),
+                                                        .unwrap_or_else(Utc::now),
                                                     ended_at: None,
                                                 },
                                             })

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 
 use crate::app::agent::{
     ActivityEventKind, Agent, AgentDetail, AgentIdent, AgentLifecycle,
@@ -21,7 +21,7 @@ pub fn reduce(
     overview: &mut OverviewState,
     system: &mut SystemState,
     event: &AgentEvent,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     match event {
         AgentEvent::DetectorHealthChanged {
@@ -105,7 +105,7 @@ fn reduce_status_changed(
     pid: Option<u32>,
     old: PrimaryStatus,
     new: PrimaryStatus,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -125,7 +125,7 @@ fn reduce_activity_changed(
     id: &AgentId,
     pid: Option<u32>,
     activity: Option<nexus_domain::agents::activity::Activity>,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -139,7 +139,7 @@ fn reduce_normalized_state_changed(
     id: &AgentId,
     pid: Option<u32>,
     state: NormalizedState,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -157,7 +157,7 @@ fn reduce_subagent_spawned(
     id: &AgentId,
     pid: Option<u32>,
     subagent: &Subagent,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -178,7 +178,7 @@ fn reduce_subagent_completed(
     id: &AgentId,
     pid: Option<u32>,
     subagent_name: &str,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -206,7 +206,7 @@ fn reduce_subagents_updated(
     id: &AgentId,
     pid: Option<u32>,
     subagents: &[Subagent],
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -224,7 +224,7 @@ fn reduce_tool_call_started(
     pid: Option<u32>,
     tool_name: &str,
     args_summary: Option<&str>,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -247,7 +247,7 @@ fn reduce_tool_call_completed(
     agents: &mut [Agent],
     id: &AgentId,
     pid: Option<u32>,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -263,7 +263,7 @@ fn reduce_todos_updated(
     id: &AgentId,
     pid: Option<u32>,
     todos: &[nexus_domain::agents::activity::TodoItem],
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     if let Some(agent) = agent_lookup::find_by_id(agents, id) {
         agent.merge_pid(pid);
@@ -278,7 +278,7 @@ fn reduce_process_exited(
     agents: &mut Vec<Agent>,
     id: &AgentId,
     pid: Option<u32>,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) {
     // Claude / OpenCode process agents: remove entirely
     if (id.tool() == AgentTool::Claude || id.tool() == AgentTool::OpenCode) && id.is_process() {
@@ -360,8 +360,8 @@ fn reduce_discovered(
     id: &AgentId,
     pid: Option<u32>,
     cwd: &Path,
-    started_at: Option<DateTime<Local>>,
-    now: DateTime<Local>,
+    started_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
 ) {
     let pid = pid.or_else(|| id.pid());
     let preserve_codex_session_status = id.tool() == AgentTool::Codex && id.is_process();
@@ -484,8 +484,8 @@ fn reduce_session_info(
     session_id: Option<String>,
     branch: Option<String>,
     is_worktree: bool,
-    started_at: Option<DateTime<Local>>,
-    now: DateTime<Local>,
+    started_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
 ) {
     let pid = agent.pid.or_else(|| agent.id.pid());
 
@@ -547,7 +547,7 @@ fn insert_placeholder_agent(
     agents: &mut Vec<Agent>,
     id: AgentId,
     pid: Option<u32>,
-    now: DateTime<Local>,
+    now: DateTime<Utc>,
 ) -> &mut Agent {
     if let Some(agent_idx) = agents.iter().position(|agent| *agent.id() == id) {
         return &mut agents[agent_idx];
@@ -586,7 +586,7 @@ fn insert_placeholder_agent(
     &mut agents[idx]
 }
 
-fn mark_agent_exited(agent: &mut Agent, pid: Option<u32>, now: DateTime<Local>) {
+fn mark_agent_exited(agent: &mut Agent, pid: Option<u32>, now: DateTime<Utc>) {
     agent.merge_pid(pid);
     agent.set_status(PrimaryStatus::Exited);
     agent.set_activity(None);
@@ -605,8 +605,8 @@ fn apply_session_info(
     session_id: Option<String>,
     branch: Option<String>,
     is_worktree: bool,
-    started_at: Option<DateTime<Local>>,
-    now: DateTime<Local>,
+    started_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
 ) {
     agent.merge_pid(pid);
     agent.set_session_id(session_id);

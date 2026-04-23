@@ -133,14 +133,14 @@ fn select_previous(agents: &[Agent], state: &mut OverviewState) {
 mod tests {
     use super::*;
     use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
-    use chrono::Local;
+    use chrono::Utc;
     use nexus_domain::agents::ids::{AgentId, AgentTool};
     use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
     fn make_agent(tool: AgentTool, pid: u32, status: PrimaryStatus) -> Agent {
-        let now = Local::now();
+        let now = Utc::now();
         Agent {
             ident: AgentIdent {
                 id: AgentId::new(tool, pid),

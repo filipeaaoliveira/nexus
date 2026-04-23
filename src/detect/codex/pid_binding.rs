@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Local;
+use chrono::Utc;
 
 use crate::detect::registry::RegistrySnapshot;
 use nexus_domain::agents::ids::AgentTool;
@@ -38,7 +38,7 @@ pub(super) fn thread_is_recent_enough_for_pid_binding(thread: &CodexThread) -> b
         return false;
     }
 
-    let now = Local::now().timestamp();
+    let now = Utc::now().timestamp();
     let age = now.saturating_sub(thread_timestamp);
     age <= CONSERVATIVE_PID_BINDING_WINDOW_SECS
 }

@@ -46,7 +46,7 @@ pub(super) fn push_event(
     events: &mut VecDeque<ActivityEvent>,
     kind: ActivityEventKind,
     description: String,
-    now: chrono::DateTime<chrono::Local>,
+    now: chrono::DateTime<chrono::Utc>,
 ) {
     events.push_back(ActivityEvent {
         timestamp: now,
@@ -61,11 +61,11 @@ pub(super) fn push_event(
 #[cfg(test)]
 mod invariant_tests {
     use super::*;
-    use chrono::Local;
+    use chrono::Utc;
 
     #[test]
     fn push_event_caps_recent_event_history() {
-        let now = Local::now();
+        let now = Utc::now();
         let mut events = VecDeque::new();
         let overflow = 3;
 

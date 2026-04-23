@@ -32,13 +32,13 @@ fn agent_display_projection_prefers_alias_over_tool_name() {
             cwd: Some(PathBuf::from("/tmp/repo")),
             branch: Some("main".into()),
             is_worktree: false,
-            started_at: chrono::Local::now(),
+            started_at: chrono::Utc::now(),
         },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
             Some(Activity::Generating),
-            chrono::Local::now(),
+            chrono::Utc::now(),
         ),
         AgentDetail::new(Vec::new(), std::collections::VecDeque::new(), Vec::new()),
     );

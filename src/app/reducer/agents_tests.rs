@@ -2,7 +2,7 @@ use super::*;
 use crate::app::agent::{Agent, AgentDetail, AgentIdent, AgentLifecycle};
 use crate::app::state::{OverviewState, SystemState};
 use crate::event::{AgentEvent, AgentRef};
-use chrono::Local;
+use chrono::Utc;
 use nexus_domain::agents::activity::Activity;
 use nexus_domain::agents::ids::{AgentId, AgentTool};
 use nexus_domain::agents::status::{NormalizedState, NormalizedStatus, PrimaryStatus};
@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 fn make_agent(tool: AgentTool, pid: u32, status: PrimaryStatus) -> Agent {
-    let now = Local::now();
+    let now = Utc::now();
     Agent {
         ident: AgentIdent {
             id: AgentId::new(tool, pid),
@@ -37,7 +37,7 @@ fn make_agent(tool: AgentTool, pid: u32, status: PrimaryStatus) -> Agent {
 }
 
 fn make_codex_session_agent(pid: u32, session_id: &str, status: PrimaryStatus) -> Agent {
-    let now = Local::now();
+    let now = Utc::now();
     Agent {
         ident: AgentIdent {
             id: AgentId::session(AgentTool::Codex, session_id),
@@ -68,7 +68,7 @@ fn reduce_discovered_creates_new_agent() {
     let mut agents = Vec::new();
     let mut overview = OverviewState::default();
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::Discovered {
         agent: AgentRef::new(AgentId::new(AgentTool::Claude, 42), Some(42)),
@@ -90,7 +90,7 @@ fn reduce_discovered_updates_existing_agent() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::Discovered {
         agent: AgentRef::new(agents[0].id().clone(), Some(10)),
@@ -109,7 +109,7 @@ fn reduce_status_changed_updates_agent_status() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::StatusChanged {
         agent: AgentRef::new(agents[0].id().clone(), Some(10)),
@@ -138,7 +138,7 @@ fn reduce_process_exited_marks_session_agent_exited() {
     let process_id = AgentId::new(AgentTool::Codex, 50);
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::ProcessExited {
         agent: AgentRef::new(process_id, Some(50)),
@@ -157,7 +157,7 @@ fn reduce_process_exited_removes_claude_process_agents() {
     let agent_id = agents[0].id().clone();
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::ProcessExited {
         agent: AgentRef::new(agent_id, Some(10)),
@@ -174,7 +174,7 @@ fn reduce_tool_call_sets_activity_and_pushes_event() {
     let agent_id = agents[0].id().clone();
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::ToolCallStarted {
         agent: AgentRef::new(agent_id, Some(10)),
@@ -196,7 +196,7 @@ fn reduce_detector_health_updates_root_not_agents() {
     let mut agents = vec![make_agent(AgentTool::Claude, 10, PrimaryStatus::Running)];
     let mut overview = OverviewState { selected_index: Some(0), ..Default::default() };
     let mut system = SystemState::default();
-    let now = Local::now();
+    let now = Utc::now();
 
     let event = AgentEvent::DetectorHealthChanged {
         detector: nexus_domain::system::DetectorKind::Codex,
@@ -222,7 +222,7 @@ fn reduce_detector_health_updates_root_not_agents() {
 
 #[test]
 fn reduce_is_deterministic_same_input_same_output() {
-    let now = Local::now();
+    let now = Utc::now();
 
     let run = || {
         let mut agents = Vec::new();

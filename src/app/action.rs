@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use nexus_domain::accounts::ProviderFilter;
 use nexus_domain::agents::ids::AgentId;
 
@@ -18,7 +18,7 @@ pub enum Action {
     EffectResult(EffectResult),
     AgentEvent {
         event: Box<AgentEvent>,
-        now: DateTime<Local>,
+        now: DateTime<Utc>,
     },
 }
 

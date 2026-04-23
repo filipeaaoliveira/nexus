@@ -152,14 +152,14 @@ async fn run_loop(
             _ = token.cancelled() => break,
 
             Some(event) = rx.recv() => {
-                let now = chrono::Local::now();
+                let now = chrono::Utc::now();
                 session.dispatch_action(crate::app::Action::AgentEvent {
                     event: Box::new(event),
                     now,
                 }).await;
                 // Drain queued agent events before redrawing
                 while let Ok(event) = rx.try_recv() {
-                    let now = chrono::Local::now();
+                    let now = chrono::Utc::now();
                     session.dispatch_action(crate::app::Action::AgentEvent {
                         event: Box::new(event),
                         now,

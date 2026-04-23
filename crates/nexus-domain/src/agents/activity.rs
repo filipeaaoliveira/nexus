@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 
 use super::status::{NormalizedReason, PrimaryStatus};
 
@@ -38,8 +38,8 @@ pub struct Subagent {
     pub status: PrimaryStatus,
     pub reason: Option<NormalizedReason>,
     pub description: Option<String>,
-    pub started_at: DateTime<Local>,
-    pub ended_at: Option<DateTime<Local>>,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

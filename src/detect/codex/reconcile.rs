@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::Local;
+use chrono::Utc;
 
 use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::activity::{Activity, Subagent};
@@ -141,8 +141,8 @@ pub fn reconcile_codex_snapshots(
                 status: subagent.status,
                 reason: subagent.reason.clone(),
                 description: subagent.description.clone(),
-                started_at: Local::now(),
-                ended_at: (subagent.status == PrimaryStatus::Done).then(Local::now),
+                started_at: Utc::now(),
+                ended_at: (subagent.status == PrimaryStatus::Done).then(Utc::now),
             })
             .collect::<Vec<_>>();
 
@@ -193,8 +193,8 @@ pub fn reconcile_codex_snapshots(
                             status: subagent.status,
                             reason: subagent.reason.clone(),
                             description: subagent.description.clone(),
-                            started_at: subagent.started_at.unwrap_or_else(Local::now),
-                            ended_at: (subagent.status == PrimaryStatus::Done).then(Local::now),
+                            started_at: subagent.started_at.unwrap_or_else(Utc::now),
+                            ended_at: (subagent.status == PrimaryStatus::Done).then(Utc::now),
                         },
                     });
                 }

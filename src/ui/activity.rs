@@ -58,7 +58,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
                 let d = ended - sub.started_at;
                 format_duration(d)
             } else {
-                let d = chrono::Local::now() - sub.started_at;
+                let d = chrono::Utc::now() - sub.started_at;
                 format_duration(d)
             };
 
@@ -126,7 +126,7 @@ fn subagent_status_text(subagent: &Subagent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Local;
+    use chrono::Utc;
     use nexus_domain::agents::activity::Subagent;
     use nexus_domain::agents::status::{NormalizedReason, PrimaryStatus};
 
@@ -139,7 +139,7 @@ mod tests {
             status: PrimaryStatus::Waiting,
             reason: Some(NormalizedReason::Approval),
             description: Some("child-a".to_string()),
-            started_at: Local::now(),
+            started_at: Utc::now(),
             ended_at: None,
         };
 
@@ -153,7 +153,7 @@ mod tests {
             status: PrimaryStatus::Running,
             reason: None,
             description: Some("child-a".to_string()),
-            started_at: Local::now(),
+            started_at: Utc::now(),
             ended_at: None,
         };
 

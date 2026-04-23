@@ -130,13 +130,13 @@ fn test_agent_elapsed_time() {
             cwd: Some(std::path::PathBuf::from("/tmp/test")),
             branch: Some("main".to_string()),
             is_worktree: false,
-            started_at: chrono::Local::now() - chrono::Duration::minutes(5),
+            started_at: chrono::Utc::now() - chrono::Duration::minutes(5),
         },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
             Some(Activity::Generating),
-            chrono::Local::now(),
+            chrono::Utc::now(),
         ),
         AgentDetail::new(vec![], std::collections::VecDeque::new(), Vec::new()),
     );
@@ -207,13 +207,13 @@ fn test_display_name_without_alias() {
             cwd: Some(std::path::PathBuf::from("/tmp")),
             branch: None,
             is_worktree: false,
-            started_at: chrono::Local::now(),
+            started_at: chrono::Utc::now(),
         },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
             None,
-            chrono::Local::now(),
+            chrono::Utc::now(),
         ),
         AgentDetail::new(Vec::new(), std::collections::VecDeque::new(), Vec::new()),
     );
@@ -231,13 +231,13 @@ fn test_display_name_with_alias() {
             cwd: Some(std::path::PathBuf::from("/tmp")),
             branch: None,
             is_worktree: false,
-            started_at: chrono::Local::now(),
+            started_at: chrono::Utc::now(),
         },
         AgentLifecycle::new(
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::Working, None),
             None,
-            chrono::Local::now(),
+            chrono::Utc::now(),
         ),
         AgentDetail::new(Vec::new(), std::collections::VecDeque::new(), Vec::new()),
     );
@@ -564,7 +564,7 @@ fn test_agent_model_preserves_alias_elapsed_and_runtime_state() {
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
-    let started_at = chrono::Local::now() - chrono::Duration::minutes(5);
+    let started_at = chrono::Utc::now() - chrono::Duration::minutes(5);
     let agent = Agent::new(
         AgentIdent {
             id: AgentId::new(AgentTool::Claude, 100),
@@ -580,7 +580,7 @@ fn test_agent_model_preserves_alias_elapsed_and_runtime_state() {
             PrimaryStatus::Running,
             NormalizedState::new(NormalizedStatus::NeedsInput, Some(NormalizedReason::Review)),
             Some(Activity::Generating),
-            chrono::Local::now(),
+            chrono::Utc::now(),
         ),
         AgentDetail::new(Vec::new(), VecDeque::new(), Vec::new()),
     );

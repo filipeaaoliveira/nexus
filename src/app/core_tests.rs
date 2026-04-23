@@ -90,7 +90,7 @@ fn visible_agent_indices_refresh_when_sort_changes() {
 #[test]
 fn visible_agents_projects_from_authoritative_agent_store() {
     let mut state = AppState::new();
-    let now = chrono::Local::now();
+    let now = chrono::Utc::now();
     state.agents = vec![
         Agent {
             ident: AgentIdent {
@@ -149,7 +149,7 @@ fn visible_agents_projects_from_authoritative_agent_store() {
 #[test]
 fn visible_agents_applies_filter_without_stored_overview_rows() {
     let mut state = AppState::new();
-    let now = chrono::Local::now();
+    let now = chrono::Utc::now();
     state.agents = vec![
         Agent {
             ident: AgentIdent {

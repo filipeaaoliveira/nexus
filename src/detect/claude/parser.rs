@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tracing::warn;
 
@@ -285,7 +285,7 @@ pub(super) fn last_non_assistant_entry(entries: &[TranscriptEntry]) -> Option<&T
     })
 }
 
-fn transcript_entry_timestamp(entry: &TranscriptEntry) -> Option<DateTime<Local>> {
+fn transcript_entry_timestamp(entry: &TranscriptEntry) -> Option<DateTime<Utc>> {
     match entry {
         TranscriptEntry::User { timestamp, .. }
         | TranscriptEntry::Assistant { timestamp, .. }
@@ -304,7 +304,7 @@ fn transcript_entry_timestamp(entry: &TranscriptEntry) -> Option<DateTime<Local>
 /// Resumed launches keep their full transcript history.
 pub fn transcript_start_index_for_process(
     entries: &[TranscriptEntry],
-    started_at: Option<DateTime<Local>>,
+    started_at: Option<DateTime<Utc>>,
     is_resume_launch: bool,
 ) -> usize {
     if is_resume_launch {

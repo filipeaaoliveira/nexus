@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 
 use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
 use nexus_domain::agents::ids::AgentId;
@@ -19,7 +19,7 @@ pub struct AgentIdent {
     pub cwd: Option<PathBuf>,
     pub branch: Option<String>,
     pub is_worktree: bool,
-    pub started_at: DateTime<Local>,
+    pub started_at: DateTime<Utc>,
 }
 
 /// Mutable lifecycle state that changes as the agent progresses.
@@ -28,7 +28,7 @@ pub struct AgentLifecycle {
     pub(crate) status: PrimaryStatus,
     pub(crate) normalized: NormalizedState,
     pub(crate) activity: Option<Activity>,
-    pub(crate) last_activity: DateTime<Local>,
+    pub(crate) last_activity: DateTime<Utc>,
 }
 
 /// Detail fields collected for the UI detail view, not used in domain logic.
@@ -52,7 +52,7 @@ pub enum ActivityEventKind {
 
 #[derive(Debug, Clone)]
 pub struct ActivityEvent {
-    pub timestamp: DateTime<Local>,
+    pub timestamp: DateTime<Utc>,
     pub kind: ActivityEventKind,
     pub description: String,
 }
@@ -97,7 +97,7 @@ impl AgentLifecycle {
         status: PrimaryStatus,
         normalized: NormalizedState,
         activity: Option<Activity>,
-        last_activity: DateTime<Local>,
+        last_activity: DateTime<Utc>,
     ) -> Self {
         Self {
             status,
@@ -153,7 +153,7 @@ impl Agent {
         self.ident.is_worktree
     }
 
-    pub fn started_at(&self) -> DateTime<Local> {
+    pub fn started_at(&self) -> DateTime<Utc> {
         self.ident.started_at
     }
 }
@@ -173,7 +173,7 @@ impl Agent {
         self.lifecycle.activity
     }
 
-    pub fn last_activity(&self) -> DateTime<Local> {
+    pub fn last_activity(&self) -> DateTime<Utc> {
         self.lifecycle.last_activity
     }
 }
@@ -198,11 +198,11 @@ impl Agent {
 
 impl Agent {
     pub fn elapsed(&self) -> chrono::Duration {
-        Local::now() - self.ident.started_at
+        Utc::now() - self.ident.started_at
     }
 
     pub fn idle_duration(&self) -> chrono::Duration {
-        Local::now() - self.lifecycle.last_activity
+        Utc::now() - self.lifecycle.last_activity
     }
 
     pub fn display_name(&self) -> &str {
@@ -248,7 +248,7 @@ impl Agent {
         self.ident.alias = alias;
     }
 
-    pub fn clamp_started_at(&mut self, real_start: DateTime<Local>) {
+    pub fn clamp_started_at(&mut self, real_start: DateTime<Utc>) {
         if real_start < self.ident.started_at {
             self.ident.started_at = real_start;
         }
@@ -270,7 +270,7 @@ impl Agent {
         self.lifecycle.normalized = state;
     }
 
-    pub fn touch(&mut self, now: DateTime<Local>) {
+    pub fn touch(&mut self, now: DateTime<Utc>) {
         self.lifecycle.last_activity = now;
     }
 }

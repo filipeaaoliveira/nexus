@@ -56,7 +56,7 @@ pub async fn run_opencode_detector(
                 Option<AssistantMessageData>,            // latest assistant message data
                 Vec<TodoItem>,                           // todos
                 Vec<OpenCodeSession>,                    // subagent sessions
-                Option<chrono::DateTime<chrono::Local>>, // process_started_at
+                Option<chrono::DateTime<chrono::Utc>>, // process_started_at
                 Option<PartData>,                        // initial tool call (new sessions only)
             );
             type PollData = (HashSet<String>, Vec<SessionData>);

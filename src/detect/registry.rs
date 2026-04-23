@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use tokio::sync::{mpsc, oneshot};
 
 use nexus_domain::agents::ids::AgentTool;
@@ -11,18 +11,18 @@ type PidList = Vec<u32>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClaudeLaunchInfo {
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
     pub resume_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodexLaunchInfo {
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OpenCodeLaunchInfo {
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 /// All mutable state owned by the registry actor.
@@ -71,7 +71,7 @@ impl RegistrySnapshot {
     }
 
     /// Register Codex launch metadata directly (for testing).
-    pub fn register_codex_launch(&mut self, pid: u32, started_at: Option<DateTime<Local>>) {
+    pub fn register_codex_launch(&mut self, pid: u32, started_at: Option<DateTime<Utc>>) {
         self.state
             .codex_launches
             .insert(pid, CodexLaunchInfo { started_at });
@@ -81,7 +81,7 @@ impl RegistrySnapshot {
     pub fn register_claude_launch(
         &mut self,
         pid: u32,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
         resume_session_id: Option<String>,
     ) {
         self.state.claude_launches.insert(
@@ -94,7 +94,7 @@ impl RegistrySnapshot {
     }
 
     /// Register OpenCode launch metadata directly (for testing).
-    pub fn register_opencode_launch(&mut self, pid: u32, started_at: Option<DateTime<Local>>) {
+    pub fn register_opencode_launch(&mut self, pid: u32, started_at: Option<DateTime<Utc>>) {
         self.state
             .opencode_launches
             .insert(pid, OpenCodeLaunchInfo { started_at });
@@ -168,16 +168,16 @@ enum RegistryCommand {
     },
     RegisterCodexLaunch {
         pid: u32,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
     },
     RegisterClaudeLaunch {
         pid: u32,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
         resume_session_id: Option<String>,
     },
     RegisterOpenCodeLaunch {
         pid: u32,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
     },
     Remove {
         pid: u32,
@@ -416,7 +416,7 @@ impl RegistryHandle {
         }
     }
 
-    pub fn register_codex_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
+    pub fn register_codex_launch(&self, pid: u32, started_at: Option<DateTime<Utc>>) {
         if self
             .tx
             .try_send(RegistryCommand::RegisterCodexLaunch { pid, started_at })
@@ -429,7 +429,7 @@ impl RegistryHandle {
     pub fn register_claude_launch(
         &self,
         pid: u32,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
         resume_session_id: Option<String>,
     ) {
         if self
@@ -445,7 +445,7 @@ impl RegistryHandle {
         }
     }
 
-    pub fn register_opencode_launch(&self, pid: u32, started_at: Option<DateTime<Local>>) {
+    pub fn register_opencode_launch(&self, pid: u32, started_at: Option<DateTime<Utc>>) {
         if self
             .tx
             .try_send(RegistryCommand::RegisterOpenCodeLaunch { pid, started_at })

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 
 use nexus_domain::agents::activity::{Activity, Subagent, TodoItem};
 use nexus_domain::agents::ids::AgentId;
@@ -30,7 +30,7 @@ pub enum AgentEvent {
     Discovered {
         agent: AgentRef,
         cwd: PathBuf,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
     },
     StatusChanged {
         agent: AgentRef,
@@ -77,6 +77,6 @@ pub enum AgentEvent {
         session_id: Option<String>,
         branch: Option<String>,
         is_worktree: bool,
-        started_at: Option<DateTime<Local>>,
+        started_at: Option<DateTime<Utc>>,
     },
 }

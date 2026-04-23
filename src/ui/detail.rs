@@ -103,7 +103,7 @@ pub fn render(frame: &mut Frame, render_data: &RenderData<'_>, area: Rect) {
             lines.push(Line::from(vec![
                 Span::styled("  started: ", Style::default().fg(theme::FG_COMMENT)),
                 Span::styled(
-                    agent.started_at().format("%H:%M:%S").to_string(),
+                    agent.started_at().with_timezone(&chrono::Local).format("%H:%M:%S").to_string(),
                     Style::default().fg(theme::FG_DIMMED),
                 ),
                 Span::styled("  idle: ", Style::default().fg(theme::FG_COMMENT)),

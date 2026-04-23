@@ -90,7 +90,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_agent(tool: AgentTool, pid: u32, is_session: bool) -> Agent {
-        let now = chrono::Local::now();
+        let now = chrono::Utc::now();
         let id = if is_session {
             AgentId::session(tool, &format!("session-{pid}"))
         } else {

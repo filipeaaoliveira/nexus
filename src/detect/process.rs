@@ -1,6 +1,6 @@
 use crate::detect::registry::RegistryHandle;
 use crate::event::{AgentEvent, AgentRef};
-use chrono::{DateTime, Local, NaiveDateTime};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use nexus_domain::agents::ids::AgentId;
 use nexus_domain::agents::ids::AgentTool;
 use nexus_domain::system::DetectorKind;
@@ -18,7 +18,7 @@ pub struct ProcessInfo {
     pub pid: u32,
     pub ppid: Option<u32>,
     pub tool: AgentTool,
-    pub started_at: Option<DateTime<Local>>,
+    pub started_at: Option<DateTime<Utc>>,
     pub codex_thread_id: Option<String>,
     pub claude_resume_session_id: Option<String>,
 }
@@ -132,9 +132,10 @@ pub fn parse_ps_output(output: &str) -> Vec<ProcessInfo> {
                     .ok()
                     .map(|naive| {
                         naive
-                            .and_local_timezone(Local)
+                            .and_local_timezone(chrono::Local)
                             .single()
-                            .unwrap_or_else(Local::now)
+                            .map(|dt| dt.with_timezone(&Utc))
+                            .unwrap_or_else(Utc::now)
                     });
 
             if let Some(tool) = detect_tool_from_command(cmd) {

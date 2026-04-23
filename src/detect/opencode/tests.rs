@@ -1002,7 +1002,7 @@ fn test_collect_subagent_events_filters_subagents_before_process_start() {
         branch: None,
     };
     let process_started_at =
-        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Local));
+        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Utc));
 
     let events = collect_subagent_events(
         &[old_sub],
@@ -1037,7 +1037,7 @@ fn test_collect_subagent_events_allows_subagents_after_process_start() {
         branch: None,
     };
     let process_started_at =
-        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Local));
+        chrono::DateTime::from_timestamp_millis(1000).map(|dt| dt.with_timezone(&chrono::Utc));
 
     let events = collect_subagent_events(
         &[new_sub],

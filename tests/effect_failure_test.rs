@@ -18,7 +18,7 @@ fn profile_store_error_io_wraps_std_io_error() {
 
 #[test]
 fn profile_store_error_other_preserves_context_and_source() {
-    let err = ProfileStoreError::other("loading profile", "sqlite busy");
+    let err = ProfileStoreError::other("loading profile", std::io::Error::other("sqlite busy"));
     let msg = err.to_string();
     assert!(msg.contains("loading profile"));
     assert!(msg.contains("sqlite busy"));

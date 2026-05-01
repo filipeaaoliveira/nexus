@@ -6,12 +6,22 @@ use nexus_domain::agents::ids::AgentTool;
 use nexus_domain::system::DetectorKind;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::process::Output;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 type CwdCache = HashMap<u32, PathBuf>;
+const PROCESS_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessCommandError {
+    #[error("timed out")]
+    TimedOut,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
@@ -317,6 +327,17 @@ fn ps_failure_message(error: &std::io::Error) -> String {
     }
 }
 
+async fn command_output_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+) -> Result<Output, ProcessCommandError> {
+    command.kill_on_drop(true);
+    match tokio::time::timeout(timeout, command.output()).await {
+        Ok(result) => result.map_err(ProcessCommandError::Io),
+        Err(_) => Err(ProcessCommandError::TimedOut),
+    }
+}
+
 pub async fn batch_get_cwds(
     pids: &[u32],
 ) -> (std::collections::HashMap<u32, PathBuf>, Option<String>) {
@@ -330,17 +351,21 @@ pub async fn batch_get_cwds(
         .collect::<Vec<_>>()
         .join(",");
 
-    let output = match Command::new("lsof")
-        .args(["-p", &pid_arg, "-Fn"])
-        .output()
-        .await
-    {
+    let mut command = Command::new("lsof");
+    command.args(["-p", &pid_arg, "-Fn"]);
+    let output = match command_output_with_timeout(&mut command, PROCESS_COMMAND_TIMEOUT).await {
         Ok(o) => o,
-        Err(e) => {
+        Err(ProcessCommandError::Io(e)) => {
             debug!("lsof batch call failed: {e}");
             return (
                 std::collections::HashMap::new(),
                 Some(lsof_failure_message(&e)),
+            );
+        }
+        Err(ProcessCommandError::TimedOut) => {
+            return (
+                std::collections::HashMap::new(),
+                Some("Process scanner degraded: `lsof` timed out.".to_string()),
             );
         }
     };
@@ -357,17 +382,24 @@ pub async fn batch_get_cwds(
 }
 
 async fn scan_processes(cwd_cache: &mut CwdCache) -> ScanProcessesResult {
-    let output = match Command::new("ps")
-        .args(["-eo", "pid,ppid,lstart,command"])
-        .output()
-        .await
-    {
+    let mut command = Command::new("ps");
+    command.args(["-eo", "pid,ppid,lstart,command"]);
+    let output = match command_output_with_timeout(&mut command, PROCESS_COMMAND_TIMEOUT).await {
         Ok(o) => o,
-        Err(e) => {
+        Err(ProcessCommandError::Io(e)) => {
             warn!("Failed to run ps: {e}");
             return ScanProcessesResult {
                 processes: Vec::new(),
                 health: ScannerHealth::Degraded(ps_failure_message(&e)),
+            };
+        }
+        Err(ProcessCommandError::TimedOut) => {
+            warn!("ps timed out");
+            return ScanProcessesResult {
+                processes: Vec::new(),
+                health: ScannerHealth::Degraded(
+                    "Process scanner degraded: `ps` timed out.".to_string(),
+                ),
             };
         }
     };

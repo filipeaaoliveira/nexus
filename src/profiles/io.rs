@@ -1,26 +1,64 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use thiserror::Error;
 
 use super::ProfileMetadata;
+
+#[derive(Debug, Error)]
+pub enum ProfileMetadataError {
+    #[error("failed to read {}: {source}", path.display())]
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("profile metadata corruption in {}: {source}", path.display())]
+    Corrupt {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    #[error("failed to serialize profile metadata for {}: {source}", path.display())]
+    Serialize {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
+    #[error("failed to write {}: {source}", path.display())]
+    Write {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
+pub type Result<T> = std::result::Result<T, ProfileMetadataError>;
 
 pub fn load_profile_metadata(profile_dir: &Path) -> Result<ProfileMetadata> {
     let metadata_path = profile_dir.join("profile.json");
     if !metadata_path.is_file() {
         return Ok(ProfileMetadata::default());
     }
-    let content = fs::read_to_string(&metadata_path)
-        .with_context(|| format!("failed to read {}", metadata_path.display()))?;
-    serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", metadata_path.display()))
+    let content =
+        fs::read_to_string(&metadata_path).map_err(|source| ProfileMetadataError::Read {
+            path: metadata_path.clone(),
+            source,
+        })?;
+    serde_json::from_str(&content).map_err(|source| ProfileMetadataError::Corrupt {
+        path: metadata_path,
+        source,
+    })
 }
 
 pub fn save_profile_metadata(profile_dir: &Path, metadata: &ProfileMetadata) -> Result<()> {
     let metadata_path = profile_dir.join("profile.json");
-    let content = serde_json::to_string_pretty(metadata)?;
-    fs::write(&metadata_path, content)
-        .with_context(|| format!("failed to write {}", metadata_path.display()))
+    let content = serde_json::to_string_pretty(metadata).map_err(|source| {
+        ProfileMetadataError::Serialize {
+            path: metadata_path.clone(),
+            source,
+        }
+    })?;
+    fs::write(&metadata_path, content).map_err(|source| ProfileMetadataError::Write {
+        path: metadata_path,
+        source,
+    })
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ jobs:
     name: fmt + clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # rustup show reads rust-toolchain.toml — toolchain version is managed there.
       - name: Install Rust toolchain
         run: rustup show
@@ -33,7 +33,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
@@ -48,7 +48,7 @@ jobs:
       matrix:
         os: [macos-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
@@ -59,16 +59,18 @@ jobs:
     name: doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust toolchain
         run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: doc
-        run: cargo doc --no-deps --locked
+        run: cargo doc --no-deps --locked --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   deny:
     name: deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2

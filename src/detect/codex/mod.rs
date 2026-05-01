@@ -8,6 +8,25 @@ use crate::event::AgentEvent;
 
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod test_exports {
+    pub(super) use super::normalization::normalize_codex_session;
+    pub(super) use super::reconcile::reconcile_codex_snapshots;
+    pub(super) use super::rollout::{
+        extract_plan_todos, extract_session_meta, extract_subagent_spawns, extract_tool_calls,
+        infer_rollout_status, parse_rollout, parse_session_index,
+    };
+    pub(super) use super::snapshot::{
+        build_codex_event_snapshot, build_codex_snapshot, detect_codex_backend,
+        detect_codex_backend_with_history,
+    };
+    pub(super) use super::sqlite::parse_source_field;
+    pub(super) use super::types::{
+        CodexEventSnapshot, CodexInferredStatus, CodexSnapshot, CodexThread,
+        CodexThreadClassification, ObservedCodexSession, ObservedCodexSubagent,
+        ObservedCodexThread, ObservedToolCall, SpawnEdge,
+    };
+}
 pub(crate) mod normalization;
 pub(crate) mod pid_binding;
 pub(crate) mod reconcile;
@@ -16,24 +35,11 @@ mod snapshot;
 mod sqlite;
 mod types;
 
-#[cfg(test)]
-pub use normalization::normalize_codex_session;
-#[cfg(test)]
-pub(crate) use pid_binding::codex_pid_for_thread;
-#[allow(hidden_glob_reexports)]
 use reconcile::reconcile_codex_snapshots;
-#[cfg(test)]
-pub use rollout::*;
 pub use rollout::{parse_rollout, parse_session_index};
-#[allow(hidden_glob_reexports)]
 use snapshot::detect_codex_backend_with_history;
-#[cfg(test)]
-pub use snapshot::*;
 pub use sqlite::parse_source_field;
-#[allow(hidden_glob_reexports)]
 use types::CodexEventSnapshot;
-#[cfg(test)]
-pub use types::*;
 
 const CONSERVATIVE_PID_BINDING_WINDOW_SECS: i64 = 300;
 const SAME_CWD_MULTI_BIND_MAX_SKEW_SECS: i64 = 90;
@@ -87,11 +93,13 @@ pub async fn run_codex_detector(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_codex_event_snapshot, codex_pid_for_thread, load_spawn_edges_snapshot,
-        snapshot_child_threads_by_parent, CodexEventSnapshot, CodexSnapshot, CodexThread,
-        CodexThreadClassification, ObservedCodexSession, ObservedCodexSubagent,
-        ObservedCodexThread,
+    use super::pid_binding::codex_pid_for_thread;
+    use super::snapshot::{
+        build_codex_event_snapshot, load_spawn_edges_snapshot, snapshot_child_threads_by_parent,
+    };
+    use super::types::{
+        CodexEventSnapshot, CodexSnapshot, CodexThread, CodexThreadClassification,
+        ObservedCodexSession, ObservedCodexSubagent, ObservedCodexThread,
     };
     use crate::detect::codex::reconcile::reconcile_codex_snapshots;
     use crate::detect::registry::RegistrySnapshot;

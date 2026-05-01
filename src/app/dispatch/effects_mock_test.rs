@@ -96,14 +96,14 @@ impl ProfileStore for MockProfileStore {
     fn import_from_home(&self, _home: &Path) -> StoreResult<DomainProfile> {
         Err(ProfileStoreError::Other {
             context: "not implemented".to_string(),
-            source: "mock".into(),
+            source: anyhow::anyhow!("mock"),
         })
     }
 
     fn write_to_home(&self, _profile_id: &str, _home: &Path) -> StoreResult<()> {
         Err(ProfileStoreError::Other {
             context: "not implemented".to_string(),
-            source: "mock".into(),
+            source: anyhow::anyhow!("mock"),
         })
     }
 

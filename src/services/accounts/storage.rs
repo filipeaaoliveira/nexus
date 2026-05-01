@@ -17,25 +17,17 @@ pub enum ProfileStoreError {
     Other {
         context: String,
         #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: anyhow::Error,
     },
 }
 
 pub type StoreResult<T> = Result<T, ProfileStoreError>;
 
 impl ProfileStoreError {
-    pub fn other(context: impl std::fmt::Display, source: impl std::fmt::Display) -> Self {
-        #[derive(Debug)]
-        struct StringError(String);
-        impl std::fmt::Display for StringError {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
-        impl std::error::Error for StringError {}
+    pub fn other(context: impl std::fmt::Display, source: impl Into<anyhow::Error>) -> Self {
         Self::Other {
             context: context.to_string(),
-            source: Box::new(StringError(source.to_string())),
+            source: source.into(),
         }
     }
 }
@@ -237,7 +229,7 @@ pub fn save_profile_edits(
         created_at: existing_created_at,
         updated_at: Some(Utc::now()),
     };
-    profile_io::save_profile_metadata(profile_dir, &metadata)
+    Ok(profile_io::save_profile_metadata(profile_dir, &metadata)?)
 }
 
 pub fn delete_profile_dir(profile_dir: &Path) -> Result<()> {

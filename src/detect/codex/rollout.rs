@@ -232,7 +232,7 @@ pub fn extract_plan_todos(events: &[RolloutEvent]) -> Vec<TodoItem> {
         .unwrap_or_default()
 }
 
-pub(super) fn is_running_rollout_event(event: &RolloutEvent) -> bool {
+pub(crate) fn is_running_rollout_event(event: &RolloutEvent) -> bool {
     if event.event_type == "event_msg"
         && event.payload.get("type").and_then(|v| v.as_str()) == Some("task_started")
     {

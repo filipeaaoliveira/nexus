@@ -58,7 +58,7 @@ pub mod testing {
 
     // ── Profiles: shared ─────────────────────────────────────────
     pub use crate::profiles::StoredProfile;
-    pub use crate::profiles::{io as profile_io, ProfileMetadata};
+    pub use crate::profiles::{io as profile_io, io::ProfileMetadataError, ProfileMetadata};
 
     // ── Profiles: Codex ────────────────────────────────────────
     pub use crate::codex_profiles::profile::{

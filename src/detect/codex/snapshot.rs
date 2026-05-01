@@ -100,7 +100,7 @@ pub fn build_codex_snapshot(
 }
 
 #[cfg(test)]
-pub(super) fn load_spawn_edges_snapshot(db_path: &Path) -> Vec<SpawnEdge> {
+pub fn load_spawn_edges_snapshot(db_path: &Path) -> Vec<SpawnEdge> {
     match query_all_spawn_edges(db_path) {
         Ok(edges) => edges,
         Err(error) => {
@@ -204,7 +204,7 @@ pub fn detect_codex_backend_with_history(
     }
 }
 
-pub(super) fn snapshot_child_threads_by_parent(
+pub fn snapshot_child_threads_by_parent(
     snapshot: &CodexSnapshot,
 ) -> HashMap<String, Vec<ObservedCodexThread>> {
     let mut grouped = HashMap::new();

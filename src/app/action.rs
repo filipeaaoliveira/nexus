@@ -5,8 +5,10 @@ use nexus_domain::agents::ids::AgentId;
 use crate::event::AgentEvent;
 
 use super::effect::EffectResult;
+#[cfg(test)]
+use super::state::EditableProfile;
+use super::state::Workflow;
 use super::state::{AccountsConfirmAction, AccountsMode};
-use super::state::{EditableProfile, Workflow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -52,9 +54,7 @@ pub enum AccountsAction {
     SetProviderFilter(ProviderFilter),
     StartFiltering,
     UpdateFilter(String),
-    /// Used in tests to set up editing state directly. Kept unconditional
-    /// so the binary shape is identical between test and production builds.
-    #[allow(dead_code)]
+    #[cfg(test)]
     StartEditing(EditableProfile),
     UpdateEditBuffer(String),
     ToggleEnabled,

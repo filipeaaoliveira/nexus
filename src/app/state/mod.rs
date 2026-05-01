@@ -8,7 +8,7 @@ pub use accounts::{
     EditableProfile,
 };
 pub use overview::{OverviewMode, OverviewState};
-#[allow(unused_imports)]
+#[cfg(test)]
 pub use system::DetectorHealth;
 pub use system::{Overlay, SystemState, Workflow};
 pub use workspace::{Workspace, WorkspaceState};

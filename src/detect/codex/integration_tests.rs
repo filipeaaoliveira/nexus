@@ -1,4 +1,4 @@
-use crate::detect::codex::*;
+use super::test_exports::*;
 use crate::detect::registry::RegistrySnapshot;
 use crate::event::{AgentEvent, AgentRef};
 use nexus_domain::agents::{

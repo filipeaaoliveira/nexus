@@ -1,8 +1,11 @@
 use super::{
-    extract_claude_resume_session, parse_lsof_cwd, parse_ps_output as parse_ps_output_impl,
+    command_output_with_timeout, extract_claude_resume_session, parse_lsof_cwd,
+    parse_ps_output as parse_ps_output_impl, ProcessCommandError,
 };
 use nexus_domain::agents::AgentTool;
 use std::path::PathBuf;
+use std::time::Duration;
+use tokio::process::Command;
 
 #[test]
 fn parse_ps_output() {
@@ -195,4 +198,14 @@ fn test_parse_ps_output_no_lstart_fallback() {
     let procs = parse_ps_output_impl(output);
     assert_eq!(procs.len(), 1);
     assert!(procs[0].started_at.is_none());
+}
+
+#[tokio::test]
+async fn process_command_timeout_returns_promptly() {
+    let mut command = Command::new("sh");
+    command.args(["-c", "sleep 2"]);
+
+    let result = command_output_with_timeout(&mut command, Duration::from_millis(50)).await;
+
+    assert!(matches!(result, Err(ProcessCommandError::TimedOut)));
 }

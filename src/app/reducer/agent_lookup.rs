@@ -28,45 +28,66 @@ pub fn find_process_agent(agents: &mut [Agent], tool: AgentTool, pid: u32) -> Op
 }
 
 /// Indices of live session-type agents matching tool + pid + cwd.
+///
+/// When `incoming` carries a concrete session id, entries bound to a
+/// *different* session id are excluded so that distinct sessions sharing the
+/// same codex PID/cwd (e.g. after `/clear`) are not merged into one another.
+/// Placeholder agents without a session id remain enrichable.
 pub fn session_indices_by_pid(
     agents: &[Agent],
-    tool: AgentTool,
+    incoming: &AgentId,
     pid: u32,
     cwd: &Path,
 ) -> Vec<usize> {
+    let incoming_session_id = incoming.session_id();
     agents
         .iter()
         .enumerate()
         .filter(|(_, a)| {
-            a.id().tool() == tool
+            a.id().tool() == incoming.tool()
                 && a.id().is_session()
                 && a.pid() == Some(pid)
                 && a.status() != PrimaryStatus::Exited
                 && (a.cwd().is_none() || a.cwd() == Some(cwd))
+                && session_id_matches(a.id().session_id(), incoming_session_id)
         })
         .map(|(idx, _)| idx)
         .collect()
 }
 
 /// Indices of exited session-type agents matching tool + pid + cwd.
+///
+/// Same session-id discipline as [`session_indices_by_pid`]: distinct sessions
+/// sharing a PID are never co-mingled.
 pub fn exited_session_indices_by_pid(
     agents: &[Agent],
-    tool: AgentTool,
+    incoming: &AgentId,
     pid: u32,
     cwd: &Path,
 ) -> Vec<usize> {
+    let incoming_session_id = incoming.session_id();
     agents
         .iter()
         .enumerate()
         .filter(|(_, a)| {
-            a.id().tool() == tool
+            a.id().tool() == incoming.tool()
                 && a.id().is_session()
                 && a.pid() == Some(pid)
                 && a.status() == PrimaryStatus::Exited
                 && a.cwd() == Some(cwd)
+                && session_id_matches(a.id().session_id(), incoming_session_id)
         })
         .map(|(idx, _)| idx)
         .collect()
+}
+
+/// A stored agent matches the incoming id when either side is a placeholder
+/// without a session id, or when both session ids are equal.
+fn session_id_matches(existing: Option<&str>, incoming: Option<&str>) -> bool {
+    match (existing, incoming) {
+        (Some(existing), Some(incoming)) => existing == incoming,
+        _ => true,
+    }
 }
 
 /// Remove all process-type Codex agents with the given pid.
@@ -151,7 +172,74 @@ mod tests {
             make_agent(AgentTool::Codex, 1, true),
         ];
         agents[1].set_status(PrimaryStatus::Exited);
-        let indices = session_indices_by_pid(&agents, AgentTool::Codex, 1, Path::new("/tmp/test"));
+        let incoming = AgentId::session(AgentTool::Codex, "session-1");
+        let indices = session_indices_by_pid(&agents, &incoming, 1, Path::new("/tmp/test"));
         assert_eq!(indices, vec![0]);
+    }
+
+    #[test]
+    fn session_indices_excludes_agents_with_different_session_id() {
+        let agents = vec![
+            make_session_agent(AgentTool::Codex, 1, "old-thread"),
+            make_session_agent(AgentTool::Codex, 1, "new-thread"),
+        ];
+        let incoming = AgentId::session(AgentTool::Codex, "new-thread");
+        let indices = session_indices_by_pid(&agents, &incoming, 1, Path::new("/tmp/test"));
+        assert_eq!(indices, vec![1]);
+    }
+
+    #[test]
+    fn exited_session_indices_respect_session_id() {
+        // The live helper is the one the reducer hits today, but the exited
+        // variant shares the filter; locking the semantics here prevents a
+        // future caller from regressing the `/clear` discipline.
+        let mut agents = vec![
+            make_session_agent(AgentTool::Codex, 1, "old-thread"),
+            make_session_agent(AgentTool::Codex, 1, "new-thread"),
+        ];
+        for agent in &mut agents {
+            agent.set_status(PrimaryStatus::Exited);
+        }
+        let incoming = AgentId::session(AgentTool::Codex, "new-thread");
+        let indices = exited_session_indices_by_pid(&agents, &incoming, 1, Path::new("/tmp/test"));
+        assert_eq!(indices, vec![1]);
+    }
+
+    #[test]
+    fn session_indices_allow_process_id_to_enrich_any_session_agent() {
+        // The process scanner emits `Discovered` with a process-type id.  It
+        // should still match the existing codex session agent so enrichment
+        // (setting cwd/pid/started_at) works, regardless of the session id.
+        let agents = vec![make_session_agent(AgentTool::Codex, 1, "thread-x")];
+        let incoming = AgentId::new(AgentTool::Codex, 1);
+        let indices = session_indices_by_pid(&agents, &incoming, 1, Path::new("/tmp/test"));
+        assert_eq!(indices, vec![0]);
+    }
+
+    fn make_session_agent(tool: AgentTool, pid: u32, session_id: &str) -> Agent {
+        let now = chrono::Utc::now();
+        Agent {
+            ident: AgentIdent {
+                id: AgentId::session(tool, session_id),
+                pid: Some(pid),
+                session_id: Some(session_id.to_string()),
+                alias: None,
+                cwd: Some(PathBuf::from("/tmp/test")),
+                branch: None,
+                is_worktree: false,
+                started_at: now,
+            },
+            lifecycle: AgentLifecycle {
+                status: PrimaryStatus::Running,
+                normalized: NormalizedState::new(NormalizedStatus::Unknown, None),
+                activity: None,
+                last_activity: now,
+            },
+            detail: AgentDetail {
+                subagents: Vec::new(),
+                recent_events: VecDeque::new(),
+                todos: Vec::new(),
+            },
+        }
     }
 }

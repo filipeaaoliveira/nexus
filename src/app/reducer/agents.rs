@@ -314,7 +314,10 @@ fn reduce_process_exited(
         return;
     }
 
-    // Codex process agents: remove process entries, mark session entries exited
+    // Codex process agents: remove process entries, mark session entries exited.
+    // This intentionally matches every codex agent bound to the dying pid —
+    // when the process exits, every thread it hosted (including threads from
+    // past `/clear` cycles) is exited together.
     if id.tool() == AgentTool::Codex && id.is_process() {
         let pid = pid.or_else(|| id.pid());
 
@@ -405,7 +408,7 @@ fn reduce_discovered(
     if id.tool() == AgentTool::Codex {
         if let Some(pid_val) = pid {
             let matching_agent_indices =
-                agent_lookup::session_indices_by_pid(agents, id.tool(), pid_val, cwd);
+                agent_lookup::session_indices_by_pid(agents, id, pid_val, cwd);
             if matching_agent_indices.len() > 1 {
                 for agent_idx in matching_agent_indices {
                     let agent = &mut agents[agent_idx];
@@ -437,7 +440,7 @@ fn reduce_discovered(
 
             if id.is_process() {
                 let exited_agent_indices =
-                    agent_lookup::exited_session_indices_by_pid(agents, id.tool(), pid_val, cwd);
+                    agent_lookup::exited_session_indices_by_pid(agents, id, pid_val, cwd);
                 if !exited_agent_indices.is_empty() {
                     for agent_idx in exited_agent_indices {
                         let agent = &mut agents[agent_idx];

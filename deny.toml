@@ -2,7 +2,12 @@
 version = 2
 # Deny crates with known security advisories. Add entries to `ignore` only
 # for accepted risks with an explanation.
-ignore = []
+ignore = [
+    # ratatui 0.29 depends on paste. RustSec reports paste as unmaintained,
+    # with no safe upgrade available. Accepted until ratatui removes or
+    # replaces the transitive dependency.
+    "RUSTSEC-2024-0436",
+]
 
 [licenses]
 version = 2
@@ -17,6 +22,9 @@ allow = [
     "Unicode-DFS-2016",
     "OpenSSL",
     "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+    "Zlib",
 ]
 
 [bans]

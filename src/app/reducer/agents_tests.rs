@@ -137,6 +137,34 @@ fn reduce_status_changed_updates_agent_status() {
 }
 
 #[test]
+fn reduce_discovered_keeps_sessions_separate_when_pid_is_reused() {
+    // After `codex /clear`, Codex assigns a new thread id while the OS process
+    // keeps its PID and cwd.  The reducer must not merge the new session into
+    // the previous one; both should remain visible as independent agents.
+    let existing = make_codex_session_agent(50, "old-thread", PrimaryStatus::Running);
+    let cwd = existing.cwd().unwrap().to_path_buf();
+    let mut agents = vec![existing];
+    let mut overview = OverviewState {
+        selected_index: Some(0),
+        ..Default::default()
+    };
+    let mut system = SystemState::default();
+    let now = Utc::now();
+
+    let event = AgentEvent::Discovered {
+        agent: AgentRef::new(AgentId::session(AgentTool::Codex, "new-thread"), Some(50)),
+        cwd,
+        started_at: None,
+    };
+
+    reduce(&mut agents, &mut overview, &mut system, &event, now);
+
+    assert_eq!(agents.len(), 2);
+    assert_eq!(agents[0].id().session_id(), Some("old-thread"));
+    assert_eq!(agents[1].id().session_id(), Some("new-thread"));
+}
+
+#[test]
 fn reduce_process_exited_marks_session_agent_exited() {
     let mut agents = vec![make_codex_session_agent(
         50,

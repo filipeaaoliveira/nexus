@@ -8,6 +8,7 @@ Each release should:
 
 - point users at a stable Git tag instead of asking them to trust a moving `main`
 - have human-readable release notes
+- attach pre-built Linux and macOS binary archives
 - match the commands and behavior maintainers actually verified
 - leave a clear audit trail in the changelog and Git history
 
@@ -61,7 +62,7 @@ Do not over-theorize versioning. The main requirement is that tags communicate c
 
 ## Tagging
 
-Use annotated tags.
+Use annotated tags. Pushing a tag matching `v*.*.*` starts the release workflow, which builds binary archives and creates or updates the matching GitHub Release.
 
 Example:
 
@@ -72,28 +73,34 @@ git push origin v0.3.0
 
 Annotated tags are preferable because they carry release intent and are better artifacts for public distribution than lightweight tags.
 
-## GitHub Release Notes
+## Release Workflow
 
-After pushing the tag:
+The release workflow lives at `.github/workflows/release.yml`.
 
-1. create a GitHub release for the tag
-2. use the changelog entry as the basis for release notes
-3. summarize major user-facing changes near the top
-4. call out known limitations if they materially affect first-time users
+On a pushed `v*.*.*` tag, it:
 
-Do not make GitHub release notes say something broader than the changelog says.
+1. checks out the tagged revision
+2. builds `cargo build --release --locked` on Ubuntu and macOS runners
+3. packages the binary with `README.md`, `LICENSE`, and `CHANGELOG.md`
+4. uploads a Linux archive named with the runner host triple
+5. uploads a macOS archive named with the runner host triple
+6. creates or updates the GitHub Release for the tag
+
+Release notes are extracted from the matching `CHANGELOG.md` section. For tag `v0.3.0`, the workflow looks for `## [0.3.0]`. If that section is missing, it creates a minimal fallback note pointing readers to the changelog.
+
+The workflow can also be run manually with `workflow_dispatch` by entering an existing tag name such as `v0.3.0`.
+
+Do not make release notes say something broader than the changelog says.
 
 ## README Alignment
 
-Once tagged releases exist, revisit the install guidance.
+README install guidance should match the maintained distribution channels:
 
-Preferred progression:
+- GitHub Release archives for tagged builds
+- source build for users who want to build locally
+- `cargo install --git` as a supported convenience path
 
-- current state: source build or `cargo install --git`
-- after reliable tagging: recommend tagged installs rather than a moving `main`
-- only recommend additional distribution channels after they are actually maintained
-
-The docs should describe the release story the project truly has, not the one it hopes to have later.
+Only recommend additional distribution channels after they are actually maintained.
 
 ## Suggested Release Checklist
 
@@ -105,7 +112,8 @@ The docs should describe the release story the project truly has, not the one it
 - [ ] README and public docs match current behavior
 - [ ] annotated tag created
 - [ ] tag pushed
-- [ ] GitHub release created from changelog notes
+- [ ] release workflow completed successfully
+- [ ] GitHub Release exists with Linux and macOS archives
 
 ## After Release
 

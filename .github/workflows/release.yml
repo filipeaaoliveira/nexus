@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, e.g. v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      # rustup show reads rust-toolchain.toml; toolchain version is managed there.
+      - name: Install Rust toolchain
+        run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Package archive
+        run: |
+          set -euo pipefail
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          archive="nexus-${RELEASE_TAG}-${target}"
+          mkdir -p "dist/${archive}"
+          cp target/release/nexus "dist/${archive}/nexus"
+          cp README.md LICENSE CHANGELOG.md "dist/${archive}/"
+          tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexus-${{ matrix.os }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Prepare release notes
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          awk -v version="$version" '
+            $0 == "## [" version "]" || index($0, "## [" version "] - ") == 1 {
+              in_section = 1
+              print
+              next
+            }
+            in_section && index($0, "## [") == 1 {
+              exit
+            }
+            in_section {
+              print
+            }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            {
+              echo "nexus ${RELEASE_TAG}"
+              echo
+              echo "See CHANGELOG.md for release history."
+            } > release-notes.md
+          fi
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "nexus ${RELEASE_TAG}" \
+              --notes-file release-notes.md
+            gh release upload "$RELEASE_TAG" dist/*.tar.gz --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.tar.gz \
+              --title "nexus ${RELEASE_TAG}" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi

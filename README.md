@@ -214,7 +214,7 @@ The `I` keybinding imports Claude credentials into a new profile.
 
 Quota data in the `Accounts` workspace is best-effort.
 
-It may come from API-backed refreshes, parsing, cached values, or be unavailable. The underlying model tracks confidence, but the current UI does not surface those confidence states yet.
+It may come from API-backed refreshes, parsing, cached values, or be unavailable. The `Accounts` detail view shows the confidence state for the current quota snapshot, and non-exact quota rows are prefixed with `~`.
 
 Quota should not be treated as authoritative billing or quota truth.
 

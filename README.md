@@ -66,11 +66,11 @@ nexus
 
 CI validates locked build, lint, test, and release-build workflows. Tagged releases additionally build and attach macOS/Linux binary archives.
 `cargo install --git` is supported, but it is not currently a dedicated CI smoke-test path.
-The repository is kept `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --locked`, and `cargo build --release --locked` clean on the main tree.
+The repository is kept `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --locked`, `cargo build --release --locked`, and `cargo deny check` clean on the main tree.
 
 ## Requirements
 
-- Rust `1.94`
+- Rust `1.94.1`
 - macOS or Linux
 - An interactive terminal
 - `ps` — used for process detection (standard on macOS and Linux)

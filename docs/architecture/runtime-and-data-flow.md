@@ -10,7 +10,7 @@ The startup order is deliberate:
 
 1. parse CLI arguments with `clap`
 2. build `Config` from CLI plus platform defaults
-3. run one-time migration of old data/log directories
+3. build runtime paths from CLI and platform defaults
 4. initialize tracing to a log file
 5. reject non-interactive terminal startup
 6. install a panic hook that restores the terminal
@@ -157,7 +157,7 @@ Normal shutdown happens when:
 - the user presses quit
 - the loop breaks due to a termination signal on Unix
 
-Background tasks are mostly fire-and-forget. They are not drained with explicit cancellation tokens. Instead, the current design relies on the tokio runtime dropping on process exit, which aborts in-flight work.
+Runtime-owned background tasks receive cancellation tokens. Quit handling and the Unix termination-signal handler cancel the root token, and child tasks can wind down before the runtime task handles are dropped. Dropping those handles still aborts any task that did not exit, so cancellation is the primary path and abort-on-drop is the fallback.
 
 That is acceptable here because:
 
@@ -165,7 +165,7 @@ That is acceptable here because:
 - most background work is observation or best-effort quota refresh
 - the app does not own a durable background job queue that needs graceful draining
 
-It is still a trade-off. If the application gains more consequential background side effects later, shutdown coordination will need to become more explicit.
+It is still a trade-off. If the application gains more consequential background side effects later, shutdown coordination will need stronger completion guarantees than token cancellation plus abort-on-drop.
 
 ## Where To Be Careful
 

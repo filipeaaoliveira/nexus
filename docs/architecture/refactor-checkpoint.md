@@ -34,12 +34,12 @@ The target is a professional Rust application architecture with clear dependency
 
 ### Core architectural goals
 
-- `domain/` owns domain model and shared concepts
+- `crates/nexus-domain/` owns domain model and shared concepts
 - `app/` owns semantic actions, reducers, root state, and effect/result flow
 - `services/` owns external integration and side effects
 - `ui/` owns rendering only
 - `input/` owns key-to-intent translation only
-- `infra/` owns bootstrap concerns such as config and migration
+- `src/config.rs` owns CLI/default runtime configuration
 
 ### Product-model goals
 
@@ -62,6 +62,13 @@ The target is a professional Rust application architecture with clear dependency
 The intended architecture is:
 
 ```text
+crates/
+  nexus-domain/
+    src/
+      agents/
+      accounts/
+      system/
+      shared/
 src/
   app/
     action.rs
@@ -69,26 +76,21 @@ src/
     state.rs
     reducer/
     dispatch/
-  domain/
-    agents/
-    accounts/
-    system/
-    shared/
   services/
-    detect/
     accounts/
     runtime/
+  detect/
   ui/
     overview/
     accounts/
     shared/
   input/
-  infra/
+  config.rs
 ```
 
 ### Architectural rules
 
-- `domain/` must not depend on ratatui, crossterm, tokio, clap, filesystem APIs, or networking
+- `crates/nexus-domain/` must not depend on ratatui, crossterm, tokio, clap, filesystem APIs, or networking
 - reducers decide what should happen
 - services perform operational work
 - render code does not mutate application behavior
@@ -109,15 +111,16 @@ The refactor is no longer theoretical. A large amount of the target architecture
 ### Domain extraction
 
 - the old `src/types.rs` compatibility layer has been removed
-- domain types now live under `src/domain/agents`, `src/domain/accounts`, `src/domain/system`, and `src/domain/shared`
-- time/duration helpers now live in `src/domain/shared/time.rs`
+- domain types now live under `crates/nexus-domain/src/agents`, `crates/nexus-domain/src/accounts`, `crates/nexus-domain/src/system`, and `crates/nexus-domain/src/shared`
+- domain time parsing helpers now live in `crates/nexus-domain/src/shared/time.rs`
+- UI duration formatting helpers live in `src/ui/shared/format.rs`
 - boundary tests exist to stop the old `types` shim from coming back
 
 ### Runtime and bootstrap cleanup
 
 - runtime bootstrapping moved into `src/services/runtime/`
 - terminal lifecycle and panic restoration now live in dedicated runtime modules
-- legacy path migration moved into `src/infra/config.rs`
+- CLI/default path configuration lives in `src/config.rs`
 - `src/main.rs` has been reduced back toward a thin entrypoint
 
 ### Input architecture
@@ -216,5 +219,3 @@ Avoid:
 - [App State And Events](app-state-and-events.md)
 - [UI And Interaction](ui-and-interaction.md)
 - [Codex And Claude Profiles](codex-and-claude-profiles.md)
-- [Architecture Refactor Design Spec](../superpowers/specs/2026-04-11-architecture-refactor-design.md)
-- [Architecture Refactor Plan](../superpowers/plans/2026-04-11-architecture-refactor.md)

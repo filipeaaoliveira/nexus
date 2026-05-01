@@ -18,7 +18,7 @@ At a high level, `nexus` is a single-process Rust TUI application that combines:
 The binary is not a client/server system. There is no internal RPC layer, no daemon, and no separate renderer process. Everything happens inside one terminal process:
 
 1. `main.rs` parses CLI arguments, builds `Config`, and hands control to the runtime service
-2. `src/infra/config.rs` runs one-time legacy path migration
+2. `src/config.rs` builds runtime paths from CLI and platform defaults
 3. `src/services/runtime/logging.rs` initializes tracing to a log file
 4. `src/services/runtime/terminal.rs` validates the terminal, installs panic restoration, and initializes the TUI
 5. detectors are spawned and begin emitting `AgentEvent` values

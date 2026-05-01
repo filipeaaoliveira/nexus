@@ -26,6 +26,7 @@ Run the full verification set:
 cargo test --locked
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release --locked
+cargo deny check
 ```
 
 If the release changes docs or contributor-facing behavior in meaningful ways, do a manual sanity pass on:
@@ -109,6 +110,7 @@ Only recommend additional distribution channels after they are actually maintain
 - [ ] `cargo test --locked` passes
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes
 - [ ] `cargo build --release --locked` passes
+- [ ] `cargo deny check` passes
 - [ ] README and public docs match current behavior
 - [ ] annotated tag created
 - [ ] tag pushed

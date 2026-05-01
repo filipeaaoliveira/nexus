@@ -13,9 +13,10 @@ Required checks:
 
 ```bash
 cargo check --locked
-cargo fmt --all
+cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --locked
+cargo deny check
 ```
 
 ## Development setup
@@ -27,6 +28,8 @@ cargo build --locked
 ```
 
 The project is currently maintained and tested on macOS and Linux. If you change process detection, terminal lifecycle handling, or filesystem behavior, verify the change on at least one supported platform beyond your local happy path.
+
+`cargo deny check` is also enforced in CI. If you change dependencies, update `deny.toml` intentionally instead of adding broad ignores.
 
 ## Scope expectations
 

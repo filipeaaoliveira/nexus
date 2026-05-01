@@ -2,6 +2,8 @@
 
 Terminal dashboard and monitor for local AI coding agents, with partial account-management surfaces for Codex and Claude profiles.
 
+![nexus terminal dashboard demo](docs/assets/nexus-demo.gif)
+
 `nexus` now combines two workspaces in one TUI:
 
 - `Overview`: passive monitoring for local agent sessions

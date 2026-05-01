@@ -19,20 +19,24 @@ allow = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
-    "OpenSSL",
-    "CC0-1.0",
     "CDLA-Permissive-2.0",
     "MPL-2.0",
     "Zlib",
 ]
 
 [bans]
-# Warn rather than deny on duplicate dependency versions; unavoidable in
-# complex trees (e.g. tokio ecosystem). Tighten to "deny" if/when the tree
-# is clean enough to enforce it.
-multiple-versions = "warn"
+multiple-versions = "deny"
 wildcards = "deny"
+skip = [
+    { crate = "getrandom@0.2.17", reason = "Transitive via ring/rustls; kept until upstream moves to newer getrandom." },
+    { crate = "hashbrown@0.14.5", reason = "Transitive via rusqlite/hashlink; ratatui uses a newer hashbrown." },
+    { crate = "linux-raw-sys@0.4.15", reason = "Target-specific transitive via crossterm/rustix 0.38." },
+    { crate = "rustix@0.38.44", reason = "Transitive via crossterm; tempfile uses rustix 1.x." },
+    { crate = "unicode-width@0.1.14", reason = "Transitive via ratatui/unicode-truncate; ratatui also uses unicode-width 0.2." },
+]
+skip-tree = [
+    { crate = "windows-sys", reason = "Target-specific transitive crate with multiple major versions across rustls, rustix, and tokio ecosystem dependencies." },
+]
 
 [sources]
 unknown-registry = "deny"

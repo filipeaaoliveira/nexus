@@ -28,7 +28,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
       # rustup show reads rust-toolchain.toml; toolchain version is managed there.
@@ -46,7 +46,7 @@ jobs:
           cp target/release/nexus "dist/${archive}/nexus"
           cp README.md LICENSE CHANGELOG.md "dist/${archive}/"
           tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: nexus-${{ matrix.os }}
           path: dist/*.tar.gz
@@ -57,10 +57,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true

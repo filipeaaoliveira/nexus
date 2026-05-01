@@ -989,7 +989,7 @@ dependencies = [
 
 [[package]]
 name = "nexus"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1015,7 +1015,7 @@ dependencies = [
 
 [[package]]
 name = "nexus-domain"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",

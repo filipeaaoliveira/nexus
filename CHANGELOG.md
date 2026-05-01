@@ -7,7 +7,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-04-10
+## [0.1.0] - 2026-04-10
 
 ### Added
 - Claude accounts tab: import, manage, and switch Claude profiles alongside Codex profiles
@@ -26,6 +26,3 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Panic hook now restores terminal state before propagating, preventing broken terminal on crash
 - Credential import no longer uses a predictable fixed temp file path
 
-## [0.1.0] - 2026-04-08
-
-Initial release. Core two-workspace model: passive agent monitor (`Overview`) and profile management surface (`Accounts`).

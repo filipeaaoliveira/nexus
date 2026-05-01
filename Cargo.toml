@@ -3,7 +3,7 @@ members = [".", "crates/nexus-domain"]
 
 [package]
 name = "nexus"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.94"
 description = "Terminal dashboard for monitoring and managing AI coding agents (Claude, Codex, OpenCode)"
@@ -16,7 +16,7 @@ categories = ["command-line-utilities", "development-tools"]
 publish = false  # distributed via `cargo install --git` or built from source; not intended for crates.io
 
 [dependencies]
-nexus-domain = { path = "crates/nexus-domain", version = "0.2.0" }
+nexus-domain = { path = "crates/nexus-domain", version = "0.1.0" }
 anyhow = "1"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
